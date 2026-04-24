@@ -299,14 +299,25 @@ El dashboard usa estos endpoints internamente. Todos requieren autenticación ex
 
 ## Build y release
 
-El proyecto usa un sistema de build inspirado en [versionator](https://github.com/mrthoabby/homebrew-versionator):
+El proyecto usa un sistema de build inspirado en [versionator](https://github.com/mrthoabby/homebrew-versionator). Los binarios se distribuyen via **GitHub Releases**.
+
+### Compilar y subir un release
 
 ```sh
-# Compilar para todas las plataformas
+# 1. Compilar para todas las plataformas
 cd sp-pre-run && make build-all
 
 # Los binarios se generan en release/{VERSION}/
 # sp-linux-amd64, sp-linux-arm64, sp-darwin-amd64, sp-darwin-arm64
+
+# 2. Crear el tag y push
+git add .
+git commit -m "chore: release v1.0.0"
+git tag v1.0.0
+git push origin main --tags
+
+# 3. Crear el GitHub Release con los binarios
+gh release create v1.0.0 release/1.0.0/* --title "v1.0.0" --notes "Initial release"
 ```
 
 Para crear un release completo (binarios + fórmula Homebrew):
@@ -314,6 +325,8 @@ Para crear un release completo (binarios + fórmula Homebrew):
 ```sh
 cd sp-pre-run && make all
 ```
+
+El `install.sh` y `sp update` descargan los binarios desde `https://github.com/mrthoabby/serverpilot/releases/download/vX.Y.Z/sp-{os}-{arch}`.
 
 ---
 

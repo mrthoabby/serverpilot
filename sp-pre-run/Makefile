@@ -22,7 +22,7 @@ BUILD_DIR    := ../release/$(VERSION)
 FORMULA_DIR  := ../homebrew/Formula
 FORMULA      := $(FORMULA_DIR)/sp.rb
 
-REPO_URL     := https://raw.githubusercontent.com/mrthoabby/serverpilot/master
+REPO_URL     := https://github.com/mrthoabby/serverpilot/releases/download
 
 # Build flags
 LDFLAGS      := -s -w -X main.Version=$(VERSION)
@@ -72,20 +72,20 @@ ensure-formula:
 		echo ''                                                            >> $(FORMULA); \
 		echo '  on_macos do'                                               >> $(FORMULA); \
 		echo '    if Hardware::CPU.arm?'                                   >> $(FORMULA); \
-		echo '      url "$(REPO_URL)/release/$(VERSION)/$(BIN_NAME)-darwin-arm64"' >> $(FORMULA); \
+		echo '      url "$(REPO_URL)/v$(VERSION)/$(BIN_NAME)-darwin-arm64"' >> $(FORMULA); \
 		echo '      sha256 "PLACEHOLDER"'                                  >> $(FORMULA); \
 		echo '    else'                                                    >> $(FORMULA); \
-		echo '      url "$(REPO_URL)/release/$(VERSION)/$(BIN_NAME)-darwin-amd64"' >> $(FORMULA); \
+		echo '      url "$(REPO_URL)/v$(VERSION)/$(BIN_NAME)-darwin-amd64"' >> $(FORMULA); \
 		echo '      sha256 "PLACEHOLDER"'                                  >> $(FORMULA); \
 		echo '    end'                                                     >> $(FORMULA); \
 		echo '  end'                                                       >> $(FORMULA); \
 		echo ''                                                            >> $(FORMULA); \
 		echo '  on_linux do'                                               >> $(FORMULA); \
 		echo '    if Hardware::CPU.arm?'                                   >> $(FORMULA); \
-		echo '      url "$(REPO_URL)/release/$(VERSION)/$(BIN_NAME)-linux-arm64"'  >> $(FORMULA); \
+		echo '      url "$(REPO_URL)/v$(VERSION)/$(BIN_NAME)-linux-arm64"'  >> $(FORMULA); \
 		echo '      sha256 "PLACEHOLDER"'                                  >> $(FORMULA); \
 		echo '    else'                                                    >> $(FORMULA); \
-		echo '      url "$(REPO_URL)/release/$(VERSION)/$(BIN_NAME)-linux-amd64"'  >> $(FORMULA); \
+		echo '      url "$(REPO_URL)/v$(VERSION)/$(BIN_NAME)-linux-amd64"'  >> $(FORMULA); \
 		echo '      sha256 "PLACEHOLDER"'                                  >> $(FORMULA); \
 		echo '    end'                                                     >> $(FORMULA); \
 		echo '  end'                                                       >> $(FORMULA); \
@@ -173,7 +173,7 @@ update-formula:
 		if [ -f "$$BINARY" ]; then \
 			SHA=$$($(SHA256OF) "$$BINARY" | awk '{print $$1}'); \
 			OLD_URL_PATTERN="$(BIN_NAME)-$$platform\""; \
-			NEW_URL="$(REPO_URL)/release/$(VERSION)/$(BIN_NAME)-$$platform\""; \
+			NEW_URL="$(REPO_URL)/v$(VERSION)/$(BIN_NAME)-$$platform\""; \
 			$(SEDI) "s|url \".*$(BIN_NAME)-$$platform\"|url \"$$NEW_URL|" $(FORMULA); \
 			$(SEDI) "/$(BIN_NAME)-$$platform/{ n; s/sha256 \".*\"/sha256 \"$$SHA\"/; }" $(FORMULA); \
 		fi; \

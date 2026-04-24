@@ -83,7 +83,7 @@ func downloadAndReplace(tagVersion string) error {
 	archName := runtime.GOARCH
 
 	downloadURL := fmt.Sprintf(
-		"https://github.com/mrthoabby/serverpilot/releases/download/%s/serverpilot-%s-%s",
+		"https://github.com/mrthoabby/serverpilot/releases/download/%s/sp-%s-%s",
 		tagVersion, osName, archName,
 	)
 
