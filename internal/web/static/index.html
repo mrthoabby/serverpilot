@@ -1,0 +1,1397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ServerPilot</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-card: #1c2128;
+  --bg-input: #21262d;
+  --border: #30363d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #6e7681;
+  --accent: #00b4d8;
+  --accent-hover: #0096b7;
+  --accent-glow: rgba(0, 180, 216, 0.15);
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --orange: #db6d28;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ── Login Screen ── */
+.login-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 1rem;
+}
+
+.login-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2.5rem;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+
+.login-card h1 {
+  text-align: center;
+  margin-bottom: 0.25rem;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+.login-card h1 span { color: var(--accent); }
+
+.login-subtitle {
+  text-align: center;
+  color: var(--text-secondary);
+  margin-bottom: 2rem;
+  font-size: 0.875rem;
+}
+
+.form-group {
+  margin-bottom: 1.25rem;
+}
+
+.form-group label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 0.375rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.form-group input, .form-group select {
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+  font-family: var(--font);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+}
+
+.form-group input:focus, .form-group select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  border: none;
+  border-radius: 6px;
+  font-family: var(--font);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
+  outline: none;
+}
+
+.btn:active { transform: scale(0.97); }
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-primary:hover { background: var(--accent-hover); }
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-success { background: var(--green); color: #fff; }
+.btn-success:hover { background: #34a446; }
+
+.btn-danger { background: var(--red); color: #fff; }
+.btn-danger:hover { background: #d63d37; }
+
+.btn-warning { background: var(--yellow); color: #fff; }
+.btn-warning:hover { background: #b8871e; }
+
+.btn-sm {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+.btn-outline:hover {
+  background: var(--bg-input);
+  border-color: var(--text-secondary);
+}
+
+.login-btn {
+  width: 100%;
+  padding: 0.75rem;
+  font-size: 1rem;
+  margin-top: 0.5rem;
+}
+
+.login-error {
+  background: rgba(248, 81, 73, 0.1);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  color: var(--red);
+  padding: 0.625rem 0.875rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+  display: none;
+}
+
+/* ── Dashboard ── */
+.dashboard { display: none; }
+
+.navbar {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 0 1.5rem;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.navbar-brand {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.navbar-brand svg { flex-shrink: 0; }
+.navbar-brand span { color: var(--accent); }
+
+.navbar-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.navbar-status {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.main-content {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.5rem;
+}
+
+.tab-btn {
+  padding: 0.75rem 1.25rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tab-btn:hover { color: var(--text-primary); }
+
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab-count {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  padding: 0.0625rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.tab-panel { display: none; animation: fadeIn 0.25s ease; }
+.tab-panel.active { display: block; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Cards & Tables */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.card-header {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-header h2 {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.table-wrap { overflow-x: auto; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+thead th {
+  text-align: left;
+  padding: 0.75rem 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+tbody td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+tbody tr:last-child td { border-bottom: none; }
+
+tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+/* Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.1875rem 0.625rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge-running { background: rgba(63,185,80,0.15); color: var(--green); }
+.badge-stopped, .badge-exited { background: rgba(248,81,73,0.15); color: var(--red); }
+.badge-restarting { background: rgba(210,153,34,0.15); color: var(--yellow); }
+.badge-created { background: rgba(139,148,158,0.15); color: var(--text-secondary); }
+.badge-warning { background: rgba(219,109,40,0.15); color: var(--orange); }
+.badge-info { background: var(--accent-glow); color: var(--accent); }
+
+.badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.badge-running .badge-dot { background: var(--green); }
+.badge-stopped .badge-dot, .badge-exited .badge-dot { background: var(--red); }
+.badge-restarting .badge-dot { background: var(--yellow); }
+.badge-created .badge-dot { background: var(--text-secondary); }
+
+.ssl-icon { font-size: 0.875rem; }
+.ssl-enabled { color: var(--green); }
+.ssl-disabled { color: var(--red); }
+
+.port-tag {
+  display: inline-block;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin: 0.125rem 0.25rem 0.125rem 0;
+}
+
+.actions-cell {
+  display: flex;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+}
+
+/* Mapping arrow */
+.mapping-arrow {
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+/* Loading */
+.spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  color: var(--text-secondary);
+  gap: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.spinner-ring {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.empty-state {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--text-secondary);
+}
+
+.empty-state p { font-size: 0.9375rem; }
+
+/* ── Modal ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s, visibility 0.2s;
+}
+
+.modal-overlay.show {
+  opacity: 1;
+  visibility: visible;
+}
+
+.modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.75rem;
+  width: 100%;
+  max-width: 460px;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+  transform: scale(0.95);
+  transition: transform 0.2s;
+}
+
+.modal-overlay.show .modal { transform: scale(1); }
+
+.modal h3 {
+  font-size: 1.125rem;
+  margin-bottom: 0.25rem;
+}
+
+.modal .modal-sub {
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  margin-bottom: 1.5rem;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 1.5rem;
+}
+
+/* ── Toasts ── */
+.toast-container {
+  position: fixed;
+  top: 72px;
+  right: 1.5rem;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.toast {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  animation: toastIn 0.3s ease;
+  pointer-events: auto;
+  max-width: 380px;
+}
+
+.toast-success { border-left: 3px solid var(--green); }
+.toast-error { border-left: 3px solid var(--red); }
+
+.toast-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.toast.removing {
+  animation: toastOut 0.3s ease forwards;
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes toastOut {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(20px); }
+}
+
+/* Confirm modal */
+.confirm-text {
+  color: var(--text-secondary);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .main-content { padding: 1rem; }
+  .tabs { overflow-x: auto; }
+  .tab-btn { font-size: 0.8125rem; padding: 0.625rem 0.875rem; }
+  .actions-cell { flex-direction: column; }
+}
+</style>
+</head>
+<body>
+
+<!-- Login Screen -->
+<div class="login-wrapper" id="loginScreen">
+  <div class="login-card">
+    <h1>Server<span>Pilot</span></h1>
+    <p class="login-subtitle">Server administration dashboard</p>
+    <div class="login-error" id="loginError"></div>
+    <form id="loginForm" autocomplete="on">
+      <div class="form-group">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" required autocomplete="username" placeholder="Enter username">
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="Enter password">
+      </div>
+      <button type="submit" class="btn btn-primary login-btn" id="loginBtn">Sign In</button>
+    </form>
+  </div>
+</div>
+
+<!-- Dashboard -->
+<div class="dashboard" id="dashboard">
+  <nav class="navbar">
+    <div class="navbar-brand">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <rect x="2" y="3" width="20" height="18" rx="3" stroke="var(--accent)" stroke-width="2"/>
+        <circle cx="7" cy="8" r="1.5" fill="var(--accent)"/>
+        <circle cx="7" cy="12" r="1.5" fill="var(--accent)"/>
+        <circle cx="7" cy="16" r="1.5" fill="var(--accent)"/>
+        <line x1="11" y1="8" x2="18" y2="8" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="11" y1="12" x2="16" y2="12" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="11" y1="16" x2="18" y2="16" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      Server<span>Pilot</span>
+    </div>
+    <div class="navbar-right">
+      <span class="navbar-status" id="refreshStatus"></span>
+      <button class="btn btn-sm btn-outline" id="refreshBtn" title="Refresh data">&#x21bb; Refresh</button>
+      <button class="btn btn-sm btn-outline" id="logoutBtn">Logout</button>
+    </div>
+  </nav>
+
+  <div class="main-content">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="containers">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 012.5 2h11A1.5 1.5 0 0115 3.5v1A1.5 1.5 0 0113.5 6h-11A1.5 1.5 0 011 4.5v-1zm0 5A1.5 1.5 0 012.5 7h11A1.5 1.5 0 0115 8.5v1a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 9.5v-1zm1.5 3.5A1.5 1.5 0 001 13.5v1A1.5 1.5 0 002.5 16h11a1.5 1.5 0 001.5-1.5v-1a1.5 1.5 0 00-1.5-1.5h-11z"/></svg>
+        Containers <span class="tab-count" id="containerCount">0</span>
+      </button>
+      <button class="tab-btn" data-tab="sites">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M0 8a8 8 0 1116 0A8 8 0 010 8zm7.5-6.923c-.67.204-1.335.82-1.887 1.855A7.97 7.97 0 005.145 4H7.5V1.077zM4.09 4a9.267 9.267 0 01.64-1.539 6.7 6.7 0 01.597-.933A7.025 7.025 0 002.255 4H4.09zm-.582 3.5c.03-.877.138-1.718.312-2.5H1.674a6.958 6.958 0 00-.656 2.5h2.49zM4.847 5a12.5 12.5 0 00-.338 2.5H7.5V5H4.847z"/></svg>
+        Nginx Sites <span class="tab-count" id="siteCount">0</span>
+      </button>
+      <button class="tab-btn" data-tab="mappings">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6.354 5.5H4a3 3 0 000 6h3a3 3 0 002.83-4H9a2 2 0 01-2 2H4a2 2 0 110-4h2.354a4.007 4.007 0 010-1H4a3 3 0 100 6h3a4.002 4.002 0 003.874-3H12a3 3 0 000-6H9a3 3 0 00-2.83 4h.914A2 2 0 019 5.5h3a2 2 0 010 4h-2.354a4.002 4.002 0 010 1H12a3 3 0 100-6H9a4.002 4.002 0 00-3.874 3H4.17A2 2 0 014 5.5h2.354z"/></svg>
+        Mappings <span class="tab-count" id="mappingCount">0</span>
+      </button>
+    </div>
+
+    <!-- Containers Tab -->
+    <div class="tab-panel active" id="panel-containers">
+      <div class="card">
+        <div class="card-header">
+          <h2>Docker Containers</h2>
+        </div>
+        <div id="containersContent">
+          <div class="spinner"><div class="spinner-ring"></div>Loading containers...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sites Tab -->
+    <div class="tab-panel" id="panel-sites">
+      <div class="card">
+        <div class="card-header">
+          <h2>Nginx Sites</h2>
+        </div>
+        <div id="sitesContent">
+          <div class="spinner"><div class="spinner-ring"></div>Loading sites...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mappings Tab -->
+    <div class="tab-panel" id="panel-mappings">
+      <div class="card">
+        <div class="card-header">
+          <h2>Container &harr; Site Mappings</h2>
+        </div>
+        <div id="mappingsContent">
+          <div class="spinner"><div class="spinner-ring"></div>Loading mappings...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Associate Site Modal -->
+<div class="modal-overlay" id="associateModal">
+  <div class="modal">
+    <h3>Associate Nginx Site</h3>
+    <p class="modal-sub" id="associateModalSub">Create an Nginx site for this container</p>
+    <form id="associateForm">
+      <input type="hidden" id="assocContainerId">
+      <div class="form-group">
+        <label for="assocTemplate">Template Type</label>
+        <select id="assocTemplate">
+          <option value="nestjs">NestJS</option>
+          <option value="api">API</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="assocDomain">Domain</label>
+        <input type="text" id="assocDomain" required placeholder="example.com">
+      </div>
+      <div class="form-group">
+        <label for="assocPort">Container Port</label>
+        <input type="text" id="assocPort" required placeholder="3000">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="assocCancelBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="assocSubmitBtn">Create Site</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Confirm Modal -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal">
+    <h3 id="confirmTitle">Confirm Action</h3>
+    <p class="confirm-text" id="confirmText"></p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-outline" id="confirmCancelBtn">Cancel</button>
+      <button type="button" class="btn btn-primary" id="confirmOkBtn">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+(function() {
+  "use strict";
+
+  // ── Helpers ──
+  function esc(str) {
+    var d = document.createElement("div");
+    d.textContent = str;
+    return d.innerHTML;
+  }
+
+  function setText(el, text) {
+    el.textContent = text;
+  }
+
+  function showToast(message, type) {
+    var container = document.getElementById("toastContainer");
+    var toast = document.createElement("div");
+    toast.className = "toast toast-" + type;
+    var icon = document.createElement("span");
+    icon.className = "toast-icon";
+    setText(icon, type === "success" ? "\u2713" : "\u2717");
+    var msg = document.createElement("span");
+    setText(msg, message);
+    toast.appendChild(icon);
+    toast.appendChild(msg);
+    container.appendChild(toast);
+    setTimeout(function() {
+      toast.classList.add("removing");
+      setTimeout(function() { toast.remove(); }, 300);
+    }, 4000);
+  }
+
+  async function apiFetch(url, opts) {
+    opts = opts || {};
+    opts.credentials = "same-origin";
+    if (opts.body && typeof opts.body === "object" && !(opts.body instanceof FormData)) {
+      opts.headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
+      opts.body = JSON.stringify(opts.body);
+    }
+    var resp = await fetch(url, opts);
+    if (resp.status === 401) {
+      showLogin();
+      throw new Error("Unauthorized");
+    }
+    if (!resp.ok) {
+      var errText = "";
+      try { var j = await resp.json(); errText = j.error || j.message || resp.statusText; } catch(e) { errText = resp.statusText; }
+      throw new Error(errText);
+    }
+    var ct = resp.headers.get("content-type") || "";
+    if (ct.includes("application/json")) return resp.json();
+    return null;
+  }
+
+  // ── State ──
+  var containers = [];
+  var sites = [];
+  var mappings = { mapped: [], unmappedContainers: [], orphanedSites: [] };
+  var refreshTimer = null;
+
+  // ── Login / Logout ──
+  var loginScreen = document.getElementById("loginScreen");
+  var dashboard = document.getElementById("dashboard");
+
+  function showLogin() {
+    loginScreen.style.display = "flex";
+    dashboard.style.display = "none";
+    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+  }
+
+  function showDashboard() {
+    loginScreen.style.display = "none";
+    dashboard.style.display = "block";
+    loadAll();
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(loadAll, 30000);
+  }
+
+  document.getElementById("loginForm").addEventListener("submit", async function(e) {
+    e.preventDefault();
+    var errEl = document.getElementById("loginError");
+    errEl.style.display = "none";
+    var btn = document.getElementById("loginBtn");
+    btn.disabled = true;
+    setText(btn, "Signing in...");
+    try {
+      await apiFetch("/api/login", {
+        method: "POST",
+        body: {
+          username: document.getElementById("username").value,
+          password: document.getElementById("password").value
+        }
+      });
+      showDashboard();
+    } catch(err) {
+      errEl.style.display = "block";
+      setText(errEl, err.message === "Unauthorized" ? "Invalid credentials" : err.message);
+    } finally {
+      btn.disabled = false;
+      setText(btn, "Sign In");
+    }
+  });
+
+  document.getElementById("logoutBtn").addEventListener("click", async function() {
+    try { await apiFetch("/api/logout", { method: "POST" }); } catch(e) {}
+    showLogin();
+  });
+
+  // ── Tabs ──
+  document.querySelectorAll(".tab-btn").forEach(function(btn) {
+    btn.addEventListener("click", function() {
+      document.querySelectorAll(".tab-btn").forEach(function(b) { b.classList.remove("active"); });
+      document.querySelectorAll(".tab-panel").forEach(function(p) { p.classList.remove("active"); });
+      btn.classList.add("active");
+      document.getElementById("panel-" + btn.dataset.tab).classList.add("active");
+    });
+  });
+
+  // ── Data Loading ──
+  function showSpinner(el) {
+    el.innerHTML = "";
+    var s = document.createElement("div");
+    s.className = "spinner";
+    var ring = document.createElement("div");
+    ring.className = "spinner-ring";
+    s.appendChild(ring);
+    s.appendChild(document.createTextNode("Loading..."));
+    el.appendChild(s);
+  }
+
+  async function loadAll() {
+    var now = new Date();
+    var ts = now.toLocaleTimeString();
+    setText(document.getElementById("refreshStatus"), "Last refresh: " + ts);
+    await Promise.all([loadContainers(), loadSites(), loadMappings()]);
+  }
+
+  // ── Containers ──
+  async function loadContainers() {
+    var wrap = document.getElementById("containersContent");
+    try {
+      containers = await apiFetch("/api/containers");
+      setText(document.getElementById("containerCount"), String(containers.length));
+      renderContainers(wrap);
+    } catch(err) {
+      wrap.innerHTML = "";
+      var em = document.createElement("div");
+      em.className = "empty-state";
+      var p = document.createElement("p");
+      setText(p, "Failed to load containers: " + err.message);
+      em.appendChild(p);
+      wrap.appendChild(em);
+    }
+  }
+
+  function getSiteDomains() {
+    var d = {};
+    mappings.mapped.forEach(function(m) { d[m.containerName] = true; });
+    return d;
+  }
+
+  function renderContainers(wrap) {
+    wrap.innerHTML = "";
+    if (!containers.length) {
+      var em = document.createElement("div");
+      em.className = "empty-state";
+      var p = document.createElement("p");
+      setText(p, "No containers found");
+      em.appendChild(p);
+      wrap.appendChild(em);
+      return;
+    }
+    var siteDomains = getSiteDomains();
+    var tw = document.createElement("div");
+    tw.className = "table-wrap";
+    var table = document.createElement("table");
+
+    var thead = document.createElement("thead");
+    var trh = document.createElement("tr");
+    ["Name", "Image", "Status", "Ports", "Actions"].forEach(function(h) {
+      var th = document.createElement("th");
+      setText(th, h);
+      trh.appendChild(th);
+    });
+    thead.appendChild(trh);
+    table.appendChild(thead);
+
+    var tbody = document.createElement("tbody");
+    containers.forEach(function(c) {
+      var tr = document.createElement("tr");
+
+      // Name
+      var tdName = document.createElement("td");
+      var nameStrong = document.createElement("strong");
+      setText(nameStrong, c.name);
+      tdName.appendChild(nameStrong);
+      tr.appendChild(tdName);
+
+      // Image
+      var tdImg = document.createElement("td");
+      var imgCode = document.createElement("span");
+      imgCode.style.color = "var(--text-secondary)";
+      imgCode.style.fontFamily = '"SF Mono","Fira Code",monospace';
+      imgCode.style.fontSize = "0.8125rem";
+      setText(imgCode, c.image);
+      tdImg.appendChild(imgCode);
+      tr.appendChild(tdImg);
+
+      // Status
+      var tdStatus = document.createElement("td");
+      var statusKey = (c.status || "").toLowerCase();
+      var badgeClass = "badge-created";
+      if (statusKey.indexOf("running") !== -1) badgeClass = "badge-running";
+      else if (statusKey.indexOf("exited") !== -1 || statusKey.indexOf("stopped") !== -1) badgeClass = "badge-stopped";
+      else if (statusKey.indexOf("restarting") !== -1) badgeClass = "badge-restarting";
+      var badge = document.createElement("span");
+      badge.className = "badge " + badgeClass;
+      var dot = document.createElement("span");
+      dot.className = "badge-dot";
+      badge.appendChild(dot);
+      var statusText = document.createTextNode(" " + c.status);
+      badge.appendChild(statusText);
+      tdStatus.appendChild(badge);
+      tr.appendChild(tdStatus);
+
+      // Ports
+      var tdPorts = document.createElement("td");
+      if (c.ports && c.ports.length) {
+        c.ports.forEach(function(p) {
+          var ptag = document.createElement("span");
+          ptag.className = "port-tag";
+          setText(ptag, p.hostPort + ":" + p.containerPort + "/" + p.protocol);
+          tdPorts.appendChild(ptag);
+        });
+      } else {
+        var noPort = document.createElement("span");
+        noPort.style.color = "var(--text-muted)";
+        setText(noPort, "None");
+        tdPorts.appendChild(noPort);
+      }
+      tr.appendChild(tdPorts);
+
+      // Actions
+      var tdAct = document.createElement("td");
+      tdAct.className = "actions-cell";
+      if (!siteDomains[c.name]) {
+        var assocBtn = document.createElement("button");
+        assocBtn.className = "btn btn-sm btn-primary";
+        setText(assocBtn, "Associate Site");
+        assocBtn.addEventListener("click", function() { openAssociateModal(c); });
+        tdAct.appendChild(assocBtn);
+      } else {
+        var linked = document.createElement("span");
+        linked.className = "badge badge-info";
+        setText(linked, "Site linked");
+        tdAct.appendChild(linked);
+      }
+      tr.appendChild(tdAct);
+
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    tw.appendChild(table);
+    wrap.appendChild(tw);
+  }
+
+  // ── Sites ──
+  async function loadSites() {
+    var wrap = document.getElementById("sitesContent");
+    try {
+      sites = await apiFetch("/api/sites");
+      setText(document.getElementById("siteCount"), String(sites.length));
+      renderSites(wrap);
+    } catch(err) {
+      wrap.innerHTML = "";
+      var em = document.createElement("div");
+      em.className = "empty-state";
+      var p = document.createElement("p");
+      setText(p, "Failed to load sites: " + err.message);
+      em.appendChild(p);
+      wrap.appendChild(em);
+    }
+  }
+
+  function renderSites(wrap) {
+    wrap.innerHTML = "";
+    if (!sites.length) {
+      var em = document.createElement("div");
+      em.className = "empty-state";
+      var p = document.createElement("p");
+      setText(p, "No Nginx sites configured");
+      em.appendChild(p);
+      wrap.appendChild(em);
+      return;
+    }
+    var tw = document.createElement("div");
+    tw.className = "table-wrap";
+    var table = document.createElement("table");
+
+    var thead = document.createElement("thead");
+    var trh = document.createElement("tr");
+    ["Domain", "Port", "Proxy Pass", "SSL", "Auto-Renew", "Status", "Actions"].forEach(function(h) {
+      var th = document.createElement("th");
+      setText(th, h);
+      trh.appendChild(th);
+    });
+    thead.appendChild(trh);
+    table.appendChild(thead);
+
+    var tbody = document.createElement("tbody");
+    sites.forEach(function(s) {
+      var tr = document.createElement("tr");
+
+      // Domain
+      var tdDomain = document.createElement("td");
+      var domStrong = document.createElement("strong");
+      setText(domStrong, s.domain);
+      tdDomain.appendChild(domStrong);
+      tr.appendChild(tdDomain);
+
+      // Port
+      var tdPort = document.createElement("td");
+      var ptag = document.createElement("span");
+      ptag.className = "port-tag";
+      setText(ptag, String(s.listenPort));
+      tdPort.appendChild(ptag);
+      tr.appendChild(tdPort);
+
+      // Proxy Pass
+      var tdProxy = document.createElement("td");
+      var proxyCode = document.createElement("span");
+      proxyCode.style.fontFamily = '"SF Mono","Fira Code",monospace';
+      proxyCode.style.fontSize = "0.8125rem";
+      proxyCode.style.color = "var(--text-secondary)";
+      setText(proxyCode, s.proxyPass || "-");
+      tdProxy.appendChild(proxyCode);
+      tr.appendChild(tdProxy);
+
+      // SSL
+      var tdSSL = document.createElement("td");
+      var sslSpan = document.createElement("span");
+      sslSpan.className = "ssl-icon " + (s.sslEnabled ? "ssl-enabled" : "ssl-disabled");
+      setText(sslSpan, s.sslEnabled ? "\uD83D\uDD12" : "\uD83D\uDD13");
+      tdSSL.appendChild(sslSpan);
+      var sslLabel = document.createTextNode(" " + (s.sslEnabled ? "Enabled" : "Disabled"));
+      tdSSL.appendChild(sslLabel);
+      tr.appendChild(tdSSL);
+
+      // Auto-Renew
+      var tdRenew = document.createElement("td");
+      setText(tdRenew, s.sslAutoRenew ? "Yes" : "No");
+      tdRenew.style.color = s.sslAutoRenew ? "var(--green)" : "var(--text-muted)";
+      tr.appendChild(tdRenew);
+
+      // Status
+      var tdEnabled = document.createElement("td");
+      var enBadge = document.createElement("span");
+      enBadge.className = "badge " + (s.enabled ? "badge-running" : "badge-stopped");
+      setText(enBadge, s.enabled ? "Enabled" : "Disabled");
+      tdEnabled.appendChild(enBadge);
+      tr.appendChild(tdEnabled);
+
+      // Actions
+      var tdAct = document.createElement("td");
+      tdAct.className = "actions-cell";
+
+      // Enable/Disable toggle
+      var toggleBtn = document.createElement("button");
+      toggleBtn.className = "btn btn-sm " + (s.enabled ? "btn-warning" : "btn-success");
+      setText(toggleBtn, s.enabled ? "Disable" : "Enable");
+      (function(site) {
+        toggleBtn.addEventListener("click", function() {
+          var action = site.enabled ? "disable" : "enable";
+          confirmAction("Confirm " + action, "Are you sure you want to " + action + " " + site.domain + "?", async function() {
+            try {
+              await apiFetch("/api/sites/" + action, { method: "POST", body: { domain: site.domain } });
+              showToast("Site " + action + "d successfully", "success");
+              await loadAll();
+            } catch(err) { showToast("Failed: " + err.message, "error"); }
+          });
+        });
+      })(s);
+      tdAct.appendChild(toggleBtn);
+
+      // SSL toggle
+      var sslBtn = document.createElement("button");
+      if (s.sslEnabled) {
+        sslBtn.className = "btn btn-sm btn-danger";
+        setText(sslBtn, "Disable SSL");
+      } else {
+        sslBtn.className = "btn btn-sm btn-success";
+        setText(sslBtn, "Enable SSL");
+      }
+      (function(site) {
+        sslBtn.addEventListener("click", function() {
+          var action = site.sslEnabled ? "disable" : "enable";
+          confirmAction("SSL " + action, "Are you sure you want to " + action + " SSL for " + site.domain + "?", async function() {
+            try {
+              await apiFetch("/api/ssl/" + action, { method: "POST", body: { domain: site.domain } });
+              showToast("SSL " + action + "d successfully", "success");
+              await loadAll();
+            } catch(err) { showToast("Failed: " + err.message, "error"); }
+          });
+        });
+      })(s);
+      tdAct.appendChild(sslBtn);
+
+      tr.appendChild(tdAct);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    tw.appendChild(table);
+    wrap.appendChild(tw);
+  }
+
+  // ── Mappings ──
+  async function loadMappings() {
+    var wrap = document.getElementById("mappingsContent");
+    try {
+      mappings = await apiFetch("/api/mappings");
+      var total = (mappings.mapped ? mappings.mapped.length : 0) +
+                  (mappings.unmappedContainers ? mappings.unmappedContainers.length : 0) +
+                  (mappings.orphanedSites ? mappings.orphanedSites.length : 0);
+      setText(document.getElementById("mappingCount"), String(total));
+      renderMappings(wrap);
+    } catch(err) {
+      wrap.innerHTML = "";
+      var em = document.createElement("div");
+      em.className = "empty-state";
+      var p = document.createElement("p");
+      setText(p, "Failed to load mappings: " + err.message);
+      em.appendChild(p);
+      wrap.appendChild(em);
+    }
+  }
+
+  function renderMappings(wrap) {
+    wrap.innerHTML = "";
+    var allEmpty = (!mappings.mapped || !mappings.mapped.length) &&
+                   (!mappings.unmappedContainers || !mappings.unmappedContainers.length) &&
+                   (!mappings.orphanedSites || !mappings.orphanedSites.length);
+    if (allEmpty) {
+      var em = document.createElement("div");
+      em.className = "empty-state";
+      var p = document.createElement("p");
+      setText(p, "No mappings found");
+      em.appendChild(p);
+      wrap.appendChild(em);
+      return;
+    }
+
+    var tw = document.createElement("div");
+    tw.className = "table-wrap";
+    var table = document.createElement("table");
+
+    var thead = document.createElement("thead");
+    var trh = document.createElement("tr");
+    ["Container", "Port", "", "Domain", "SSL", "Status"].forEach(function(h) {
+      var th = document.createElement("th");
+      setText(th, h);
+      trh.appendChild(th);
+    });
+    thead.appendChild(trh);
+    table.appendChild(thead);
+
+    var tbody = document.createElement("tbody");
+
+    // Mapped
+    if (mappings.mapped) {
+      mappings.mapped.forEach(function(m) {
+        var tr = document.createElement("tr");
+
+        var td1 = document.createElement("td");
+        var s1 = document.createElement("strong");
+        setText(s1, m.containerName);
+        td1.appendChild(s1);
+        tr.appendChild(td1);
+
+        var td2 = document.createElement("td");
+        var ptag = document.createElement("span");
+        ptag.className = "port-tag";
+        setText(ptag, String(m.containerPort));
+        td2.appendChild(ptag);
+        tr.appendChild(td2);
+
+        var td3 = document.createElement("td");
+        td3.style.textAlign = "center";
+        var arrow = document.createElement("span");
+        arrow.className = "mapping-arrow";
+        setText(arrow, "\u2194");
+        td3.appendChild(arrow);
+        tr.appendChild(td3);
+
+        var td4 = document.createElement("td");
+        var domS = document.createElement("strong");
+        setText(domS, m.nginxDomain);
+        td4.appendChild(domS);
+        tr.appendChild(td4);
+
+        var td5 = document.createElement("td");
+        var sslS = document.createElement("span");
+        sslS.className = "ssl-icon " + (m.sslEnabled ? "ssl-enabled" : "ssl-disabled");
+        setText(sslS, m.sslEnabled ? "\uD83D\uDD12" : "\uD83D\uDD13");
+        td5.appendChild(sslS);
+        tr.appendChild(td5);
+
+        var td6 = document.createElement("td");
+        var okBadge = document.createElement("span");
+        okBadge.className = "badge badge-running";
+        setText(okBadge, "Linked");
+        td6.appendChild(okBadge);
+        tr.appendChild(td6);
+
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Unmapped containers
+    if (mappings.unmappedContainers) {
+      mappings.unmappedContainers.forEach(function(c) {
+        var tr = document.createElement("tr");
+
+        var td1 = document.createElement("td");
+        var s1 = document.createElement("strong");
+        setText(s1, c.name || c.containerName || "Unknown");
+        td1.appendChild(s1);
+        tr.appendChild(td1);
+
+        var td2 = document.createElement("td");
+        setText(td2, "-");
+        td2.style.color = "var(--text-muted)";
+        tr.appendChild(td2);
+
+        var td3 = document.createElement("td");
+        td3.style.textAlign = "center";
+        var arrow = document.createElement("span");
+        arrow.style.color = "var(--text-muted)";
+        setText(arrow, "\u2194");
+        td3.appendChild(arrow);
+        tr.appendChild(td3);
+
+        var td4 = document.createElement("td");
+        setText(td4, "-");
+        td4.style.color = "var(--text-muted)";
+        tr.appendChild(td4);
+
+        var td5 = document.createElement("td");
+        setText(td5, "-");
+        td5.style.color = "var(--text-muted)";
+        tr.appendChild(td5);
+
+        var td6 = document.createElement("td");
+        var noSite = document.createElement("span");
+        noSite.className = "badge badge-info";
+        setText(noSite, "No site");
+        td6.appendChild(noSite);
+        tr.appendChild(td6);
+
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Orphaned sites
+    if (mappings.orphanedSites) {
+      mappings.orphanedSites.forEach(function(s) {
+        var tr = document.createElement("tr");
+
+        var td1 = document.createElement("td");
+        setText(td1, "-");
+        td1.style.color = "var(--text-muted)";
+        tr.appendChild(td1);
+
+        var td2 = document.createElement("td");
+        setText(td2, "-");
+        td2.style.color = "var(--text-muted)";
+        tr.appendChild(td2);
+
+        var td3 = document.createElement("td");
+        td3.style.textAlign = "center";
+        var arrow = document.createElement("span");
+        arrow.style.color = "var(--red)";
+        setText(arrow, "\u2194");
+        td3.appendChild(arrow);
+        tr.appendChild(td3);
+
+        var td4 = document.createElement("td");
+        var domS = document.createElement("strong");
+        setText(domS, s.domain || s.nginxDomain || "Unknown");
+        td4.appendChild(domS);
+        tr.appendChild(td4);
+
+        var td5 = document.createElement("td");
+        var sslS = document.createElement("span");
+        sslS.className = "ssl-icon " + (s.sslEnabled ? "ssl-enabled" : "ssl-disabled");
+        setText(sslS, s.sslEnabled ? "\uD83D\uDD12" : "\uD83D\uDD13");
+        td5.appendChild(sslS);
+        tr.appendChild(td5);
+
+        var td6 = document.createElement("td");
+        var wBadge = document.createElement("span");
+        wBadge.className = "badge badge-warning";
+        setText(wBadge, "Orphaned");
+        td6.appendChild(wBadge);
+        tr.appendChild(td6);
+
+        tbody.appendChild(tr);
+      });
+    }
+
+    table.appendChild(tbody);
+    tw.appendChild(table);
+    wrap.appendChild(tw);
+  }
+
+  // ── Associate Site Modal ──
+  var assocModal = document.getElementById("associateModal");
+
+  function openAssociateModal(container) {
+    document.getElementById("assocContainerId").value = container.id;
+    setText(document.getElementById("associateModalSub"), "Create an Nginx site for \"" + container.name + "\"");
+    document.getElementById("assocDomain").value = "";
+    var port = "";
+    if (container.ports && container.ports.length) {
+      port = String(container.ports[0].containerPort || container.ports[0].hostPort || "");
+    }
+    document.getElementById("assocPort").value = port;
+    document.getElementById("assocTemplate").value = "nestjs";
+    assocModal.classList.add("show");
+  }
+
+  document.getElementById("assocCancelBtn").addEventListener("click", function() {
+    assocModal.classList.remove("show");
+  });
+
+  assocModal.addEventListener("click", function(e) {
+    if (e.target === assocModal) assocModal.classList.remove("show");
+  });
+
+  document.getElementById("associateForm").addEventListener("submit", async function(e) {
+    e.preventDefault();
+    var btn = document.getElementById("assocSubmitBtn");
+    btn.disabled = true;
+    setText(btn, "Creating...");
+    try {
+      await apiFetch("/api/sites/create", {
+        method: "POST",
+        body: {
+          templateType: document.getElementById("assocTemplate").value,
+          domain: document.getElementById("assocDomain").value,
+          containerPort: parseInt(document.getElementById("assocPort").value, 10),
+          containerId: document.getElementById("assocContainerId").value
+        }
+      });
+      assocModal.classList.remove("show");
+      showToast("Site created successfully", "success");
+      await loadAll();
+    } catch(err) {
+      showToast("Failed to create site: " + err.message, "error");
+    } finally {
+      btn.disabled = false;
+      setText(btn, "Create Site");
+    }
+  });
+
+  // ── Confirm Modal ──
+  var confirmModal = document.getElementById("confirmModal");
+  var pendingConfirm = null;
+
+  function confirmAction(title, text, callback) {
+    setText(document.getElementById("confirmTitle"), title);
+    setText(document.getElementById("confirmText"), text);
+    pendingConfirm = callback;
+    confirmModal.classList.add("show");
+  }
+
+  document.getElementById("confirmCancelBtn").addEventListener("click", function() {
+    confirmModal.classList.remove("show");
+    pendingConfirm = null;
+  });
+
+  confirmModal.addEventListener("click", function(e) {
+    if (e.target === confirmModal) {
+      confirmModal.classList.remove("show");
+      pendingConfirm = null;
+    }
+  });
+
+  document.getElementById("confirmOkBtn").addEventListener("click", function() {
+    confirmModal.classList.remove("show");
+    if (pendingConfirm) {
+      pendingConfirm();
+      pendingConfirm = null;
+    }
+  });
+
+  // ── Refresh button ──
+  document.getElementById("refreshBtn").addEventListener("click", function() {
+    loadAll();
+  });
+
+  // ── Keyboard: Escape closes modals ──
+  document.addEventListener("keydown", function(e) {
+    if (e.key === "Escape") {
+      assocModal.classList.remove("show");
+      confirmModal.classList.remove("show");
+      pendingConfirm = null;
+    }
+  });
+
+  // ── Initial: try loading dashboard (if session cookie exists) ──
+  (async function init() {
+    try {
+      await apiFetch("/api/containers");
+      showDashboard();
+    } catch(e) {
+      showLogin();
+    }
+  })();
+
+})();
+</script>
+</body>
+</html>

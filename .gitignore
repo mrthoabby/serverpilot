@@ -1,0 +1,6 @@
+/sp
+/dist/
+*.exe
+.vscode/
+.DS_Store
+/release/
