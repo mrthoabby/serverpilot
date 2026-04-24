@@ -1,10 +1,10 @@
 #!/bin/sh
 # ServerPilot installation script
-# Usage: curl -fsSL https://raw.githubusercontent.com/mercadolibre/serverpilot/master/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/mrthoabby/serverpilot/master/install.sh | sh
 
 set -e
 
-REPO="mercadolibre/serverpilot"
+REPO="mrthoabby/serverpilot"
 BIN_NAME="sp"
 INSTALL_DIR_SYSTEM="/usr/local/bin"
 INSTALL_DIR_USER="$HOME/.local/bin"

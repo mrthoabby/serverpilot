@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mercadolibre/serverpilot/internal/deps"
+	"github.com/mrthoabby/serverpilot/internal/deps"
 )
 
 // PortMapping represents a port mapping between host and container.

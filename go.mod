@@ -1,4 +1,4 @@
-module github.com/mercadolibre/serverpilot
+module github.com/mrthoabby/serverpilot
 
 go 1.22
 

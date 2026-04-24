@@ -22,7 +22,7 @@ BUILD_DIR    := ../release/$(VERSION)
 FORMULA_DIR  := ../homebrew/Formula
 FORMULA      := $(FORMULA_DIR)/sp.rb
 
-REPO_URL     := https://raw.githubusercontent.com/mercadolibre/serverpilot/master
+REPO_URL     := https://raw.githubusercontent.com/mrthoabby/serverpilot/master
 
 # Build flags
 LDFLAGS      := -s -w -X main.Version=$(VERSION)
@@ -66,7 +66,7 @@ ensure-formula:
 		echo "Creating boilerplate Homebrew formula..."; \
 		echo 'class Sp < Formula'                                          >  $(FORMULA); \
 		echo '  desc "Server management dashboard for Docker & Nginx"'     >> $(FORMULA); \
-		echo '  homepage "https://github.com/mercadolibre/serverpilot"'    >> $(FORMULA); \
+		echo '  homepage "https://github.com/mrthoabby/serverpilot"'    >> $(FORMULA); \
 		echo '  version "$(VERSION)"'                                      >> $(FORMULA); \
 		echo '  license "MIT"'                                             >> $(FORMULA); \
 		echo ''                                                            >> $(FORMULA); \

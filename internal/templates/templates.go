@@ -8,7 +8,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/mercadolibre/serverpilot/internal/nginx"
+	"github.com/mrthoabby/serverpilot/internal/nginx"
 )
 
 // TemplateType represents the type of nginx configuration template.

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/mercadolibre/serverpilot/cmd"
+	"github.com/mrthoabby/serverpilot/cmd"
 )
 
 func main() {

@@ -6,7 +6,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/mercadolibre/serverpilot/internal/auth"
+	"github.com/mrthoabby/serverpilot/internal/auth"
 )
 
 //go:embed static

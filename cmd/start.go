@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/mercadolibre/serverpilot/internal/auth"
-	"github.com/mercadolibre/serverpilot/internal/deps"
-	"github.com/mercadolibre/serverpilot/internal/web"
+	"github.com/mrthoabby/serverpilot/internal/auth"
+	"github.com/mrthoabby/serverpilot/internal/deps"
+	"github.com/mrthoabby/serverpilot/internal/web"
 	"github.com/spf13/cobra"
 )
 

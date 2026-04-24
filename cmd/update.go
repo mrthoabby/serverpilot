@@ -56,7 +56,7 @@ func init() {
 }
 
 func fetchLatestTag() (string, error) {
-	resp, err := http.Get("https://api.github.com/repos/mercadolibre/serverpilot/tags?per_page=1")
+	resp, err := http.Get("https://api.github.com/repos/mrthoabby/serverpilot/tags?per_page=1")
 	if err != nil {
 		return "", fmt.Errorf("HTTP request failed: %w", err)
 	}
@@ -83,7 +83,7 @@ func downloadAndReplace(tagVersion string) error {
 	archName := runtime.GOARCH
 
 	downloadURL := fmt.Sprintf(
-		"https://github.com/mercadolibre/serverpilot/releases/download/%s/serverpilot-%s-%s",
+		"https://github.com/mrthoabby/serverpilot/releases/download/%s/serverpilot-%s-%s",
 		tagVersion, osName, archName,
 	)
 

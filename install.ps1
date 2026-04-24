@@ -7,7 +7,7 @@
 # If you are looking to manage a remote Linux server from a Windows machine,
 # please SSH into your server and run the bash installer instead:
 #
-#   curl -fsSL https://raw.githubusercontent.com/mercadolibre/serverpilot/master/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/mrthoabby/serverpilot/master/install.sh | sh
 #
 # ----------------------------------------------------------------------------
 
@@ -19,7 +19,7 @@ Write-Host "        Windows and macOS are not supported as target platforms."
 Write-Host ""
 Write-Host "[hint]  To install on your Linux server, SSH in and run:" -ForegroundColor Yellow
 Write-Host ""
-Write-Host '        curl -fsSL https://raw.githubusercontent.com/mercadolibre/serverpilot/master/install.sh | sh' -ForegroundColor Green
+Write-Host '        curl -fsSL https://raw.githubusercontent.com/mrthoabby/serverpilot/master/install.sh | sh' -ForegroundColor Green
 Write-Host ""
-Write-Host "        For more information visit: https://github.com/mercadolibre/serverpilot" -ForegroundColor Gray
+Write-Host "        For more information visit: https://github.com/mrthoabby/serverpilot" -ForegroundColor Gray
 Write-Host ""

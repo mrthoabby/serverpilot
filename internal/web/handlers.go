@@ -9,11 +9,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mercadolibre/serverpilot/internal/auth"
-	"github.com/mercadolibre/serverpilot/internal/docker"
-	"github.com/mercadolibre/serverpilot/internal/mapper"
-	"github.com/mercadolibre/serverpilot/internal/nginx"
-	"github.com/mercadolibre/serverpilot/internal/templates"
+	"github.com/mrthoabby/serverpilot/internal/auth"
+	"github.com/mrthoabby/serverpilot/internal/docker"
+	"github.com/mrthoabby/serverpilot/internal/mapper"
+	"github.com/mrthoabby/serverpilot/internal/nginx"
+	"github.com/mrthoabby/serverpilot/internal/templates"
 )
 
 const sessionCookieName = "sp_session"

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mercadolibre/serverpilot/internal/docker"
-	"github.com/mercadolibre/serverpilot/internal/nginx"
+	"github.com/mrthoabby/serverpilot/internal/docker"
+	"github.com/mrthoabby/serverpilot/internal/nginx"
 )
 
 // Mapping represents a relationship between a Docker container and an Nginx site.

@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/mercadolibre/serverpilot/internal/deps"
+	"github.com/mrthoabby/serverpilot/internal/deps"
 )
 
 const (

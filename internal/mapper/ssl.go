@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mercadolibre/serverpilot/internal/nginx"
+	"github.com/mrthoabby/serverpilot/internal/nginx"
 )
 
 const certbotPath = "/usr/bin/certbot"

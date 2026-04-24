@@ -19,7 +19,7 @@ ServerPilot se instala en un servidor Linux y te da:
 ## Instalación rápida
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mercadolibre/serverpilot/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/mrthoabby/serverpilot/master/install.sh | sh
 ```
 
 El instalador detecta tu OS y arquitectura, descarga el binario correcto, y lo coloca en `/usr/local/bin/sp` (o `~/.local/bin/sp` si no tenés sudo).
@@ -27,7 +27,7 @@ El instalador detecta tu OS y arquitectura, descarga el binario correcto, y lo c
 ### Compilar desde fuente
 
 ```sh
-git clone https://github.com/mercadolibre/serverpilot.git
+git clone https://github.com/mrthoabby/serverpilot.git
 cd serverpilot
 go build -o sp .
 sudo mv sp /usr/local/bin/
