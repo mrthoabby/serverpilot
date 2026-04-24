@@ -72,7 +72,7 @@ func startForeground() error {
 	fmt.Printf("Dashboard available at: http://localhost:%d\n", startPort)
 	fmt.Println("Press Ctrl+C to stop.")
 
-	srv := web.NewServer(config, startPort)
+	srv := web.NewServer(config, startPort, version)
 	if err := srv.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
 		return err

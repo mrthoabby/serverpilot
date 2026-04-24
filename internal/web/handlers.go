@@ -1,10 +1,17 @@
 package web
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
+	"os/exec"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -373,4 +380,174 @@ func isValidDomain(domain string) bool {
 // containsHTML checks if a string contains HTML tags.
 func containsHTML(s string) bool {
 	return htmlTagRegex.MatchString(s)
+}
+
+// ── Version Check & Self-Update Handlers ──
+
+type githubTag struct {
+	Name string `json:"name"`
+}
+
+type versionCheckResponse struct {
+	Current         string `json:"current"`
+	Latest          string `json:"latest"`
+	UpdateAvailable bool   `json:"update_available"`
+}
+
+func (s *Server) handleVersionCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	latest, err := fetchLatestTag()
+	if err != nil {
+		log.Printf("Error checking latest version: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to check for updates"})
+		return
+	}
+
+	current := strings.TrimPrefix(s.version, "v")
+	latestClean := strings.TrimPrefix(latest, "v")
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data: versionCheckResponse{
+			Current:         current,
+			Latest:          latestClean,
+			UpdateAvailable: current != latestClean && latestClean != "",
+		},
+	})
+}
+
+func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	latest, err := fetchLatestTag()
+	if err != nil {
+		log.Printf("Error fetching latest tag for update: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to check for updates"})
+		return
+	}
+
+	current := strings.TrimPrefix(s.version, "v")
+	latestClean := strings.TrimPrefix(latest, "v")
+
+	if current == latestClean {
+		writeJSON(w, http.StatusOK, apiResponse{
+			Success: true,
+			Data:    map[string]string{"message": "Already up to date (v" + current + ")"},
+		})
+		return
+	}
+
+	if err := downloadAndReplace(latest); err != nil {
+		log.Printf("Error downloading update: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to download update"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data: map[string]string{
+			"message": "Updated to v" + latestClean + ". Restarting...",
+			"version": latestClean,
+		},
+	})
+
+	// Restart the daemon in the background after responding.
+	// Write a small script that waits 1s then restarts, so the HTTP response
+	// has time to flush before the process goes down.
+	go func() {
+		script := "#!/bin/sh\nsleep 1\n/usr/bin/systemctl restart serverpilot 2>/dev/null || true\n"
+		scriptPath := "/tmp/sp-restart.sh"
+		if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+			log.Printf("Failed to write restart script: %v", err)
+			return
+		}
+		log.Printf("Update complete. Triggering restart via %s", scriptPath)
+		cmd := exec.Command("/bin/sh", scriptPath)
+		if err := cmd.Start(); err != nil {
+			log.Printf("Failed to start restart script: %v", err)
+		}
+	}()
+}
+
+// fetchLatestTag gets the most recent tag from GitHub.
+func fetchLatestTag() (string, error) {
+	resp, err := http.Get("https://api.github.com/repos/mrthoabby/serverpilot/tags?per_page=1")
+	if err != nil {
+		return "", fmt.Errorf("HTTP request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+	}
+
+	var tags []githubTag
+	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if len(tags) == 0 {
+		return "", fmt.Errorf("no tags found in repository")
+	}
+
+	return tags[0].Name, nil
+}
+
+// downloadAndReplace downloads the new binary and atomically replaces the current one.
+func downloadAndReplace(tagVersion string) error {
+	osName := runtime.GOOS
+	archName := runtime.GOARCH
+
+	ver := strings.TrimPrefix(tagVersion, "v")
+	downloadURL := fmt.Sprintf(
+		"https://raw.githubusercontent.com/mrthoabby/serverpilot/master/release/%s/sp-%s-%s",
+		ver, osName, archName,
+	)
+
+	resp, err := http.Get(downloadURL)
+	if err != nil {
+		return fmt.Errorf("download failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download returned status %d", resp.StatusCode)
+	}
+
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("cannot determine executable path: %w", err)
+	}
+
+	randBytes := make([]byte, 8)
+	if _, err := rand.Read(randBytes); err != nil {
+		return fmt.Errorf("failed to generate random bytes: %w", err)
+	}
+	tmpPath := execPath + ".tmp-" + hex.EncodeToString(randBytes)
+
+	tmpFile, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	if err != nil {
+		return fmt.Errorf("cannot create temp file: %w", err)
+	}
+
+	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to write update: %w", err)
+	}
+	tmpFile.Close()
+
+	if err := os.Rename(tmpPath, execPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to replace binary: %w", err)
+	}
+
+	return nil
 }

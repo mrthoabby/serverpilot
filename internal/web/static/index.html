@@ -36,7 +36,7 @@ body {
 
 /* ── Login Screen ── */
 .login-wrapper {
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   min-height: 100vh;
@@ -519,6 +519,49 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   line-height: 1.6;
 }
 
+/* ── Refresh Bar ── */
+.refresh-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0;
+}
+
+.refresh-bar-ts {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.refresh-bar-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.refresh-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.refresh-select {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+  outline: none;
+}
+
+.refresh-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
 /* ── Resources Tab ── */
 .res-cards {
   display: grid;
@@ -594,6 +637,51 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   transition: width 0.5s ease;
 }
 
+/* ── Update Banner ── */
+.update-banner {
+  display: none;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.update-banner .btn {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 4px rgba(63,185,80,0.3); }
+  50% { box-shadow: 0 0 12px rgba(63,185,80,0.6); }
+}
+
+.update-version {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ── Live Indicator ── */
+.live-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: live-pulse 1.5s ease-in-out infinite;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+/* ── Mini Sparkline ── */
+.sparkline-svg {
+  width: 80px;
+  height: 24px;
+  vertical-align: middle;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .main-content { padding: 1rem; }
@@ -643,8 +731,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       Server<span>Pilot</span>
     </div>
     <div class="navbar-right">
-      <span class="navbar-status" id="refreshStatus"></span>
-      <button class="btn btn-sm btn-outline" id="refreshBtn" title="Refresh data">&#x21bb; Refresh</button>
+      <div class="update-banner" id="updateBanner">
+        <span class="update-version" id="updateVersionText"></span>
+        <button class="btn btn-sm btn-success" id="updateBtn">Update</button>
+      </div>
+      <button class="btn btn-sm btn-outline" id="refreshBtn" title="Refresh current tab">&#x21bb; Refresh</button>
       <button class="btn btn-sm btn-outline" id="logoutBtn">Logout</button>
     </div>
   </nav>
@@ -671,6 +762,19 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     <!-- Containers Tab -->
     <div class="tab-panel active" id="panel-containers">
+      <div class="refresh-bar">
+        <span class="refresh-bar-ts" id="ts-containers">--</span>
+        <div class="refresh-bar-ctrl">
+          <label class="refresh-label">Auto-refresh:</label>
+          <select class="refresh-select" data-tab="containers" id="refresh-containers">
+            <option value="0">Disabled</option>
+            <option value="5">5s</option>
+            <option value="10">10s</option>
+            <option value="15">15s</option>
+            <option value="30" selected>30s</option>
+          </select>
+        </div>
+      </div>
       <div class="card">
         <div class="card-header">
           <h2>Docker Containers</h2>
@@ -683,6 +787,19 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     <!-- Sites Tab -->
     <div class="tab-panel" id="panel-sites">
+      <div class="refresh-bar">
+        <span class="refresh-bar-ts" id="ts-sites">--</span>
+        <div class="refresh-bar-ctrl">
+          <label class="refresh-label">Auto-refresh:</label>
+          <select class="refresh-select" data-tab="sites" id="refresh-sites">
+            <option value="0">Disabled</option>
+            <option value="5">5s</option>
+            <option value="10">10s</option>
+            <option value="15">15s</option>
+            <option value="30" selected>30s</option>
+          </select>
+        </div>
+      </div>
       <div class="card">
         <div class="card-header">
           <h2>Nginx Sites</h2>
@@ -695,6 +812,19 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     <!-- Mappings Tab -->
     <div class="tab-panel" id="panel-mappings">
+      <div class="refresh-bar">
+        <span class="refresh-bar-ts" id="ts-mappings">--</span>
+        <div class="refresh-bar-ctrl">
+          <label class="refresh-label">Auto-refresh:</label>
+          <select class="refresh-select" data-tab="mappings" id="refresh-mappings">
+            <option value="0">Disabled</option>
+            <option value="5">5s</option>
+            <option value="10">10s</option>
+            <option value="15">15s</option>
+            <option value="30" selected>30s</option>
+          </select>
+        </div>
+      </div>
       <div class="card">
         <div class="card-header">
           <h2>Container &harr; Site Mappings</h2>
@@ -707,6 +837,19 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     <!-- Resources Tab -->
     <div class="tab-panel" id="panel-resources">
+      <div class="refresh-bar">
+        <span class="refresh-bar-ts" id="ts-resources">--</span>
+        <div class="refresh-bar-ctrl">
+          <label class="refresh-label">Auto-refresh:</label>
+          <select class="refresh-select" data-tab="resources" id="refresh-resources">
+            <option value="0">Disabled</option>
+            <option value="5">5s</option>
+            <option value="10" selected>10s</option>
+            <option value="15">15s</option>
+            <option value="30">30s</option>
+          </select>
+        </div>
+      </div>
       <!-- System Overview Cards -->
       <div class="res-cards" id="resCards">
         <div class="res-card">
@@ -872,24 +1015,102 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   var containers = [];
   var sites = [];
   var mappings = { mapped: [], unmappedContainers: [], orphanedSites: [] };
-  var refreshTimer = null;
+  var activeTab = "containers";
+
+  // Per-tab refresh timers and load functions.
+  var tabTimers = {};
+  var tabLoaders = {
+    containers: function() { return loadContainers(); },
+    sites:      function() { return loadSites(); },
+    mappings:   function() { return loadMappings(); },
+    resources:  function() { return loadResources(); }
+  };
+
+  // ── Cookie-based refresh config (no localStorage) ──
+  function getRefreshConfig() {
+    var cfg = { containers: 30, sites: 30, mappings: 30, resources: 10 };
+    var match = document.cookie.match(/(?:^|;\s*)sp_refresh=([^;]*)/);
+    if (match) {
+      try { var parsed = JSON.parse(decodeURIComponent(match[1])); Object.assign(cfg, parsed); } catch(e) {}
+    }
+    return cfg;
+  }
+
+  function saveRefreshConfig(cfg) {
+    var val = encodeURIComponent(JSON.stringify(cfg));
+    document.cookie = "sp_refresh=" + val + ";path=/;max-age=31536000;SameSite=Lax";
+  }
+
+  function applyRefreshConfig() {
+    var cfg = getRefreshConfig();
+    ["containers", "sites", "mappings", "resources"].forEach(function(tab) {
+      var sel = document.getElementById("refresh-" + tab);
+      if (sel) sel.value = String(cfg[tab] || 0);
+    });
+  }
+
+  // ── Per-tab timer management ──
+  function startTabTimer(tab) {
+    stopTabTimer(tab);
+    var cfg = getRefreshConfig();
+    var seconds = cfg[tab] || 0;
+    if (seconds <= 0) return; // Disabled
+    tabTimers[tab] = setInterval(function() {
+      // Only auto-refresh if this tab is the active one.
+      if (activeTab === tab && tabLoaders[tab]) {
+        tabLoaders[tab]();
+      }
+    }, seconds * 1000);
+  }
+
+  function stopTabTimer(tab) {
+    if (tabTimers[tab]) { clearInterval(tabTimers[tab]); delete tabTimers[tab]; }
+  }
+
+  function stopAllTimers() {
+    Object.keys(tabTimers).forEach(stopTabTimer);
+  }
+
+  function startAllTimers() {
+    ["containers", "sites", "mappings", "resources"].forEach(startTabTimer);
+  }
+
+  // Handle combo box changes.
+  document.querySelectorAll(".refresh-select").forEach(function(sel) {
+    sel.addEventListener("change", function() {
+      var tab = sel.dataset.tab;
+      var cfg = getRefreshConfig();
+      cfg[tab] = parseInt(sel.value, 10);
+      saveRefreshConfig(cfg);
+      startTabTimer(tab);
+    });
+  });
+
+  function updateTabTimestamp(tab) {
+    var el = document.getElementById("ts-" + tab);
+    if (el) setText(el, "Updated: " + new Date().toLocaleTimeString());
+  }
 
   // ── Login / Logout ──
   var loginScreen = document.getElementById("loginScreen");
   var dashboard = document.getElementById("dashboard");
 
+  // Both screens start hidden via CSS (display:none) to prevent login flash on reload.
+  // showLogin() or showDashboard() will reveal the correct one after init() checks the session.
+
   function showLogin() {
     loginScreen.style.display = "flex";
     dashboard.style.display = "none";
-    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+    stopAllTimers();
   }
 
   function showDashboard() {
     loginScreen.style.display = "none";
     dashboard.style.display = "block";
-    loadAll();
-    if (refreshTimer) clearInterval(refreshTimer);
-    refreshTimer = setInterval(loadAll, 30000);
+    applyRefreshConfig();
+    // Load the active tab immediately.
+    if (tabLoaders[activeTab]) tabLoaders[activeTab]();
+    startAllTimers();
   }
 
   document.getElementById("loginForm").addEventListener("submit", async function(e) {
@@ -928,7 +1149,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       document.querySelectorAll(".tab-btn").forEach(function(b) { b.classList.remove("active"); });
       document.querySelectorAll(".tab-panel").forEach(function(p) { p.classList.remove("active"); });
       btn.classList.add("active");
-      document.getElementById("panel-" + btn.dataset.tab).classList.add("active");
+      activeTab = btn.dataset.tab;
+      document.getElementById("panel-" + activeTab).classList.add("active");
+      // Immediately load data for the selected tab (click = manual refresh).
+      if (tabLoaders[activeTab]) tabLoaders[activeTab]();
     });
   });
 
@@ -944,13 +1168,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     el.appendChild(s);
   }
 
-  async function loadAll() {
-    var now = new Date();
-    var ts = now.toLocaleTimeString();
-    setText(document.getElementById("refreshStatus"), "Last refresh: " + ts);
-    await Promise.all([loadContainers(), loadSites(), loadMappings(), loadResources()]);
-  }
-
   // ── Containers ──
   async function loadContainers() {
     var wrap = document.getElementById("containersContent");
@@ -958,6 +1175,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       containers = await apiFetch("/api/containers");
       setText(document.getElementById("containerCount"), String(containers.length));
       renderContainers(wrap);
+      updateTabTimestamp("containers");
     } catch(err) {
       wrap.innerHTML = "";
       var em = document.createElement("div");
@@ -1087,6 +1305,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       sites = await apiFetch("/api/sites");
       setText(document.getElementById("siteCount"), String(sites.length));
       renderSites(wrap);
+      updateTabTimestamp("sites");
     } catch(err) {
       wrap.innerHTML = "";
       var em = document.createElement("div");
@@ -1191,7 +1410,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
             try {
               await apiFetch("/api/sites/" + action, { method: "POST", body: { domain: site.domain } });
               showToast("Site " + action + "d successfully", "success");
-              await loadAll();
+              await Promise.all([loadSites(), loadMappings(), loadContainers()]);
             } catch(err) { showToast("Failed: " + err.message, "error"); }
           });
         });
@@ -1214,7 +1433,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
             try {
               await apiFetch("/api/ssl/" + action, { method: "POST", body: { domain: site.domain } });
               showToast("SSL " + action + "d successfully", "success");
-              await loadAll();
+              await Promise.all([loadSites(), loadMappings(), loadContainers()]);
             } catch(err) { showToast("Failed: " + err.message, "error"); }
           });
         });
@@ -1239,6 +1458,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
                   (mappings.orphanedSites ? mappings.orphanedSites.length : 0);
       setText(document.getElementById("mappingCount"), String(total));
       renderMappings(wrap);
+      updateTabTimestamp("mappings");
     } catch(err) {
       wrap.innerHTML = "";
       var em = document.createElement("div");
@@ -1469,7 +1689,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       });
       assocModal.classList.remove("show");
       showToast("Site created successfully", "success");
-      await loadAll();
+      await Promise.all([loadSites(), loadMappings(), loadContainers()]);
     } catch(err) {
       showToast("Failed to create site: " + err.message, "error");
     } finally {
@@ -1511,7 +1731,8 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
   // ── Refresh button ──
   document.getElementById("refreshBtn").addEventListener("click", function() {
-    loadAll();
+    // Refresh only the active tab.
+    if (tabLoaders[activeTab]) tabLoaders[activeTab]();
   });
 
   // ── Keyboard: Escape closes modals ──
@@ -1541,6 +1762,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (!sysData) return;
     var d = sysData;
 
+    // Update timestamp
+    updateTabTimestamp("resources");
+
     // Summary cards
     if (d.load_avg) {
       setText(document.getElementById("resCpuLoad"), d.load_avg.load1.toFixed(2));
@@ -1550,7 +1774,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (d.memory) {
       var memPct = d.memory.used_percent.toFixed(1) + "%";
       setText(document.getElementById("resMemValue"), memPct);
-      setText(document.getElementById("resMemSub"), d.memory.used_mb + " / " + d.memory.total_mb + " MB");
+      var usedGB = (d.memory.used_mb / 1024).toFixed(2);
+      var totalGB = (d.memory.total_mb / 1024).toFixed(2);
+      setText(document.getElementById("resMemSub"), usedGB + " / " + totalGB + " GB (" + d.memory.used_mb + " / " + d.memory.total_mb + " MB)");
     }
 
     if (d.disk && d.disk.length > 0) {
@@ -1558,7 +1784,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       setText(document.getElementById("resDiskValue"), rootDisk.used_percent.toFixed(1) + "%");
       var sizeGB = (rootDisk.size_mb / 1024).toFixed(1);
       var usedGB = (rootDisk.used_mb / 1024).toFixed(1);
-      setText(document.getElementById("resDiskSub"), usedGB + " / " + sizeGB + " GB");
+      setText(document.getElementById("resDiskSub"), usedGB + " / " + sizeGB + " GB (" + rootDisk.used_mb + " / " + rootDisk.size_mb + " MB)");
     }
 
     setText(document.getElementById("resUptime"), d.uptime || "--");
@@ -1805,6 +2031,60 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   }
 
   // ── Services Table ──
+  function formatMemDual(mb) {
+    if (mb >= 1024) {
+      return (mb / 1024).toFixed(2) + " GB (" + mb.toFixed(0) + " MB)";
+    }
+    return mb.toFixed(1) + " MB";
+  }
+
+  function renderSparkline(history) {
+    // history is an array of { ts, mem_mb }
+    if (!history || history.length < 2) return null;
+
+    var ns = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("class", "sparkline-svg");
+    svg.setAttribute("viewBox", "0 0 80 24");
+
+    var vals = history.map(function(h) { return h.mem_mb; });
+    var minV = Math.min.apply(null, vals);
+    var maxV = Math.max.apply(null, vals);
+    var range = maxV - minV;
+    if (range < 0.1) range = 1; // avoid flat line divide-by-zero
+
+    var points = [];
+    var w = 80;
+    var h = 24;
+    var pad = 2;
+    for (var i = 0; i < vals.length; i++) {
+      var x = pad + (i / (vals.length - 1)) * (w - 2 * pad);
+      var y = h - pad - ((vals[i] - minV) / range) * (h - 2 * pad);
+      points.push(x.toFixed(1) + "," + y.toFixed(1));
+    }
+
+    var polyline = document.createElementNS(ns, "polyline");
+    polyline.setAttribute("points", points.join(" "));
+    polyline.setAttribute("fill", "none");
+    polyline.setAttribute("stroke", "#00b4d8");
+    polyline.setAttribute("stroke-width", "1.5");
+    polyline.setAttribute("stroke-linecap", "round");
+    polyline.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(polyline);
+
+    // End dot
+    var lastX = parseFloat(points[points.length - 1].split(",")[0]);
+    var lastY = parseFloat(points[points.length - 1].split(",")[1]);
+    var circle = document.createElementNS(ns, "circle");
+    circle.setAttribute("cx", lastX);
+    circle.setAttribute("cy", lastY);
+    circle.setAttribute("r", "2");
+    circle.setAttribute("fill", "#00b4d8");
+    svg.appendChild(circle);
+
+    return svg;
+  }
+
   function renderServicesTable(d) {
     var wrap = document.getElementById("servicesContent");
     if (!wrap) return;
@@ -1827,7 +2107,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     var thead = document.createElement("thead");
     var trh = document.createElement("tr");
-    ["Service", "Status", "Memory"].forEach(function(h) {
+    ["Service", "Status", "Memory Live", "Memory Last 1h"].forEach(function(h) {
       var th = document.createElement("th");
       setText(th, h);
       trh.appendChild(th);
@@ -1855,14 +2135,44 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       tdStatus.appendChild(badge);
       tr.appendChild(tdStatus);
 
-      var tdMem = document.createElement("td");
+      // Memory Live (with pulsing dot)
+      var tdMemLive = document.createElement("td");
       if (svc.mem_mb > 0) {
-        setText(tdMem, svc.mem_mb.toFixed(1) + " MB");
+        var liveDot = document.createElement("span");
+        liveDot.className = "live-dot";
+        liveDot.title = "Real-time";
+        tdMemLive.appendChild(liveDot);
+        tdMemLive.appendChild(document.createTextNode(formatMemDual(svc.mem_mb)));
       } else {
-        tdMem.style.color = "var(--text-muted)";
-        setText(tdMem, "-");
+        tdMemLive.style.color = "var(--text-muted)";
+        setText(tdMemLive, "-");
       }
-      tr.appendChild(tdMem);
+      tr.appendChild(tdMemLive);
+
+      // Memory Last 1h (sparkline)
+      var tdMemHist = document.createElement("td");
+      var history = svc.mem_history;
+      if (history && history.length >= 2) {
+        var sparkSvg = renderSparkline(history);
+        if (sparkSvg) {
+          tdMemHist.appendChild(sparkSvg);
+          // Show min/max range
+          var vals = history.map(function(h) { return h.mem_mb; });
+          var minV = Math.min.apply(null, vals).toFixed(0);
+          var maxV = Math.max.apply(null, vals).toFixed(0);
+          var rangeSpan = document.createElement("span");
+          rangeSpan.style.fontSize = "0.7rem";
+          rangeSpan.style.color = "var(--text-muted)";
+          rangeSpan.style.marginLeft = "6px";
+          setText(rangeSpan, minV + "-" + maxV + " MB");
+          tdMemHist.appendChild(rangeSpan);
+        }
+      } else {
+        tdMemHist.style.color = "var(--text-muted)";
+        tdMemHist.style.fontSize = "0.8rem";
+        setText(tdMemHist, history && history.length === 1 ? "Collecting..." : "No data yet");
+      }
+      tr.appendChild(tdMemHist);
 
       tbody.appendChild(tr);
     });
@@ -1921,7 +2231,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       tr.appendChild(tdCpu);
 
       var tdMem = document.createElement("td");
-      setText(tdMem, c.mem_usage || c.mem_mb.toFixed(1) + " MB");
+      setText(tdMem, formatMemDual(c.mem_mb));
       tdMem.style.fontFamily = '"SF Mono","Fira Code",monospace';
       tdMem.style.fontSize = "0.8125rem";
       tr.appendChild(tdMem);
@@ -1957,11 +2267,47 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     wrap.appendChild(tw);
   }
 
+  // ── Version Check ──
+  async function checkForUpdates() {
+    try {
+      var resp = await apiFetch("/api/version-check");
+      var data = resp && resp.data ? resp.data : resp;
+      if (data && data.update_available) {
+        var banner = document.getElementById("updateBanner");
+        var vText = document.getElementById("updateVersionText");
+        setText(vText, "v" + data.current + " \u2192 v" + data.latest);
+        banner.style.display = "flex";
+      }
+    } catch(e) {
+      // Silently ignore version check failures.
+    }
+  }
+
+  document.getElementById("updateBtn").addEventListener("click", async function() {
+    var btn = document.getElementById("updateBtn");
+    btn.disabled = true;
+    setText(btn, "Updating...");
+    try {
+      var resp = await apiFetch("/api/update", { method: "POST" });
+      var data = resp && resp.data ? resp.data : resp;
+      showToast(data.message || "Update complete", "success");
+      document.getElementById("updateBanner").style.display = "none";
+      // After a short delay, reload to pick up the new version.
+      setTimeout(function() { window.location.reload(); }, 3000);
+    } catch(err) {
+      showToast("Update failed: " + err.message, "error");
+      btn.disabled = false;
+      setText(btn, "Update");
+    }
+  });
+
   // ── Initial: try loading dashboard (if session cookie exists) ──
   (async function init() {
     try {
       await apiFetch("/api/containers");
       showDashboard();
+      // Check for updates on every page load (non-blocking).
+      checkForUpdates();
     } catch(e) {
       showLogin();
     }

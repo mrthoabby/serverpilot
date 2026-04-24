@@ -8,7 +8,17 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+)
+
+// Cache to avoid hammering docker stats and systemctl on every request.
+// The expensive operations (docker stats, systemctl) are cached for cacheTTL.
+var (
+	cacheMu   sync.Mutex
+	cached    *SystemInfo
+	cacheTime time.Time
+	cacheTTL  = 5 * time.Second
 )
 
 // SystemInfo holds all system resource information.
@@ -76,16 +86,109 @@ type ProcessInfo struct {
 
 // ServiceInfo for system services (Docker, Nginx, ServerPilot).
 type ServiceInfo struct {
-	Name   string `json:"name"`
-	Status string `json:"status"`
-	Active bool   `json:"active"`
-	MemMB  float64 `json:"mem_mb"`
+	Name       string          `json:"name"`
+	Status     string          `json:"status"`
+	Active     bool            `json:"active"`
+	MemMB      float64         `json:"mem_mb"`
+	MemHistory []MemorySnapshot `json:"mem_history,omitempty"`
 }
 
-// Collect gathers all system information. Designed to be lightweight —
-// reads /proc directly instead of shelling out, and uses docker stats
-// with --no-stream to get a single snapshot.
+// MemorySnapshot stores a point-in-time memory reading.
+type MemorySnapshot struct {
+	Timestamp int64   `json:"ts"`
+	MemMB     float64 `json:"mem_mb"`
+}
+
+// Memory history: stores snapshots every 5 minutes for the last 1 hour.
+// 1 hour / 5 min = 12 data points per service. Lightweight in-memory.
+const (
+	historyInterval = 5 * time.Minute
+	historyWindow   = 1 * time.Hour
+	maxSnapshots    = 12 // historyWindow / historyInterval
+)
+
+var (
+	historyMu       sync.Mutex
+	serviceHistory  = make(map[string][]MemorySnapshot) // name -> snapshots
+	historyStarted  bool
+)
+
+// StartHistoryCollector starts a background goroutine that takes memory
+// snapshots of services every historyInterval. Call once at server start.
+func StartHistoryCollector() {
+	historyMu.Lock()
+	if historyStarted {
+		historyMu.Unlock()
+		return
+	}
+	historyStarted = true
+	historyMu.Unlock()
+
+	// Take an initial snapshot immediately.
+	takeSnapshot()
+
+	go func() {
+		ticker := time.NewTicker(historyInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			takeSnapshot()
+		}
+	}()
+}
+
+func takeSnapshot() {
+	services := readServices()
+	now := time.Now().Unix()
+	cutoff := time.Now().Add(-historyWindow).Unix()
+
+	historyMu.Lock()
+	defer historyMu.Unlock()
+
+	for _, svc := range services {
+		snap := MemorySnapshot{Timestamp: now, MemMB: svc.MemMB}
+		history := serviceHistory[svc.Name]
+		history = append(history, snap)
+
+		// Trim old snapshots beyond the window.
+		trimmed := history[:0]
+		for _, s := range history {
+			if s.Timestamp >= cutoff {
+				trimmed = append(trimmed, s)
+			}
+		}
+		// Cap at maxSnapshots.
+		if len(trimmed) > maxSnapshots {
+			trimmed = trimmed[len(trimmed)-maxSnapshots:]
+		}
+		serviceHistory[svc.Name] = trimmed
+	}
+}
+
+func getServiceHistory(name string) []MemorySnapshot {
+	historyMu.Lock()
+	defer historyMu.Unlock()
+	h := serviceHistory[name]
+	if h == nil {
+		return nil
+	}
+	// Return a copy to avoid race.
+	cp := make([]MemorySnapshot, len(h))
+	copy(cp, h)
+	return cp
+}
+
+// Collect gathers all system information. Uses a short-lived cache (5s)
+// so rapid polling from the frontend doesn't spawn docker/systemctl on
+// every request. /proc reads are instant; the cache mainly protects the
+// heavier exec.Command calls (docker stats, systemctl).
 func Collect() (*SystemInfo, error) {
+	cacheMu.Lock()
+	defer cacheMu.Unlock()
+
+	if cached != nil && time.Since(cacheTime) < cacheTTL {
+		return cached, nil
+	}
+
 	info := &SystemInfo{
 		GoVersion: runtime.Version(),
 		NumCPU:    runtime.NumCPU(),
@@ -97,27 +200,24 @@ func Collect() (*SystemInfo, error) {
 		info.Hostname = h
 	}
 
-	// Uptime
+	// These read /proc — essentially free.
 	info.Uptime = readUptime()
-
-	// Load average
 	info.LoadAvg = readLoadAvg()
-
-	// Memory
 	info.Memory = readMemInfo()
-
-	// Disk
-	info.Disk = readDiskInfo()
-
-	// Docker container stats
-	info.Containers = readDockerStats()
-
-	// Self-process info
 	info.SelfProcess = readSelfProcess()
 
-	// Services status
+	// These shell out — cached to avoid overhead.
+	info.Disk = readDiskInfo()
+	info.Containers = readDockerStats()
 	info.Services = readServices()
 
+	// Attach memory history to each service.
+	for i := range info.Services {
+		info.Services[i].MemHistory = getServiceHistory(info.Services[i].Name)
+	}
+
+	cached = info
+	cacheTime = time.Now()
 	return info, nil
 }
 

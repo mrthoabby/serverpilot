@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/mrthoabby/serverpilot/internal/auth"
+	"github.com/mrthoabby/serverpilot/internal/sysinfo"
 )
 
 //go:embed static
@@ -16,14 +17,16 @@ var staticFiles embed.FS
 type Server struct {
 	config       *auth.Config
 	port         int
+	version      string
 	sessionStore *auth.SessionStore
 }
 
 // NewServer creates a new web server instance.
-func NewServer(config *auth.Config, port int) *Server {
+func NewServer(config *auth.Config, port int, version string) *Server {
 	return &Server{
 		config:       config,
 		port:         port,
+		version:      version,
 		sessionStore: auth.NewSessionStore(),
 	}
 }
@@ -49,12 +52,17 @@ func (s *Server) Start() error {
 	mux.Handle("/api/sites/enable", s.authMiddleware(http.HandlerFunc(s.handleSiteEnable)))
 	mux.Handle("/api/sites/disable", s.authMiddleware(http.HandlerFunc(s.handleSiteDisable)))
 	mux.Handle("/api/system", s.authMiddleware(http.HandlerFunc(s.handleSystem)))
+	mux.Handle("/api/version-check", s.authMiddleware(http.HandlerFunc(s.handleVersionCheck)))
+	mux.Handle("/api/update", s.authMiddleware(http.HandlerFunc(s.handleUpdate)))
 
 	// Static files.
 	mux.Handle("/static/", http.FileServer(http.FS(staticFiles)))
 
 	// Wrap everything with logging and recovery middleware.
 	handler := RecoveryMiddleware(LoggingMiddleware(mux))
+
+	// Start the background memory history collector (snapshots every 5 min).
+	sysinfo.StartHistoryCollector()
 
 	addr := fmt.Sprintf(":%d", s.port)
 	log.Printf("Starting server on %s", addr)
