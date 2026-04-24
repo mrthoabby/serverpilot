@@ -53,6 +53,8 @@ func (s *Server) Start() error {
 	mux.Handle("/api/sites/create", s.authMiddleware(http.HandlerFunc(s.handleSiteCreate)))
 	mux.Handle("/api/sites/enable", s.authMiddleware(http.HandlerFunc(s.handleSiteEnable)))
 	mux.Handle("/api/sites/disable", s.authMiddleware(http.HandlerFunc(s.handleSiteDisable)))
+	mux.Handle("/api/sites/config", s.authMiddleware(http.HandlerFunc(s.handleSiteConfigRead)))
+	mux.Handle("/api/sites/config/save", s.authMiddleware(http.HandlerFunc(s.handleSiteConfigSave)))
 	mux.Handle("/api/system", s.authMiddleware(http.HandlerFunc(s.handleSystem)))
 	mux.Handle("/api/labels", s.authMiddleware(http.HandlerFunc(s.handleLabelsGet)))
 	mux.Handle("/api/labels/set", s.authMiddleware(http.HandlerFunc(s.handleLabelSet)))

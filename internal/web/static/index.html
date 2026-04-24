@@ -519,6 +519,78 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   line-height: 1.6;
 }
 
+/* ── Config Editor Modal ── */
+.config-editor-modal {
+  max-width: 720px;
+}
+
+.config-editor-modal h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.config-editor-modal .config-domain {
+  color: var(--accent);
+  font-weight: 400;
+  font-size: 0.9rem;
+}
+
+.config-textarea {
+  width: 100%;
+  min-height: 400px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  resize: vertical;
+  tab-size: 4;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.config-textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.config-error-box {
+  display: none;
+  background: rgba(248, 81, 73, 0.1);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  color: var(--red);
+  padding: 0.625rem 0.875rem;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-family: "SF Mono", "Fira Code", monospace;
+  margin-top: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.config-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+  margin-top: 1rem;
+}
+
+.config-actions-left {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.config-actions-right {
+  display: flex;
+  gap: 0.5rem;
+}
+
 /* ── Refresh Bar ── */
 .refresh-bar {
   display: flex;
@@ -1078,6 +1150,26 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   </div>
 </div>
 
+<!-- Config Editor Modal -->
+<div class="modal-overlay" id="configEditorModal">
+  <div class="modal config-editor-modal">
+    <h3>Edit Config <span class="config-domain" id="configEditorDomain"></span></h3>
+    <p class="modal-sub">Edit the Nginx configuration file. Use Save to persist without reloading, or Save &amp; Reload to validate and apply.</p>
+    <textarea class="config-textarea" id="configEditorTextarea" spellcheck="false"></textarea>
+    <div class="config-error-box" id="configEditorError"></div>
+    <div class="config-actions">
+      <div class="config-actions-left">
+        <button type="button" class="btn btn-sm btn-outline" id="configResetBtn">Reset</button>
+      </div>
+      <div class="config-actions-right">
+        <button type="button" class="btn btn-sm btn-outline" id="configCancelBtn">Cancel</button>
+        <button type="button" class="btn btn-sm btn-warning" id="configSaveBtn">Save</button>
+        <button type="button" class="btn btn-sm btn-success" id="configSaveReloadBtn">Save &amp; Reload</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Toast Container -->
 <div class="toast-container" id="toastContainer"></div>
 
@@ -1492,12 +1584,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         setText(backBadge, "Backend");
         tdAct.appendChild(backBadge);
       } else {
-        // No label → show hint
-        var noLabel = document.createElement("span");
-        noLabel.style.color = "var(--text-muted)";
-        noLabel.style.fontSize = "0.8rem";
-        setText(noLabel, "Set a label first");
-        tdAct.appendChild(noLabel);
+        // No label → treat as backend (no action buttons)
+        var backBadge2 = document.createElement("span");
+        backBadge2.className = "label-badge label-badge-back";
+        setText(backBadge2, "Backend");
+        tdAct.appendChild(backBadge2);
       }
       tr.appendChild(tdAct);
 
@@ -1650,6 +1741,17 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         });
       })(s);
       tdAct.appendChild(sslBtn);
+
+      // Edit Config button
+      var editBtn = document.createElement("button");
+      editBtn.className = "btn btn-sm btn-outline";
+      setText(editBtn, "Edit Config");
+      (function(site) {
+        editBtn.addEventListener("click", function() {
+          openConfigEditor(site.domain);
+        });
+      })(s);
+      tdAct.appendChild(editBtn);
 
       tr.appendChild(tdAct);
       tbody.appendChild(tr);
@@ -2119,6 +2221,111 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
   });
 
+  // ── Config Editor ──
+  var configModal = document.getElementById("configEditorModal");
+  var configTextarea = document.getElementById("configEditorTextarea");
+  var configErrorBox = document.getElementById("configEditorError");
+  var configDomainSpan = document.getElementById("configEditorDomain");
+  var configOriginalContent = "";
+  var configCurrentDomain = "";
+
+  async function openConfigEditor(domain) {
+    configCurrentDomain = domain;
+    setText(configDomainSpan, domain);
+    configTextarea.value = "";
+    configErrorBox.style.display = "none";
+    setText(configErrorBox, "");
+    configModal.classList.add("show");
+
+    try {
+      var resp = await apiFetch("/api/sites/config?domain=" + encodeURIComponent(domain));
+      var data = (resp && resp.data) ? resp.data : resp;
+      configOriginalContent = data.content || "";
+      configTextarea.value = configOriginalContent;
+    } catch(err) {
+      showToast("Failed to load config: " + err.message, "error");
+      configModal.classList.remove("show");
+    }
+  }
+
+  function closeConfigEditor() {
+    configModal.classList.remove("show");
+    configCurrentDomain = "";
+    configOriginalContent = "";
+    configTextarea.value = "";
+    configErrorBox.style.display = "none";
+  }
+
+  document.getElementById("configCancelBtn").addEventListener("click", closeConfigEditor);
+
+  configModal.addEventListener("click", function(e) {
+    if (e.target === configModal) closeConfigEditor();
+  });
+
+  document.getElementById("configResetBtn").addEventListener("click", function() {
+    configTextarea.value = configOriginalContent;
+    configErrorBox.style.display = "none";
+    showToast("Config reset to original", "success");
+  });
+
+  document.getElementById("configSaveBtn").addEventListener("click", async function() {
+    var btn = this;
+    btn.disabled = true;
+    setText(btn, "Saving...");
+    configErrorBox.style.display = "none";
+    try {
+      var resp = await apiFetch("/api/sites/config/save", {
+        method: "POST",
+        body: { domain: configCurrentDomain, content: configTextarea.value, reload: false }
+      });
+      var data = (resp && resp.data) ? resp.data : resp;
+      configOriginalContent = configTextarea.value;
+      showToast(data.message || "Config saved", "success");
+    } catch(err) {
+      showToast("Save failed: " + err.message, "error");
+    } finally {
+      btn.disabled = false;
+      setText(btn, "Save");
+    }
+  });
+
+  document.getElementById("configSaveReloadBtn").addEventListener("click", async function() {
+    var btn = this;
+    btn.disabled = true;
+    setText(btn, "Validating...");
+    configErrorBox.style.display = "none";
+    try {
+      var resp = await apiFetch("/api/sites/config/save", {
+        method: "POST",
+        body: { domain: configCurrentDomain, content: configTextarea.value, reload: true }
+      });
+      if (resp && resp.success === false) {
+        // Validation failed — show errors
+        var data = resp.data || {};
+        var errMsg = resp.error || "Validation failed";
+        if (data.test_output) errMsg = data.test_output;
+        configErrorBox.style.display = "block";
+        setText(configErrorBox, errMsg);
+        showToast("Config has errors — not reloaded", "error");
+      } else {
+        var data2 = (resp && resp.data) ? resp.data : resp;
+        configOriginalContent = configTextarea.value;
+        showToast(data2.message || "Config saved and nginx reloaded", "success");
+        configErrorBox.style.display = "none";
+        await loadSites();
+      }
+    } catch(err) {
+      // The API returns 200 with success:false for validation errors,
+      // but catch network/other errors here.
+      configErrorBox.style.display = "block";
+      setText(configErrorBox, err.message);
+      showToast("Save & Reload failed: " + err.message, "error");
+    } finally {
+      btn.disabled = false;
+      setText(btn, "Save & Reload");
+    }
+  });
+
   // ── Confirm Modal ──
   var confirmModal = document.getElementById("confirmModal");
   var pendingConfirm = null;
@@ -2162,6 +2369,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       assocModal.classList.remove("show");
       confirmModal.classList.remove("show");
       pendingConfirm = null;
+      closeConfigEditor();
     }
   });
 

@@ -476,6 +476,107 @@ func containsHTML(s string) bool {
 	return htmlTagRegex.MatchString(s)
 }
 
+// ── Nginx Config Editor Handlers ──
+
+func (s *Server) handleSiteConfigRead(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	domain := r.URL.Query().Get("domain")
+	if !isValidDomain(domain) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid domain format"})
+		return
+	}
+
+	content, err := nginx.ReadConfigContent(domain)
+	if err != nil {
+		log.Printf("Error reading config for %s: %v", domain, err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to read config file"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data: map[string]string{
+			"domain":  domain,
+			"content": content,
+		},
+	})
+}
+
+type configSaveRequest struct {
+	Domain  string `json:"domain"`
+	Content string `json:"content"`
+	Reload  bool   `json:"reload"`
+}
+
+func (s *Server) handleSiteConfigSave(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	var req configSaveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	if !isValidDomain(req.Domain) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid domain format"})
+		return
+	}
+
+	if len(req.Content) == 0 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "content cannot be empty"})
+		return
+	}
+
+	if len(req.Content) > 1048576 { // 1MB limit
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "config content too large"})
+		return
+	}
+
+	if req.Reload {
+		// Write + validate + reload
+		testOutput, err := nginx.WriteConfigContent(req.Domain, req.Content, true)
+		if err != nil {
+			writeJSON(w, http.StatusOK, apiResponse{
+				Success: false,
+				Error:   "Validation failed",
+				Data: map[string]string{
+					"test_output": testOutput,
+				},
+			})
+			return
+		}
+		// Config is valid, reload nginx.
+		if err := nginx.ReloadNginx(); err != nil {
+			log.Printf("Error reloading nginx after config save for %s: %v", req.Domain, err)
+			writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "config saved but reload failed: " + err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, apiResponse{
+			Success: true,
+			Data:    map[string]string{"message": "Config saved and nginx reloaded for " + req.Domain},
+		})
+	} else {
+		// Write without validation or reload
+		_, err := nginx.WriteConfigContent(req.Domain, req.Content, false)
+		if err != nil {
+			log.Printf("Error saving config for %s: %v", req.Domain, err)
+			writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to save config"})
+			return
+		}
+		writeJSON(w, http.StatusOK, apiResponse{
+			Success: true,
+			Data:    map[string]string{"message": "Config saved (without reload) for " + req.Domain},
+		})
+	}
+}
+
 // ── Container Labels Handlers ──
 
 type labelSetRequest struct {

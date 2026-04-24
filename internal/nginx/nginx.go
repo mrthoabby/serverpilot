@@ -221,6 +221,87 @@ func isWithinNginxDir(path string) bool {
 	return strings.HasPrefix(resolved, nginxBaseDir)
 }
 
+// ReadConfigContent returns the raw content of the nginx config file for a given domain.
+func ReadConfigContent(domain string) (string, error) {
+	if !isValidDomain(domain) {
+		return "", fmt.Errorf("invalid domain format")
+	}
+
+	configPath := filepath.Join(sitesAvailableDir, domain)
+	if !isWithinNginxDir(configPath) {
+		return "", fmt.Errorf("path is outside nginx directory")
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	return string(data), nil
+}
+
+// WriteConfigContent writes new content to the nginx config file for a given domain.
+// If validate is true, it writes to a temp file first, runs nginx -t to validate, and
+// only copies to the real path if valid. Always cleans up temp files.
+// Returns the nginx -t output (if any) and an error.
+func WriteConfigContent(domain string, content string, validate bool) (string, error) {
+	if !isValidDomain(domain) {
+		return "", fmt.Errorf("invalid domain format")
+	}
+
+	configPath := filepath.Join(sitesAvailableDir, domain)
+	if !isWithinNginxDir(configPath) {
+		return "", fmt.Errorf("path is outside nginx directory")
+	}
+
+	// Check config file exists first.
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("config file not found: %s", domain)
+	}
+
+	if validate {
+		// Write to a temp file, test the whole nginx config with the temp file in place.
+		tmpPath := configPath + ".tmp"
+		if err := os.WriteFile(tmpPath, []byte(content), 0644); err != nil {
+			return "", fmt.Errorf("failed to write temp config: %w", err)
+		}
+		// Swap: backup original → put temp as real → test → restore or keep.
+		backupPath := configPath + ".bak"
+		origData, err := os.ReadFile(configPath)
+		if err != nil {
+			os.Remove(tmpPath)
+			return "", fmt.Errorf("failed to read original config: %w", err)
+		}
+		if err := os.WriteFile(backupPath, origData, 0644); err != nil {
+			os.Remove(tmpPath)
+			return "", fmt.Errorf("failed to create backup: %w", err)
+		}
+		// Put new content in place for nginx -t.
+		if err := os.Rename(tmpPath, configPath); err != nil {
+			os.Remove(tmpPath)
+			os.Remove(backupPath)
+			return "", fmt.Errorf("failed to swap config: %w", err)
+		}
+		// Run nginx -t.
+		testErr := TestConfig()
+		if testErr != nil {
+			// Restore the original.
+			os.Rename(backupPath, configPath)
+			return testErr.Error(), fmt.Errorf("nginx config validation failed")
+		}
+		// Validation passed — remove backup.
+		os.Remove(backupPath)
+		return "", nil
+	}
+
+	// No validation: just write directly.
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		return "", fmt.Errorf("failed to write config: %w", err)
+	}
+
+	return "", nil
+}
+
 var domainRegex = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$`)
 
 // IsValidDomainExported checks that a domain contains only allowed characters.
