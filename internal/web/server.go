@@ -48,6 +48,7 @@ func (s *Server) Start() error {
 	mux.Handle("/api/sites/create", s.authMiddleware(http.HandlerFunc(s.handleSiteCreate)))
 	mux.Handle("/api/sites/enable", s.authMiddleware(http.HandlerFunc(s.handleSiteEnable)))
 	mux.Handle("/api/sites/disable", s.authMiddleware(http.HandlerFunc(s.handleSiteDisable)))
+	mux.Handle("/api/system", s.authMiddleware(http.HandlerFunc(s.handleSystem)))
 
 	// Static files.
 	mux.Handle("/static/", http.FileServer(http.FS(staticFiles)))

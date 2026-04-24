@@ -13,6 +13,7 @@ import (
 	"github.com/mrthoabby/serverpilot/internal/docker"
 	"github.com/mrthoabby/serverpilot/internal/mapper"
 	"github.com/mrthoabby/serverpilot/internal/nginx"
+	"github.com/mrthoabby/serverpilot/internal/sysinfo"
 	"github.com/mrthoabby/serverpilot/internal/templates"
 )
 
@@ -362,6 +363,22 @@ func (s *Server) handleSiteDisable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{"message": "Site disabled: " + req.Domain}})
+}
+
+func (s *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	info, err := sysinfo.Collect()
+	if err != nil {
+		log.Printf("Error collecting system info: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to collect system info"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: info})
 }
 
 // writeJSON sends a JSON response with the given status code.

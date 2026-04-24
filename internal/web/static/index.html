@@ -519,12 +519,89 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   line-height: 1.6;
 }
 
+/* ── Resources Tab ── */
+.res-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.res-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem;
+  text-align: center;
+}
+
+.res-card-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.res-card-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.res-card-sub {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  margin-top: 0.25rem;
+}
+
+.res-charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.res-chart-card {
+  min-height: 340px;
+}
+
+.res-chart-body {
+  padding: 1rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.pie-svg, .bar-svg {
+  width: 100%;
+  max-height: 280px;
+}
+
+.res-progress-bar {
+  width: 100%;
+  height: 8px;
+  background: var(--bg-input);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 0.25rem;
+}
+
+.res-progress-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .main-content { padding: 1rem; }
   .tabs { overflow-x: auto; }
   .tab-btn { font-size: 0.8125rem; padding: 0.625rem 0.875rem; }
   .actions-cell { flex-direction: column; }
+  .res-charts-row { grid-template-columns: 1fr; }
+  .res-cards { grid-template-columns: repeat(2, 1fr); }
 }
 </style>
 </head>
@@ -586,6 +663,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6.354 5.5H4a3 3 0 000 6h3a3 3 0 002.83-4H9a2 2 0 01-2 2H4a2 2 0 110-4h2.354a4.007 4.007 0 010-1H4a3 3 0 100 6h3a4.002 4.002 0 003.874-3H12a3 3 0 000-6H9a3 3 0 00-2.83 4h.914A2 2 0 019 5.5h3a2 2 0 010 4h-2.354a4.002 4.002 0 010 1H12a3 3 0 100-6H9a4.002 4.002 0 00-3.874 3H4.17A2 2 0 014 5.5h2.354z"/></svg>
         Mappings <span class="tab-count" id="mappingCount">0</span>
       </button>
+      <button class="tab-btn" data-tab="resources">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 1.5a5.5 5.5 0 110 11 5.5 5.5 0 010-11zM8 4a.75.75 0 01.75.75v2.5h2.5a.75.75 0 010 1.5h-2.5v2.5a.75.75 0 01-1.5 0v-2.5h-2.5a.75.75 0 010-1.5h2.5v-2.5A.75.75 0 018 4z"/></svg>
+        Resources
+      </button>
     </div>
 
     <!-- Containers Tab -->
@@ -620,6 +701,67 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         </div>
         <div id="mappingsContent">
           <div class="spinner"><div class="spinner-ring"></div>Loading mappings...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Resources Tab -->
+    <div class="tab-panel" id="panel-resources">
+      <!-- System Overview Cards -->
+      <div class="res-cards" id="resCards">
+        <div class="res-card">
+          <div class="res-card-label">CPU Load</div>
+          <div class="res-card-value" id="resCpuLoad">--</div>
+          <div class="res-card-sub" id="resCpuSub">-- cores</div>
+        </div>
+        <div class="res-card">
+          <div class="res-card-label">Memory</div>
+          <div class="res-card-value" id="resMemValue">--</div>
+          <div class="res-card-sub" id="resMemSub">-- / -- MB</div>
+        </div>
+        <div class="res-card">
+          <div class="res-card-label">Disk</div>
+          <div class="res-card-value" id="resDiskValue">--</div>
+          <div class="res-card-sub" id="resDiskSub">-- / -- MB</div>
+        </div>
+        <div class="res-card">
+          <div class="res-card-label">Uptime</div>
+          <div class="res-card-value" id="resUptime">--</div>
+          <div class="res-card-sub" id="resHostname">--</div>
+        </div>
+      </div>
+
+      <!-- Charts Row -->
+      <div class="res-charts-row">
+        <!-- Memory Pie Chart -->
+        <div class="card res-chart-card">
+          <div class="card-header"><h2>Memory Distribution</h2></div>
+          <div class="res-chart-body">
+            <svg id="memPieChart" viewBox="0 0 320 280" class="pie-svg"></svg>
+          </div>
+        </div>
+        <!-- CPU Bar Chart -->
+        <div class="card res-chart-card">
+          <div class="card-header"><h2>CPU Usage by Container</h2></div>
+          <div class="res-chart-body">
+            <svg id="cpuBarChart" viewBox="0 0 400 280" class="bar-svg"></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Services Table -->
+      <div class="card" style="margin-top:1rem;">
+        <div class="card-header"><h2>Services</h2></div>
+        <div id="servicesContent">
+          <div class="spinner"><div class="spinner-ring"></div>Loading services...</div>
+        </div>
+      </div>
+
+      <!-- Container Resources Table -->
+      <div class="card" style="margin-top:1rem;">
+        <div class="card-header"><h2>Container Resource Usage</h2></div>
+        <div id="containerStatsContent">
+          <div class="spinner"><div class="spinner-ring"></div>Loading stats...</div>
         </div>
       </div>
     </div>
@@ -806,7 +948,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var now = new Date();
     var ts = now.toLocaleTimeString();
     setText(document.getElementById("refreshStatus"), "Last refresh: " + ts);
-    await Promise.all([loadContainers(), loadSites(), loadMappings()]);
+    await Promise.all([loadContainers(), loadSites(), loadMappings(), loadResources()]);
   }
 
   // ── Containers ──
@@ -1380,6 +1522,440 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       pendingConfirm = null;
     }
   });
+
+  // ── Resources ──
+  var sysData = null;
+
+  async function loadResources() {
+    try {
+      var resp = await apiFetch("/api/system");
+      if (resp && resp.data) sysData = resp.data;
+      else if (resp && !resp.data) sysData = resp;
+      renderResources();
+    } catch(err) {
+      // Silently ignore if resources fail (non-critical tab).
+    }
+  }
+
+  function renderResources() {
+    if (!sysData) return;
+    var d = sysData;
+
+    // Summary cards
+    if (d.load_avg) {
+      setText(document.getElementById("resCpuLoad"), d.load_avg.load1.toFixed(2));
+      setText(document.getElementById("resCpuSub"), d.num_cpu + " cores | 5m: " + d.load_avg.load5.toFixed(2) + " | 15m: " + d.load_avg.load15.toFixed(2));
+    }
+
+    if (d.memory) {
+      var memPct = d.memory.used_percent.toFixed(1) + "%";
+      setText(document.getElementById("resMemValue"), memPct);
+      setText(document.getElementById("resMemSub"), d.memory.used_mb + " / " + d.memory.total_mb + " MB");
+    }
+
+    if (d.disk && d.disk.length > 0) {
+      var rootDisk = d.disk[0];
+      setText(document.getElementById("resDiskValue"), rootDisk.used_percent.toFixed(1) + "%");
+      var sizeGB = (rootDisk.size_mb / 1024).toFixed(1);
+      var usedGB = (rootDisk.used_mb / 1024).toFixed(1);
+      setText(document.getElementById("resDiskSub"), usedGB + " / " + sizeGB + " GB");
+    }
+
+    setText(document.getElementById("resUptime"), d.uptime || "--");
+    setText(document.getElementById("resHostname"), d.hostname || "--");
+
+    // Memory Pie Chart
+    renderMemoryPie(d);
+
+    // CPU Bar Chart
+    renderCpuBars(d);
+
+    // Services Table
+    renderServicesTable(d);
+
+    // Container Stats Table
+    renderContainerStats(d);
+  }
+
+  // ── SVG Pie Chart ──
+  var PIE_COLORS = ["#00b4d8", "#3fb950", "#f85149", "#d29922", "#db6d28", "#8b5cf6", "#ec4899", "#6366f1"];
+
+  function renderMemoryPie(d) {
+    var svg = document.getElementById("memPieChart");
+    if (!svg) return;
+    svg.innerHTML = "";
+
+    var slices = [];
+    var totalMem = d.memory ? d.memory.total_mb : 0;
+    if (totalMem <= 0) return;
+
+    // ServerPilot process
+    var spMem = d.self_process ? d.self_process.mem_mb : 0;
+    if (spMem > 0) slices.push({ label: "ServerPilot", value: spMem });
+
+    // Docker containers
+    var containerMem = 0;
+    if (d.containers) {
+      d.containers.forEach(function(c) { containerMem += c.mem_mb; });
+    }
+    if (containerMem > 0) slices.push({ label: "Containers", value: containerMem });
+
+    // Nginx (from services)
+    var nginxMem = 0;
+    if (d.services) {
+      d.services.forEach(function(s) {
+        if (s.name === "nginx" && s.mem_mb > 0) nginxMem = s.mem_mb;
+      });
+    }
+    if (nginxMem > 0) slices.push({ label: "Nginx", value: nginxMem });
+
+    // Docker daemon (from services)
+    var dockerMem = 0;
+    if (d.services) {
+      d.services.forEach(function(s) {
+        if (s.name === "docker" && s.mem_mb > 0) dockerMem = s.mem_mb;
+      });
+    }
+    if (dockerMem > 0) slices.push({ label: "Docker Engine", value: dockerMem });
+
+    // System / Other
+    var accounted = spMem + containerMem + nginxMem + dockerMem;
+    var usedMem = d.memory ? d.memory.used_mb : 0;
+    var otherMem = usedMem - accounted;
+    if (otherMem > 0) slices.push({ label: "System / Other", value: otherMem });
+
+    // Free memory
+    var freeMem = totalMem - usedMem;
+    if (freeMem > 0) slices.push({ label: "Free", value: freeMem });
+
+    if (slices.length === 0) return;
+
+    var total = 0;
+    slices.forEach(function(s) { total += s.value; });
+
+    var cx = 130, cy = 120, r = 90;
+    var startAngle = -Math.PI / 2;
+    var ns = "http://www.w3.org/2000/svg";
+
+    slices.forEach(function(slice, i) {
+      var pct = slice.value / total;
+      var angle = pct * 2 * Math.PI;
+      var endAngle = startAngle + angle;
+      var largeArc = angle > Math.PI ? 1 : 0;
+
+      var x1 = cx + r * Math.cos(startAngle);
+      var y1 = cy + r * Math.sin(startAngle);
+      var x2 = cx + r * Math.cos(endAngle);
+      var y2 = cy + r * Math.sin(endAngle);
+
+      var pathD;
+      if (pct >= 0.999) {
+        // Full circle
+        pathD = "M " + (cx - r) + " " + cy +
+                " A " + r + " " + r + " 0 1 1 " + (cx + r) + " " + cy +
+                " A " + r + " " + r + " 0 1 1 " + (cx - r) + " " + cy + " Z";
+      } else {
+        pathD = "M " + cx + " " + cy +
+                " L " + x1 + " " + y1 +
+                " A " + r + " " + r + " 0 " + largeArc + " 1 " + x2 + " " + y2 + " Z";
+      }
+
+      var path = document.createElementNS(ns, "path");
+      path.setAttribute("d", pathD);
+      path.setAttribute("fill", PIE_COLORS[i % PIE_COLORS.length]);
+      path.setAttribute("stroke", "#0d1117");
+      path.setAttribute("stroke-width", "2");
+      svg.appendChild(path);
+
+      startAngle = endAngle;
+    });
+
+    // Legend
+    var legendY = 250;
+    var legendX = 10;
+    var colWidth = 160;
+    slices.forEach(function(slice, i) {
+      var col = i % 2;
+      var row = Math.floor(i / 2);
+      var lx = legendX + col * colWidth;
+      var ly = legendY + row * 18;
+
+      var rect = document.createElementNS(ns, "rect");
+      rect.setAttribute("x", lx);
+      rect.setAttribute("y", ly - 8);
+      rect.setAttribute("width", 10);
+      rect.setAttribute("height", 10);
+      rect.setAttribute("rx", 2);
+      rect.setAttribute("fill", PIE_COLORS[i % PIE_COLORS.length]);
+      svg.appendChild(rect);
+
+      var txt = document.createElementNS(ns, "text");
+      txt.setAttribute("x", lx + 14);
+      txt.setAttribute("y", ly);
+      txt.setAttribute("fill", "#8b949e");
+      txt.setAttribute("font-size", "11");
+      txt.setAttribute("font-family", "-apple-system, sans-serif");
+      var pctVal = (slice.value / total * 100).toFixed(1);
+      var mbVal = slice.value.toFixed(0);
+      txt.textContent = slice.label + " " + mbVal + "MB (" + pctVal + "%)";
+      svg.appendChild(txt);
+    });
+
+    // Adjust viewBox based on legend rows
+    var totalRows = Math.ceil(slices.length / 2);
+    var newHeight = 260 + totalRows * 18;
+    svg.setAttribute("viewBox", "0 0 320 " + newHeight);
+  }
+
+  // ── SVG Bar Chart ──
+  function renderCpuBars(d) {
+    var svg = document.getElementById("cpuBarChart");
+    if (!svg) return;
+    svg.innerHTML = "";
+
+    var items = [];
+    if (d.containers) {
+      d.containers.forEach(function(c) {
+        items.push({ label: c.name, cpu: c.cpu_perc, mem: c.mem_mb });
+      });
+    }
+
+    if (items.length === 0) {
+      var ns = "http://www.w3.org/2000/svg";
+      var t = document.createElementNS(ns, "text");
+      t.setAttribute("x", 200);
+      t.setAttribute("y", 140);
+      t.setAttribute("text-anchor", "middle");
+      t.setAttribute("fill", "#6e7681");
+      t.setAttribute("font-size", "14");
+      t.setAttribute("font-family", "-apple-system, sans-serif");
+      t.textContent = "No running containers";
+      svg.appendChild(t);
+      return;
+    }
+
+    // Sort by CPU descending, limit to 10
+    items.sort(function(a, b) { return b.cpu - a.cpu; });
+    if (items.length > 10) items = items.slice(0, 10);
+
+    var ns = "http://www.w3.org/2000/svg";
+    var barH = 22;
+    var gap = 6;
+    var leftPad = 120;
+    var rightPad = 60;
+    var chartW = 400 - leftPad - rightPad;
+    var topPad = 10;
+
+    var maxCpu = 0;
+    items.forEach(function(it) { if (it.cpu > maxCpu) maxCpu = it.cpu; });
+    if (maxCpu < 1) maxCpu = 1;
+
+    var totalH = topPad + items.length * (barH + gap) + 10;
+    svg.setAttribute("viewBox", "0 0 400 " + totalH);
+
+    items.forEach(function(it, i) {
+      var y = topPad + i * (barH + gap);
+      var barW = (it.cpu / maxCpu) * chartW;
+      if (barW < 2) barW = 2;
+
+      // Label
+      var label = document.createElementNS(ns, "text");
+      label.setAttribute("x", leftPad - 8);
+      label.setAttribute("y", y + barH / 2 + 4);
+      label.setAttribute("text-anchor", "end");
+      label.setAttribute("fill", "#e6edf3");
+      label.setAttribute("font-size", "11");
+      label.setAttribute("font-family", "-apple-system, sans-serif");
+      var name = it.label.length > 16 ? it.label.substring(0, 15) + "\u2026" : it.label;
+      label.textContent = name;
+      svg.appendChild(label);
+
+      // Background bar
+      var bgBar = document.createElementNS(ns, "rect");
+      bgBar.setAttribute("x", leftPad);
+      bgBar.setAttribute("y", y);
+      bgBar.setAttribute("width", chartW);
+      bgBar.setAttribute("height", barH);
+      bgBar.setAttribute("rx", 4);
+      bgBar.setAttribute("fill", "#21262d");
+      svg.appendChild(bgBar);
+
+      // Filled bar
+      var bar = document.createElementNS(ns, "rect");
+      bar.setAttribute("x", leftPad);
+      bar.setAttribute("y", y);
+      bar.setAttribute("width", barW);
+      bar.setAttribute("height", barH);
+      bar.setAttribute("rx", 4);
+      var color = it.cpu > 80 ? "#f85149" : it.cpu > 50 ? "#d29922" : "#00b4d8";
+      bar.setAttribute("fill", color);
+      bar.setAttribute("opacity", "0.85");
+      svg.appendChild(bar);
+
+      // Value
+      var val = document.createElementNS(ns, "text");
+      val.setAttribute("x", leftPad + chartW + 6);
+      val.setAttribute("y", y + barH / 2 + 4);
+      val.setAttribute("fill", "#8b949e");
+      val.setAttribute("font-size", "11");
+      val.setAttribute("font-family", "-apple-system, sans-serif");
+      val.textContent = it.cpu.toFixed(1) + "%";
+      svg.appendChild(val);
+    });
+  }
+
+  // ── Services Table ──
+  function renderServicesTable(d) {
+    var wrap = document.getElementById("servicesContent");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+
+    var svcs = d.services || [];
+    if (!svcs.length) {
+      var em = document.createElement("div");
+      em.className = "empty-state";
+      var p = document.createElement("p");
+      setText(p, "No services detected");
+      em.appendChild(p);
+      wrap.appendChild(em);
+      return;
+    }
+
+    var tw = document.createElement("div");
+    tw.className = "table-wrap";
+    var table = document.createElement("table");
+
+    var thead = document.createElement("thead");
+    var trh = document.createElement("tr");
+    ["Service", "Status", "Memory"].forEach(function(h) {
+      var th = document.createElement("th");
+      setText(th, h);
+      trh.appendChild(th);
+    });
+    thead.appendChild(trh);
+    table.appendChild(thead);
+
+    var tbody = document.createElement("tbody");
+    svcs.forEach(function(svc) {
+      var tr = document.createElement("tr");
+
+      var tdName = document.createElement("td");
+      var nameStr = document.createElement("strong");
+      setText(nameStr, svc.name);
+      tdName.appendChild(nameStr);
+      tr.appendChild(tdName);
+
+      var tdStatus = document.createElement("td");
+      var badge = document.createElement("span");
+      badge.className = "badge " + (svc.active ? "badge-running" : "badge-stopped");
+      var dot = document.createElement("span");
+      dot.className = "badge-dot";
+      badge.appendChild(dot);
+      badge.appendChild(document.createTextNode(" " + svc.status));
+      tdStatus.appendChild(badge);
+      tr.appendChild(tdStatus);
+
+      var tdMem = document.createElement("td");
+      if (svc.mem_mb > 0) {
+        setText(tdMem, svc.mem_mb.toFixed(1) + " MB");
+      } else {
+        tdMem.style.color = "var(--text-muted)";
+        setText(tdMem, "-");
+      }
+      tr.appendChild(tdMem);
+
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    tw.appendChild(table);
+    wrap.appendChild(tw);
+  }
+
+  // ── Container Stats Table ──
+  function renderContainerStats(d) {
+    var wrap = document.getElementById("containerStatsContent");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+
+    var cts = d.containers || [];
+    if (!cts.length) {
+      var em = document.createElement("div");
+      em.className = "empty-state";
+      var p = document.createElement("p");
+      setText(p, "No running containers");
+      em.appendChild(p);
+      wrap.appendChild(em);
+      return;
+    }
+
+    var tw = document.createElement("div");
+    tw.className = "table-wrap";
+    var table = document.createElement("table");
+
+    var thead = document.createElement("thead");
+    var trh = document.createElement("tr");
+    ["Container", "CPU %", "Memory", "Mem %", "Network I/O", "Block I/O", "PIDs"].forEach(function(h) {
+      var th = document.createElement("th");
+      setText(th, h);
+      trh.appendChild(th);
+    });
+    thead.appendChild(trh);
+    table.appendChild(thead);
+
+    var tbody = document.createElement("tbody");
+    cts.forEach(function(c) {
+      var tr = document.createElement("tr");
+
+      var tdName = document.createElement("td");
+      var nameStr = document.createElement("strong");
+      setText(nameStr, c.name);
+      tdName.appendChild(nameStr);
+      tr.appendChild(tdName);
+
+      var tdCpu = document.createElement("td");
+      var cpuBadge = document.createElement("span");
+      var cpuClass = c.cpu_perc > 80 ? "badge-stopped" : c.cpu_perc > 50 ? "badge-warning" : "badge-running";
+      cpuBadge.className = "badge " + cpuClass;
+      setText(cpuBadge, c.cpu_perc.toFixed(1) + "%");
+      tdCpu.appendChild(cpuBadge);
+      tr.appendChild(tdCpu);
+
+      var tdMem = document.createElement("td");
+      setText(tdMem, c.mem_usage || c.mem_mb.toFixed(1) + " MB");
+      tdMem.style.fontFamily = '"SF Mono","Fira Code",monospace';
+      tdMem.style.fontSize = "0.8125rem";
+      tr.appendChild(tdMem);
+
+      var tdMemPct = document.createElement("td");
+      var memBadge = document.createElement("span");
+      var memClass = c.mem_perc > 80 ? "badge-stopped" : c.mem_perc > 50 ? "badge-warning" : "badge-running";
+      memBadge.className = "badge " + memClass;
+      setText(memBadge, c.mem_perc.toFixed(1) + "%");
+      tdMemPct.appendChild(memBadge);
+      tr.appendChild(tdMemPct);
+
+      var tdNet = document.createElement("td");
+      tdNet.style.fontSize = "0.8125rem";
+      tdNet.style.color = "var(--text-secondary)";
+      setText(tdNet, c.net_io || "-");
+      tr.appendChild(tdNet);
+
+      var tdBlock = document.createElement("td");
+      tdBlock.style.fontSize = "0.8125rem";
+      tdBlock.style.color = "var(--text-secondary)";
+      setText(tdBlock, c.block_io || "-");
+      tr.appendChild(tdBlock);
+
+      var tdPids = document.createElement("td");
+      setText(tdPids, String(c.pids));
+      tr.appendChild(tdPids);
+
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    tw.appendChild(table);
+    wrap.appendChild(tw);
+  }
 
   // ── Initial: try loading dashboard (if session cookie exists) ──
   (async function init() {

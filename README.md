@@ -299,6 +299,8 @@ serverpilot/
 │   └── update.go                   # sp update (auto-actualización + restart)
 │
 ├── internal/
+│   ├── sysinfo/                    # Recolección de métricas del sistema
+│   │   └── sysinfo.go
 │   ├── deps/                       # Detector e instalador de Docker y Nginx
 │   │   └── deps.go
 │   ├── auth/                       # Autenticación (bcrypt + sesiones)
@@ -358,6 +360,7 @@ El dashboard usa estos endpoints internamente. Todos requieren autenticación ex
 | POST | `/api/sites/create` | Crear sitio Nginx desde plantilla |
 | POST | `/api/sites/enable` | Habilitar sitio Nginx |
 | POST | `/api/sites/disable` | Deshabilitar sitio Nginx |
+| GET | `/api/system` | Métricas del sistema (CPU, RAM, disco, containers) |
 
 ---
 
