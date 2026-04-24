@@ -85,13 +85,27 @@ El dashboard queda disponible en `http://IP-DEL-SERVIDOR:8090`. Para usar otro p
 sp start --port 9090
 ```
 
-Para ejecutarlo en background:
+Para ejecutarlo como daemon (background) — se instala como servicio systemd automáticamente:
 
 ```sh
-nohup sp start &
+sudo sp start -d
 ```
 
-O creá un servicio de systemd (ver sección más abajo).
+O con puerto custom:
+
+```sh
+sudo sp start -d --port 9090
+```
+
+El daemon se inicia con el servidor, se reinicia solo si falla, y se actualiza automáticamente cuando ejecutás `sp update`.
+
+Para ver el estado, parar o ver logs:
+
+```sh
+sp status                            # ver estado del daemon
+sudo sp stop                         # parar el daemon
+journalctl -u serverpilot -f         # ver logs en vivo
+```
 
 ### Paso 3: Acceder al dashboard
 
@@ -108,6 +122,35 @@ Ingresá el usuario y contraseña que configuraste en el setup. El dashboard tie
 **Nginx Sites** — Muestra todos los sitios configurados con dominio, puerto, proxy pass, estado de SSL y si está habilitado o no. Desde acá podés habilitar/deshabilitar SSL y activar/desactivar sitios.
 
 **Mappings** — Muestra la relación entre containers y sitios. ServerPilot detecta esta relación analizando los `proxy_pass` de las configs de Nginx y comparándolos con los puertos de los containers. También te muestra containers sin sitio asociado y sitios huérfanos (que apuntan a containers que ya no existen).
+
+### Paso 4: Exponer el dashboard con un dominio
+
+Si querés acceder al dashboard desde fuera del servidor usando un dominio (en lugar de `IP:8090`), usá:
+
+```sh
+sudo sp expose --domain panel.miservidor.com
+```
+
+Esto crea automáticamente un reverse proxy en Nginx que apunta al dashboard. ServerPilot:
+
+1. Genera la config en `/etc/nginx/sites-available/panel.miservidor.com`
+2. La habilita con symlink en `sites-enabled/`
+3. Valida con `nginx -t`
+4. Recarga Nginx
+
+Después podés acceder al dashboard en `http://panel.miservidor.com`.
+
+Si el dashboard corre en un puerto diferente al 8090:
+
+```sh
+sudo sp expose --domain panel.miservidor.com --port 9090
+```
+
+Para agregar SSL al dominio expuesto:
+
+```sh
+certbot --nginx -d panel.miservidor.com
+```
 
 ### Actualizar ServerPilot
 
@@ -160,7 +203,15 @@ Los botones "Enable" y "Disable" en la pestaña "Nginx Sites" crean o eliminan e
 
 ## Ejecutar como servicio systemd
 
-Para que ServerPilot arranque automáticamente con el servidor:
+La forma más fácil es usar el flag `-d` (daemon):
+
+```sh
+sudo sp start -d
+```
+
+Esto automáticamente crea el archivo de servicio en `/etc/systemd/system/serverpilot.service`, habilita el servicio para que arranque con el servidor, e inicia el dashboard en background.
+
+Si preferís crear el servicio manualmente:
 
 ```sh
 sudo tee /etc/systemd/system/serverpilot.service > /dev/null <<EOF
@@ -186,6 +237,8 @@ sudo systemctl start serverpilot
 Verificar estado:
 
 ```sh
+sp status
+# o directamente:
 sudo systemctl status serverpilot
 ```
 
@@ -193,10 +246,17 @@ sudo systemctl status serverpilot
 
 ## Firewall
 
-Si usás `ufw`, abrí el puerto del dashboard:
+Si usás `ufw` y accedés directamente por IP+puerto, abrí el puerto del dashboard:
 
 ```sh
 sudo ufw allow 8090/tcp
+```
+
+Si usás `sp expose` con un dominio, no necesitás abrir el 8090 — Nginx ya escucha en el 80 (y 443 con SSL). Solo asegurate de tener abiertos los puertos HTTP/HTTPS:
+
+```sh
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
 ```
 
 En producción, considerá acceder via SSH tunnel en lugar de exponer el puerto:
@@ -231,8 +291,11 @@ serverpilot/
 ├── cmd/                            # Comandos CLI (Cobra)
 │   ├── root.go                     # Comando raíz "sp"
 │   ├── setup.go                    # sp setup
-│   ├── start.go                    # sp start [--port]
-│   └── update.go                   # sp update (auto-actualización)
+│   ├── start.go                    # sp start [--port] [-d]
+│   ├── stop.go                     # sp stop
+│   ├── status.go                   # sp status
+│   ├── expose.go                   # sp expose --domain [--port]
+│   └── update.go                   # sp update (auto-actualización + restart)
 │
 ├── internal/
 │   ├── deps/                       # Detector e instalador de Docker y Nginx

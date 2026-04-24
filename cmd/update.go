@@ -47,6 +47,16 @@ var updateCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Successfully updated to v%s.\n", latest)
+
+		// If the daemon is running, restart it so it picks up the new binary.
+		if IsRunningAsDaemon() {
+			fmt.Println()
+			if err := RestartDaemon(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: update succeeded but daemon restart failed: %v\n", err)
+				fmt.Fprintln(os.Stderr, "You can restart it manually with: sp stop && sp start -d")
+			}
+		}
+
 		return nil
 	},
 }
