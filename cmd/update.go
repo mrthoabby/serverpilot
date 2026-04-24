@@ -82,9 +82,11 @@ func downloadAndReplace(tagVersion string) error {
 	osName := runtime.GOOS
 	archName := runtime.GOARCH
 
+	// Strip the leading "v" from the tag for the release directory path.
+	ver := strings.TrimPrefix(tagVersion, "v")
 	downloadURL := fmt.Sprintf(
-		"https://github.com/mrthoabby/serverpilot/releases/download/%s/sp-%s-%s",
-		tagVersion, osName, archName,
+		"https://raw.githubusercontent.com/mrthoabby/serverpilot/master/release/%s/sp-%s-%s",
+		ver, osName, archName,
 	)
 
 	resp, err := http.Get(downloadURL)

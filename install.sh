@@ -81,7 +81,7 @@ fetch_latest_version() {
 # ---------------------------------------------------------------------------
 
 download_binary() {
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${BIN_NAME}-${OS}-${ARCH}"
+    DOWNLOAD_URL="https://raw.githubusercontent.com/${REPO}/master/release/${VERSION#v}/${BIN_NAME}-${OS}-${ARCH}"
     TMP_DIR="$(mktemp -d)"
     TMP_BIN="${TMP_DIR}/${BIN_NAME}"
 

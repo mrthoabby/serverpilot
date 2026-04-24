@@ -326,13 +326,13 @@ vs -m
 vs -M
 ```
 
-Después del push, crear el GitHub Release con los binarios:
+Eso es todo. El comando `vs` automáticamente:
+1. Actualiza `version.go`
+2. Ejecuta `vs-pre-run/Makefile` (compila binarios, actualiza fórmula Homebrew)
+3. Hace commit de `version.go` + `release/*` + `homebrew/*` (definidos en `.vscommit`)
+4. Crea el tag y push
 
-```sh
-# Subir los binarios al release de GitHub
-VERSION=$(grep 'const Version' version.go | sed 's/.*"\(.*\)"/\1/')
-gh release create v${VERSION} release/${VERSION}/* --title "v${VERSION}" --notes "Release v${VERSION}"
-```
+Los binarios quedan en el repo dentro de `release/{VERSION}/` y se descargan via `raw.githubusercontent.com`.
 
 ### Compilar manualmente (sin vs)
 
@@ -343,7 +343,7 @@ cd vs-pre-run && make build-all
 # sp-linux-amd64, sp-linux-arm64, sp-darwin-amd64, sp-darwin-arm64
 ```
 
-El `install.sh` y `sp update` descargan los binarios desde `https://github.com/mrthoabby/serverpilot/releases/download/vX.Y.Z/sp-{os}-{arch}`.
+El `install.sh` y `sp update` descargan los binarios desde `https://raw.githubusercontent.com/mrthoabby/serverpilot/master/release/X.Y.Z/sp-{os}-{arch}`.
 
 ---
 
