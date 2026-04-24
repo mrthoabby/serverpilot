@@ -637,6 +637,77 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   transition: width 0.5s ease;
 }
 
+/* ── Container Labels ── */
+.label-selector {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
+.label-btn {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  transition: all 0.15s;
+}
+
+.label-btn:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+
+.label-btn.active-api {
+  background: rgba(0, 180, 216, 0.2);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.label-btn.active-nestjs {
+  background: rgba(63, 185, 80, 0.2);
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.label-btn.active-back {
+  background: rgba(139, 148, 158, 0.2);
+  border-color: var(--text-secondary);
+  color: var(--text-secondary);
+}
+
+.label-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.label-badge-api {
+  background: rgba(0, 180, 216, 0.15);
+  color: var(--accent);
+}
+
+.label-badge-nestjs {
+  background: rgba(63, 185, 80, 0.15);
+  color: var(--green);
+}
+
+.label-badge-back {
+  background: rgba(139, 148, 158, 0.15);
+  color: var(--text-secondary);
+}
+
 /* ── Update Banner ── */
 .update-banner {
   display: none;
@@ -735,6 +806,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         <span class="update-version" id="updateVersionText"></span>
         <button class="btn btn-sm btn-success" id="updateBtn">Update</button>
       </div>
+      <button class="btn btn-sm btn-outline" id="checkUpdatesBtn" title="Check for new versions">&#x1F50D; Check Updates</button>
       <button class="btn btn-sm btn-outline" id="refreshBtn" title="Refresh current tab">&#x21bb; Refresh</button>
       <button class="btn btn-sm btn-outline" id="logoutBtn">Logout</button>
     </div>
@@ -1015,6 +1087,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   var containers = [];
   var sites = [];
   var mappings = { mapped: [], unmappedContainers: [], orphanedSites: [] };
+  var containerLabels = {}; // { containerName: "api"|"nestjs"|"back" }
   var activeTab = "containers";
 
   // Per-tab refresh timers and load functions.
@@ -1169,10 +1242,42 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   }
 
   // ── Containers ──
+  async function loadLabels() {
+    try {
+      var resp = await apiFetch("/api/labels");
+      containerLabels = (resp && resp.data) ? resp.data : {};
+    } catch(e) {
+      // Non-critical: keep existing labels cache.
+    }
+  }
+
+  async function setContainerLabel(containerName, label) {
+    try {
+      await apiFetch("/api/labels/set", { method: "POST", body: { container_name: containerName, label: label } });
+      containerLabels[containerName] = label;
+      showToast("Label '" + label + "' set for " + containerName, "success");
+      renderContainers(document.getElementById("containersContent"));
+    } catch(err) {
+      showToast("Failed to set label: " + err.message, "error");
+    }
+  }
+
+  async function removeContainerLabel(containerName) {
+    try {
+      await apiFetch("/api/labels/remove", { method: "POST", body: { container_name: containerName } });
+      delete containerLabels[containerName];
+      showToast("Label removed for " + containerName, "success");
+      renderContainers(document.getElementById("containersContent"));
+    } catch(err) {
+      showToast("Failed to remove label: " + err.message, "error");
+    }
+  }
+
   async function loadContainers() {
     var wrap = document.getElementById("containersContent");
     try {
-      var resp = await apiFetch("/api/containers");
+      var results = await Promise.all([apiFetch("/api/containers"), loadLabels()]);
+      var resp = results[0];
       containers = (resp && resp.data) ? resp.data : (Array.isArray(resp) ? resp : []);
       setText(document.getElementById("containerCount"), String(containers.length));
       renderContainers(wrap);
@@ -1212,7 +1317,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     var thead = document.createElement("thead");
     var trh = document.createElement("tr");
-    ["Name", "Image", "Status", "Ports", "Actions"].forEach(function(h) {
+    ["Name", "Image", "Status", "Ports", "Label", "Actions"].forEach(function(h) {
       var th = document.createElement("th");
       setText(th, h);
       trh.appendChild(th);
@@ -1275,20 +1380,68 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       }
       tr.appendChild(tdPorts);
 
-      // Actions
+      // Label
+      var currentLabel = containerLabels[c.name] || "";
+      var tdLabel = document.createElement("td");
+      var labelDiv = document.createElement("div");
+      labelDiv.className = "label-selector";
+
+      ["api", "nestjs", "back"].forEach(function(lbl) {
+        var btn = document.createElement("button");
+        btn.className = "label-btn" + (currentLabel === lbl ? " active-" + lbl : "");
+        setText(btn, lbl);
+        btn.title = currentLabel === lbl ? "Click to remove label" : "Set label to " + lbl;
+        (function(containerName, label, isActive) {
+          btn.addEventListener("click", function() {
+            if (isActive) {
+              removeContainerLabel(containerName);
+            } else {
+              setContainerLabel(containerName, label);
+            }
+          });
+        })(c.name, lbl, currentLabel === lbl);
+        labelDiv.appendChild(btn);
+      });
+      tdLabel.appendChild(labelDiv);
+      tr.appendChild(tdLabel);
+
+      // Actions (based on label)
       var tdAct = document.createElement("td");
       tdAct.className = "actions-cell";
-      if (!siteDomains[c.name]) {
-        var assocBtn = document.createElement("button");
-        assocBtn.className = "btn btn-sm btn-primary";
-        setText(assocBtn, "Associate Site");
-        assocBtn.addEventListener("click", function() { openAssociateModal(c); });
-        tdAct.appendChild(assocBtn);
-      } else {
+
+      if (siteDomains[c.name]) {
+        // Already has a site linked
         var linked = document.createElement("span");
         linked.className = "badge badge-info";
         setText(linked, "Site linked");
         tdAct.appendChild(linked);
+      } else if (currentLabel === "api") {
+        // API label → Associate API button
+        var apiBtn = document.createElement("button");
+        apiBtn.className = "btn btn-sm btn-primary";
+        setText(apiBtn, "Associate API");
+        apiBtn.addEventListener("click", function() { openAssociateModal(c, "api"); });
+        tdAct.appendChild(apiBtn);
+      } else if (currentLabel === "nestjs") {
+        // NestJS label → Associate Site button
+        var nestBtn = document.createElement("button");
+        nestBtn.className = "btn btn-sm btn-success";
+        setText(nestBtn, "Associate Site");
+        nestBtn.addEventListener("click", function() { openAssociateModal(c, "nestjs"); });
+        tdAct.appendChild(nestBtn);
+      } else if (currentLabel === "back") {
+        // Backend label → no action, show badge
+        var backBadge = document.createElement("span");
+        backBadge.className = "label-badge label-badge-back";
+        setText(backBadge, "Backend");
+        tdAct.appendChild(backBadge);
+      } else {
+        // No label → show hint
+        var noLabel = document.createElement("span");
+        noLabel.style.color = "var(--text-muted)";
+        noLabel.style.fontSize = "0.8rem";
+        setText(noLabel, "Set a label first");
+        tdAct.appendChild(noLabel);
       }
       tr.appendChild(tdAct);
 
@@ -1657,16 +1810,18 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   // ── Associate Site Modal ──
   var assocModal = document.getElementById("associateModal");
 
-  function openAssociateModal(container) {
+  function openAssociateModal(container, templateType) {
     document.getElementById("assocContainerId").value = container.id;
-    setText(document.getElementById("associateModalSub"), "Create an Nginx site for \"" + container.name + "\"");
+    var label = templateType || "nestjs";
+    var actionText = label === "api" ? "Create an API reverse proxy" : "Create an Nginx site";
+    setText(document.getElementById("associateModalSub"), actionText + " for \"" + container.name + "\"");
     document.getElementById("assocDomain").value = "";
     var port = "";
     if (container.ports && container.ports.length) {
       port = String(container.ports[0].container_port || container.ports[0].host_port || "");
     }
     document.getElementById("assocPort").value = port;
-    document.getElementById("assocTemplate").value = "nestjs";
+    document.getElementById("assocTemplate").value = label;
     assocModal.classList.add("show");
   }
 
@@ -2274,6 +2429,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
   // ── Version Check ──
   async function checkForUpdates() {
+    var checkBtn = document.getElementById("checkUpdatesBtn");
+    checkBtn.disabled = true;
+    setText(checkBtn, "Checking...");
     try {
       var resp = await apiFetch("/api/version-check");
       var data = resp && resp.data ? resp.data : resp;
@@ -2282,11 +2440,20 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         var vText = document.getElementById("updateVersionText");
         setText(vText, "v" + data.current + " \u2192 v" + data.latest);
         banner.style.display = "flex";
+        checkBtn.style.display = "none";
+        showToast("New version v" + data.latest + " available!", "success");
+      } else {
+        showToast("You are up to date (v" + (data ? data.current : "?") + ")", "success");
       }
     } catch(e) {
-      // Silently ignore version check failures.
+      showToast("Failed to check for updates: " + e.message, "error");
+    } finally {
+      checkBtn.disabled = false;
+      setText(checkBtn, "\uD83D\uDD0D Check Updates");
     }
   }
+
+  document.getElementById("checkUpdatesBtn").addEventListener("click", checkForUpdates);
 
   document.getElementById("updateBtn").addEventListener("click", async function() {
     var btn = document.getElementById("updateBtn");
@@ -2297,6 +2464,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       var data = resp && resp.data ? resp.data : resp;
       showToast(data.message || "Update complete", "success");
       document.getElementById("updateBanner").style.display = "none";
+      document.getElementById("checkUpdatesBtn").style.display = "";
       // After a short delay, reload to pick up the new version.
       setTimeout(function() { window.location.reload(); }, 3000);
     } catch(err) {
@@ -2311,8 +2479,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     try {
       await apiFetch("/api/containers");
       showDashboard();
-      // Check for updates on every page load (non-blocking).
-      checkForUpdates();
     } catch(e) {
       showLogin();
     }

@@ -17,6 +17,7 @@ import (
 
 	"github.com/mrthoabby/serverpilot/internal/auth"
 	"github.com/mrthoabby/serverpilot/internal/docker"
+	"github.com/mrthoabby/serverpilot/internal/labels"
 	"github.com/mrthoabby/serverpilot/internal/mapper"
 	"github.com/mrthoabby/serverpilot/internal/nginx"
 	"github.com/mrthoabby/serverpilot/internal/sysinfo"
@@ -400,6 +401,106 @@ func isValidDomain(domain string) bool {
 // containsHTML checks if a string contains HTML tags.
 func containsHTML(s string) bool {
 	return htmlTagRegex.MatchString(s)
+}
+
+// ── Container Labels Handlers ──
+
+type labelSetRequest struct {
+	ContainerName string `json:"container_name"`
+	Label         string `json:"label"`
+}
+
+type labelRemoveRequest struct {
+	ContainerName string `json:"container_name"`
+}
+
+func (s *Server) handleLabelsGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	all, err := labels.GetAll()
+	if err != nil {
+		log.Printf("Error reading labels: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to read labels"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: all})
+}
+
+func (s *Server) handleLabelSet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	var req labelSetRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	if containsHTML(req.ContainerName) || containsHTML(req.Label) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid input"})
+		return
+	}
+
+	if req.ContainerName == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "container_name is required"})
+		return
+	}
+
+	if !labels.ValidLabel(req.Label) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid label; use 'api', 'nestjs', or 'back'"})
+		return
+	}
+
+	if err := labels.Set(req.ContainerName, labels.Label(req.Label)); err != nil {
+		log.Printf("Error setting label for %s: %v", req.ContainerName, err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to set label"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data:    map[string]string{"message": "Label '" + req.Label + "' set for " + req.ContainerName},
+	})
+}
+
+func (s *Server) handleLabelRemove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	var req labelRemoveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	if containsHTML(req.ContainerName) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid input"})
+		return
+	}
+
+	if req.ContainerName == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "container_name is required"})
+		return
+	}
+
+	if err := labels.Remove(req.ContainerName); err != nil {
+		log.Printf("Error removing label for %s: %v", req.ContainerName, err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to remove label"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data:    map[string]string{"message": "Label removed for " + req.ContainerName},
+	})
 }
 
 // ── Version Check & Self-Update Handlers ──
