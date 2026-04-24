@@ -3,4 +3,4 @@
 *.exe
 .vscode/
 .DS_Store
-/release/
+# release/{VERSION}/ is committed for install.sh / Homebrew (not only local build output)

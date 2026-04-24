@@ -31,6 +31,15 @@ GOFLAGS      := -trimpath
 # Platform matrix
 PLATFORMS    := linux-amd64 linux-arm64 darwin-amd64 darwin-arm64
 
+# GNU vs BSD: sed -i and sha256
+ifeq ($(shell uname -s),Darwin)
+  SEDI     := sed -i ''
+  SHA256OF := shasum -a 256
+else
+  SEDI     := sed -i
+  SHA256OF := sha256sum
+endif
+
 # ---------------------------------------------------------------------------
 # Default target
 # ---------------------------------------------------------------------------
@@ -107,13 +116,14 @@ release-dir:
 .PHONY: build-all
 build-all: $(addprefix build-,$(PLATFORMS))
 
+# Pure-make GOOS/GOARCH: avoid $$ARCH ($$A + $(R)...), $$OS, and $$(echo which confuses make.
 define BUILD_RULE
 .PHONY: build-$(1)
 build-$(1):
-	@OS=$$(echo $(1) | cut -d- -f1); \
-	ARCH=$$(echo $(1) | cut -d- -f2); \
-	echo "Building $(BIN_NAME)-$(1)..."; \
-	cd .. && CGO_ENABLED=0 GOOS=$$OS GOARCH=$$ARCH \
+	@echo "Building $(BIN_NAME)-$(1)..."; \
+	cd .. && CGO_ENABLED=0 \
+		GOOS=$(word 1,$(subst -, ,$(1))) \
+		GOARCH=$(word 2,$(subst -, ,$(1))) \
 		go build $(GOFLAGS) -ldflags '$(LDFLAGS)' \
 		-o release/$(VERSION)/$(BIN_NAME)-$(1) .
 endef
@@ -132,7 +142,7 @@ archive-prev:
 			if [ ! -f "$$ARCHIVE" ]; then \
 				echo "Archiving previous formula as sp@$(PREV_VERSION).rb"; \
 				cp $(FORMULA) "$$ARCHIVE"; \
-				sed -i 's/class Sp </class SpAT$(PREV_VERSION) </' "$$ARCHIVE"; \
+				$(SEDI) 's/class Sp </class SpAT$(PREV_VERSION) </' "$$ARCHIVE"; \
 			else \
 				echo "Archive sp@$(PREV_VERSION).rb already exists, skipping."; \
 			fi; \
@@ -151,21 +161,21 @@ update-formula:
 	@for platform in $(PLATFORMS); do \
 		BINARY="$(BUILD_DIR)/$(BIN_NAME)-$$platform"; \
 		if [ -f "$$BINARY" ]; then \
-			SHA=$$(sha256sum "$$BINARY" | awk '{print $$1}'); \
+			SHA=$$($(SHA256OF) "$$BINARY" | awk '{print $$1}'); \
 			echo "  $$platform: $$SHA"; \
 		fi; \
 	done
 	@# Update version
-	@sed -i 's/version ".*"/version "$(VERSION)"/' $(FORMULA)
+	@$(SEDI) 's/version ".*"/version "$(VERSION)"/' $(FORMULA)
 	@# Update URLs and hashes for each platform
 	@for platform in $(PLATFORMS); do \
 		BINARY="$(BUILD_DIR)/$(BIN_NAME)-$$platform"; \
 		if [ -f "$$BINARY" ]; then \
-			SHA=$$(sha256sum "$$BINARY" | awk '{print $$1}'); \
+			SHA=$$($(SHA256OF) "$$BINARY" | awk '{print $$1}'); \
 			OLD_URL_PATTERN="$(BIN_NAME)-$$platform\""; \
 			NEW_URL="$(REPO_URL)/release/$(VERSION)/$(BIN_NAME)-$$platform\""; \
-			sed -i "s|url \".*$(BIN_NAME)-$$platform\"|url \"$$NEW_URL|" $(FORMULA); \
-			sed -i "/$(BIN_NAME)-$$platform/{ n; s/sha256 \".*\"/sha256 \"$$SHA\"/; }" $(FORMULA); \
+			$(SEDI) "s|url \".*$(BIN_NAME)-$$platform\"|url \"$$NEW_URL|" $(FORMULA); \
+			$(SEDI) "/$(BIN_NAME)-$$platform/{ n; s/sha256 \".*\"/sha256 \"$$SHA\"/; }" $(FORMULA); \
 		fi; \
 	done
 	@echo "Formula updated: $(FORMULA)"
