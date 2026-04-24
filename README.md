@@ -255,7 +255,7 @@ serverpilot/
 │       └── static/
 │           └── index.html          # Dashboard (HTML/CSS/JS embebido)
 │
-├── sp-pre-run/                     # Makefile de build y release
+├── vs-pre-run/                     # Makefile ejecutado por el comando `vs` al hacer release
 │   └── Makefile
 ├── homebrew/Formula/               # Fórmulas Homebrew
 │   └── sp.rb
@@ -299,31 +299,48 @@ El dashboard usa estos endpoints internamente. Todos requieren autenticación ex
 
 ## Build y release
 
-El proyecto usa un sistema de build inspirado en [versionator](https://github.com/mrthoabby/homebrew-versionator). Los binarios se distribuyen via **GitHub Releases**.
+El proyecto usa [versionator](https://github.com/mrthoabby/homebrew-versionator) (`vs`) para gestionar versiones y releases. Los binarios se distribuyen via **GitHub Releases**.
 
-### Compilar y subir un release
+### Cómo funciona
+
+Cuando ejecutás `vs -p` (o `-m`, `-M`) en este repo, versionator:
+
+1. Actualiza `version.go` con la nueva versión.
+2. Ejecuta automáticamente `vs-pre-run/Makefile` — que compila los binarios para todas las plataformas y actualiza la fórmula Homebrew.
+3. Hace commit, tag, y push.
+
+### Crear un release
 
 ```sh
-# 1. Compilar para todas las plataformas
-cd sp-pre-run && make build-all
+# Instalar versionator si no lo tenés
+brew tap mrthoabby/versionator
+brew install vs
+
+# Bump patch (1.0.0 → 1.0.1), compila binarios, commit, tag, push
+vs -p
+
+# Bump minor (1.0.0 → 1.1.0)
+vs -m
+
+# Bump major (1.0.0 → 2.0.0)
+vs -M
+```
+
+Después del push, crear el GitHub Release con los binarios:
+
+```sh
+# Subir los binarios al release de GitHub
+VERSION=$(grep 'const Version' version.go | sed 's/.*"\(.*\)"/\1/')
+gh release create v${VERSION} release/${VERSION}/* --title "v${VERSION}" --notes "Release v${VERSION}"
+```
+
+### Compilar manualmente (sin vs)
+
+```sh
+cd vs-pre-run && make build-all
 
 # Los binarios se generan en release/{VERSION}/
 # sp-linux-amd64, sp-linux-arm64, sp-darwin-amd64, sp-darwin-arm64
-
-# 2. Crear el tag y push
-git add .
-git commit -m "chore: release v1.0.0"
-git tag v1.0.0
-git push origin main --tags
-
-# 3. Crear el GitHub Release con los binarios
-gh release create v1.0.0 release/1.0.0/* --title "v1.0.0" --notes "Initial release"
-```
-
-Para crear un release completo (binarios + fórmula Homebrew):
-
-```sh
-cd sp-pre-run && make all
 ```
 
 El `install.sh` y `sp update` descargan los binarios desde `https://github.com/mrthoabby/serverpilot/releases/download/vX.Y.Z/sp-{os}-{arch}`.
