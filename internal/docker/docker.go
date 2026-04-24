@@ -160,6 +160,93 @@ func GetContainerDetails(id string) (*Container, error) {
 	return container, nil
 }
 
+// Image represents a Docker image.
+type Image struct {
+	ID         string `json:"id"`
+	Repository string `json:"repository"`
+	Tag        string `json:"tag"`
+	Size       string `json:"size"`
+	Created    string `json:"created"`
+}
+
+// ListImages returns all local Docker images.
+func ListImages() ([]Image, error) {
+	dockerBin, err := deps.DockerPath()
+	if err != nil {
+		return nil, err
+	}
+
+	tmpl := `{"id":"{{.ID}}","repository":"{{.Repository}}","tag":"{{.Tag}}","size":"{{.Size}}","created":"{{.CreatedSince}}"}`
+	cmd := exec.Command(dockerBin, "images", "--format", tmpl, "--no-trunc")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list images: %w", err)
+	}
+
+	var images []Image
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		var img Image
+		if err := json.Unmarshal([]byte(line), &img); err != nil {
+			fmt.Fprintf(os.Stderr, "docker images parse warning: %v (line: %s)\n", err, line)
+			continue
+		}
+		images = append(images, img)
+	}
+
+	return images, nil
+}
+
+// RemoveImage removes a Docker image by ID. The ID must be a valid hex string.
+func RemoveImage(imageID string) error {
+	// Validate image ID: only allow hex chars and "sha256:" prefix.
+	cleanID := strings.TrimPrefix(imageID, "sha256:")
+	for _, c := range cleanID {
+		if !((c >= 'a' && c <= 'f') || (c >= '0' && c <= '9')) {
+			return fmt.Errorf("invalid image ID format")
+		}
+	}
+
+	dockerBin, err := deps.DockerPath()
+	if err != nil {
+		return err
+	}
+
+	cmd := exec.Command(dockerBin, "rmi", imageID)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to remove image: %s", strings.TrimSpace(string(output)))
+	}
+
+	return nil
+}
+
+// ForceRemoveImage removes a Docker image by ID with --force flag.
+func ForceRemoveImage(imageID string) error {
+	cleanID := strings.TrimPrefix(imageID, "sha256:")
+	for _, c := range cleanID {
+		if !((c >= 'a' && c <= 'f') || (c >= '0' && c <= '9')) {
+			return fmt.Errorf("invalid image ID format")
+		}
+	}
+
+	dockerBin, err := deps.DockerPath()
+	if err != nil {
+		return err
+	}
+
+	cmd := exec.Command(dockerBin, "rmi", "--force", imageID)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to remove image: %s", strings.TrimSpace(string(output)))
+	}
+
+	return nil
+}
+
 // parsePorts parses the docker ps "Ports" column into PortMapping structs.
 func parsePorts(portsStr string) []PortMapping {
 	var ports []PortMapping

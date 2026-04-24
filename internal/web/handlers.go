@@ -157,6 +157,79 @@ func (s *Server) handleContainers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: containers})
 }
 
+func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	images, err := docker.ListImages()
+	if err != nil {
+		log.Printf("Error listing images: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to list images"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: images})
+}
+
+type imageDeleteRequest struct {
+	IDs   []string `json:"ids"`
+	Force bool     `json:"force"`
+}
+
+func (s *Server) handleImagesDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	var req imageDeleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "no image IDs provided"})
+		return
+	}
+
+	if len(req.IDs) > 100 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "too many images at once (max 100)"})
+		return
+	}
+
+	var removed []string
+	var errors []string
+	for _, id := range req.IDs {
+		if containsHTML(id) {
+			errors = append(errors, id+": invalid ID")
+			continue
+		}
+
+		var err error
+		if req.Force {
+			err = docker.ForceRemoveImage(id)
+		} else {
+			err = docker.RemoveImage(id)
+		}
+		if err != nil {
+			errors = append(errors, id+": "+err.Error())
+		} else {
+			removed = append(removed, id)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"removed": removed,
+			"errors":  errors,
+		},
+	})
+}
+
 func (s *Server) handleSites(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})

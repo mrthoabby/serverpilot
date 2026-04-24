@@ -44,6 +44,8 @@ func (s *Server) Start() error {
 	// Protected API routes.
 	mux.Handle("/api/logout", s.authMiddleware(http.HandlerFunc(s.handleLogout)))
 	mux.Handle("/api/containers", s.authMiddleware(http.HandlerFunc(s.handleContainers)))
+	mux.Handle("/api/images", s.authMiddleware(http.HandlerFunc(s.handleImages)))
+	mux.Handle("/api/images/delete", s.authMiddleware(http.HandlerFunc(s.handleImagesDelete)))
 	mux.Handle("/api/sites", s.authMiddleware(http.HandlerFunc(s.handleSites)))
 	mux.Handle("/api/mappings", s.authMiddleware(http.HandlerFunc(s.handleMappings)))
 	mux.Handle("/api/ssl/enable", s.authMiddleware(http.HandlerFunc(s.handleSSLEnable)))

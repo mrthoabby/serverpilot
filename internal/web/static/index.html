@@ -746,6 +746,26 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   50% { opacity: 0.4; transform: scale(0.7); }
 }
 
+/* ── Image Checkboxes ── */
+.img-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.img-id-short {
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.img-selected-count {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  margin-right: 0.5rem;
+}
+
 /* ── Mini Sparkline ── */
 .sparkline-svg {
   width: 80px;
@@ -822,6 +842,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M0 8a8 8 0 1116 0A8 8 0 010 8zm7.5-6.923c-.67.204-1.335.82-1.887 1.855A7.97 7.97 0 005.145 4H7.5V1.077zM4.09 4a9.267 9.267 0 01.64-1.539 6.7 6.7 0 01.597-.933A7.025 7.025 0 002.255 4H4.09zm-.582 3.5c.03-.877.138-1.718.312-2.5H1.674a6.958 6.958 0 00-.656 2.5h2.49zM4.847 5a12.5 12.5 0 00-.338 2.5H7.5V5H4.847z"/></svg>
         Nginx Sites <span class="tab-count" id="siteCount">0</span>
       </button>
+      <button class="tab-btn" data-tab="images">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2.5A2.5 2.5 0 014.5 0h7A2.5 2.5 0 0114 2.5v10.795a4.2 4.2 0 00-.775-.14l-.217-.014H2V2.5zM2.5 14v.5A1.5 1.5 0 004 16h9.5a2.5 2.5 0 002.5-2.5v-8A2.5 2.5 0 0013.5 3H14v10.5a1.5 1.5 0 01-1.5 1.5h-10z"/></svg>
+        Images <span class="tab-count" id="imageCount">0</span>
+      </button>
       <button class="tab-btn" data-tab="mappings">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6.354 5.5H4a3 3 0 000 6h3a3 3 0 002.83-4H9a2 2 0 01-2 2H4a2 2 0 110-4h2.354a4.007 4.007 0 010-1H4a3 3 0 100 6h3a4.002 4.002 0 003.874-3H12a3 3 0 000-6H9a3 3 0 00-2.83 4h.914A2 2 0 019 5.5h3a2 2 0 010 4h-2.354a4.002 4.002 0 010 1H12a3 3 0 100-6H9a4.002 4.002 0 00-3.874 3H4.17A2 2 0 014 5.5h2.354z"/></svg>
         Mappings <span class="tab-count" id="mappingCount">0</span>
@@ -878,6 +902,35 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         </div>
         <div id="sitesContent">
           <div class="spinner"><div class="spinner-ring"></div>Loading sites...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Images Tab -->
+    <div class="tab-panel" id="panel-images">
+      <div class="refresh-bar">
+        <span class="refresh-bar-ts" id="ts-images">--</span>
+        <div class="refresh-bar-ctrl">
+          <label class="refresh-label">Auto-refresh:</label>
+          <select class="refresh-select" data-tab="images" id="refresh-images">
+            <option value="0" selected>Disabled</option>
+            <option value="5">5s</option>
+            <option value="10">10s</option>
+            <option value="15">15s</option>
+            <option value="30">30s</option>
+          </select>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <h2>Docker Images</h2>
+          <div style="display:flex;gap:0.5rem;align-items:center;">
+            <button class="btn btn-sm btn-danger" id="deleteSelectedImagesBtn" style="display:none;">Delete Selected</button>
+            <button class="btn btn-sm btn-outline" id="deleteSelectedForceBtn" style="display:none;" title="Force remove even if in use">Force Delete</button>
+          </div>
+        </div>
+        <div id="imagesContent">
+          <div class="spinner"><div class="spinner-ring"></div>Loading images...</div>
         </div>
       </div>
     </div>
@@ -1088,6 +1141,8 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   var sites = [];
   var mappings = { mapped: [], unmappedContainers: [], orphanedSites: [] };
   var containerLabels = {}; // { containerName: "api"|"nestjs"|"back" }
+  var images = [];
+  var selectedImageIDs = {};
   var activeTab = "containers";
 
   // Per-tab refresh timers and load functions.
@@ -1095,13 +1150,14 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   var tabLoaders = {
     containers: function() { return loadContainers(); },
     sites:      function() { return loadSites(); },
+    images:     function() { return loadImages(); },
     mappings:   function() { return loadMappings(); },
     resources:  function() { return loadResources(); }
   };
 
   // ── Cookie-based refresh config (no localStorage) ──
   function getRefreshConfig() {
-    var cfg = { containers: 30, sites: 30, mappings: 30, resources: 10 };
+    var cfg = { containers: 30, sites: 30, images: 0, mappings: 30, resources: 10 };
     var match = document.cookie.match(/(?:^|;\s*)sp_refresh=([^;]*)/);
     if (match) {
       try { var parsed = JSON.parse(decodeURIComponent(match[1])); Object.assign(cfg, parsed); } catch(e) {}
@@ -1116,7 +1172,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
   function applyRefreshConfig() {
     var cfg = getRefreshConfig();
-    ["containers", "sites", "mappings", "resources"].forEach(function(tab) {
+    ["containers", "sites", "images", "mappings", "resources"].forEach(function(tab) {
       var sel = document.getElementById("refresh-" + tab);
       if (sel) sel.value = String(cfg[tab] || 0);
     });
@@ -1145,7 +1201,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   }
 
   function startAllTimers() {
-    ["containers", "sites", "mappings", "resources"].forEach(startTabTimer);
+    ["containers", "sites", "images", "mappings", "resources"].forEach(startTabTimer);
   }
 
   // Handle combo box changes.
@@ -1602,6 +1658,211 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     tw.appendChild(table);
     wrap.appendChild(tw);
   }
+
+  // ── Images ──
+  async function loadImages() {
+    var wrap = document.getElementById("imagesContent");
+    try {
+      var resp = await apiFetch("/api/images");
+      images = (resp && resp.data) ? resp.data : (Array.isArray(resp) ? resp : []);
+      setText(document.getElementById("imageCount"), String(images.length));
+      selectedImageIDs = {};
+      updateDeleteButtons();
+      renderImages(wrap);
+      updateTabTimestamp("images");
+    } catch(err) {
+      wrap.innerHTML = "";
+      var em = document.createElement("div");
+      em.className = "empty-state";
+      var p = document.createElement("p");
+      setText(p, "Failed to load images: " + err.message);
+      em.appendChild(p);
+      wrap.appendChild(em);
+    }
+  }
+
+  function updateDeleteButtons() {
+    var count = Object.keys(selectedImageIDs).length;
+    var delBtn = document.getElementById("deleteSelectedImagesBtn");
+    var forceBtn = document.getElementById("deleteSelectedForceBtn");
+    if (count > 0) {
+      delBtn.style.display = "";
+      forceBtn.style.display = "";
+      setText(delBtn, "Delete (" + count + ")");
+      setText(forceBtn, "Force Delete (" + count + ")");
+    } else {
+      delBtn.style.display = "none";
+      forceBtn.style.display = "none";
+    }
+  }
+
+  function renderImages(wrap) {
+    wrap.innerHTML = "";
+    if (!images.length) {
+      var em = document.createElement("div");
+      em.className = "empty-state";
+      var p = document.createElement("p");
+      setText(p, "No Docker images found");
+      em.appendChild(p);
+      wrap.appendChild(em);
+      return;
+    }
+
+    var tw = document.createElement("div");
+    tw.className = "table-wrap";
+    var table = document.createElement("table");
+
+    var thead = document.createElement("thead");
+    var trh = document.createElement("tr");
+
+    // Select-all checkbox header
+    var thCheck = document.createElement("th");
+    thCheck.style.width = "36px";
+    var selectAll = document.createElement("input");
+    selectAll.type = "checkbox";
+    selectAll.className = "img-checkbox";
+    selectAll.title = "Select / deselect all";
+    selectAll.addEventListener("change", function() {
+      var checked = selectAll.checked;
+      images.forEach(function(img) {
+        if (checked) {
+          selectedImageIDs[img.id] = true;
+        } else {
+          delete selectedImageIDs[img.id];
+        }
+      });
+      // Update all row checkboxes.
+      table.querySelectorAll("tbody .img-checkbox").forEach(function(cb) {
+        cb.checked = checked;
+      });
+      updateDeleteButtons();
+    });
+    thCheck.appendChild(selectAll);
+    trh.appendChild(thCheck);
+
+    ["Repository", "Tag", "Image ID", "Size", "Created"].forEach(function(h) {
+      var th = document.createElement("th");
+      setText(th, h);
+      trh.appendChild(th);
+    });
+    thead.appendChild(trh);
+    table.appendChild(thead);
+
+    var tbody = document.createElement("tbody");
+    images.forEach(function(img) {
+      var tr = document.createElement("tr");
+
+      // Checkbox
+      var tdCheck = document.createElement("td");
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.className = "img-checkbox";
+      cb.checked = !!selectedImageIDs[img.id];
+      (function(imageID) {
+        cb.addEventListener("change", function() {
+          if (cb.checked) {
+            selectedImageIDs[imageID] = true;
+          } else {
+            delete selectedImageIDs[imageID];
+          }
+          // Update select-all checkbox state.
+          selectAll.checked = Object.keys(selectedImageIDs).length === images.length;
+          updateDeleteButtons();
+        });
+      })(img.id);
+      tdCheck.appendChild(cb);
+      tr.appendChild(tdCheck);
+
+      // Repository
+      var tdRepo = document.createElement("td");
+      var repoStrong = document.createElement("strong");
+      setText(repoStrong, img.repository || "<none>");
+      if (img.repository === "<none>") repoStrong.style.color = "var(--text-muted)";
+      tdRepo.appendChild(repoStrong);
+      tr.appendChild(tdRepo);
+
+      // Tag
+      var tdTag = document.createElement("td");
+      var tagSpan = document.createElement("span");
+      tagSpan.className = "port-tag";
+      setText(tagSpan, img.tag || "<none>");
+      if (img.tag === "<none>") tagSpan.style.color = "var(--text-muted)";
+      tdTag.appendChild(tagSpan);
+      tr.appendChild(tdTag);
+
+      // Image ID (short)
+      var tdID = document.createElement("td");
+      var idSpan = document.createElement("span");
+      idSpan.className = "img-id-short";
+      idSpan.title = img.id;
+      var shortID = img.id.replace("sha256:", "").substring(0, 12);
+      setText(idSpan, shortID);
+      tdID.appendChild(idSpan);
+      tr.appendChild(tdID);
+
+      // Size
+      var tdSize = document.createElement("td");
+      setText(tdSize, img.size || "-");
+      tdSize.style.fontFamily = '"SF Mono","Fira Code",monospace';
+      tdSize.style.fontSize = "0.8125rem";
+      tr.appendChild(tdSize);
+
+      // Created
+      var tdCreated = document.createElement("td");
+      tdCreated.style.color = "var(--text-secondary)";
+      tdCreated.style.fontSize = "0.8125rem";
+      setText(tdCreated, img.created || "-");
+      tr.appendChild(tdCreated);
+
+      tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    tw.appendChild(table);
+    wrap.appendChild(tw);
+  }
+
+  async function deleteSelectedImages(force) {
+    var ids = Object.keys(selectedImageIDs);
+    if (!ids.length) return;
+
+    var label = force ? "Force delete" : "Delete";
+    confirmAction(
+      label + " " + ids.length + " image(s)?",
+      "This will remove " + ids.length + " Docker image(s)" + (force ? " (forced, even if in use by containers)" : "") + ". This action cannot be undone.",
+      async function() {
+        try {
+          var resp = await apiFetch("/api/images/delete", {
+            method: "POST",
+            body: { ids: ids, force: force }
+          });
+          var data = (resp && resp.data) ? resp.data : resp;
+          var removedCount = data.removed ? data.removed.length : 0;
+          var errorCount = data.errors ? data.errors.length : 0;
+
+          if (removedCount > 0) {
+            showToast(removedCount + " image(s) removed", "success");
+          }
+          if (errorCount > 0) {
+            showToast(errorCount + " image(s) failed: " + data.errors[0], "error");
+          }
+
+          selectedImageIDs = {};
+          await loadImages();
+        } catch(err) {
+          showToast("Failed to delete images: " + err.message, "error");
+        }
+      }
+    );
+  }
+
+  document.getElementById("deleteSelectedImagesBtn").addEventListener("click", function() {
+    deleteSelectedImages(false);
+  });
+
+  document.getElementById("deleteSelectedForceBtn").addEventListener("click", function() {
+    deleteSelectedImages(true);
+  });
 
   // ── Mappings ──
   async function loadMappings() {
