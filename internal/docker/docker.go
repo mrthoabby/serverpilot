@@ -3,6 +3,7 @@ package docker
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -28,23 +29,29 @@ type Container struct {
 }
 
 // dockerPSOutput is used for JSON parsing from docker ps.
+// Field tags match the explicit --format template we build in ListContainers().
 type dockerPSOutput struct {
-	ID      string `json:"ID"`
-	Names   string `json:"Names"`
-	Image   string `json:"Image"`
-	Status  string `json:"Status"`
-	Ports   string `json:"Ports"`
-	Created string `json:"CreatedAt"`
+	ID      string `json:"id"`
+	Names   string `json:"names"`
+	Image   string `json:"image"`
+	Status  string `json:"status"`
+	Ports   string `json:"ports"`
+	Created string `json:"created"`
 }
 
 // ListContainers returns all running Docker containers.
+// Uses an explicit --format template instead of {{json .}} to avoid
+// field-name mismatches across Docker versions.
 func ListContainers() ([]Container, error) {
 	dockerBin, err := deps.DockerPath()
 	if err != nil {
 		return nil, err
 	}
 
-	cmd := exec.Command(dockerBin, "ps", "--format", "{{json .}}", "--no-trunc")
+	// Build a custom JSON template with known field names so parsing never
+	// silently fails due to Docker version differences.
+	tmpl := `{"id":"{{.ID}}","names":"{{.Names}}","image":"{{.Image}}","status":"{{.Status}}","ports":"{{.Ports}}","created":"{{.CreatedAt}}"}`
+	cmd := exec.Command(dockerBin, "ps", "--format", tmpl, "--no-trunc")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list containers: %w", err)
@@ -60,7 +67,10 @@ func ListContainers() ([]Container, error) {
 
 		var raw dockerPSOutput
 		if err := json.Unmarshal([]byte(line), &raw); err != nil {
-			continue // skip malformed lines
+			// Log and skip truly malformed lines, but this should not happen
+			// since we control the template format above.
+			fmt.Fprintf(os.Stderr, "docker ps parse warning: %v (line: %s)\n", err, line)
+			continue
 		}
 
 		createdAt, _ := time.Parse("2006-01-02 15:04:05 -0700 MST", raw.Created)

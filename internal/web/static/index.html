@@ -1172,7 +1172,8 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   async function loadContainers() {
     var wrap = document.getElementById("containersContent");
     try {
-      containers = await apiFetch("/api/containers");
+      var resp = await apiFetch("/api/containers");
+      containers = (resp && resp.data) ? resp.data : (Array.isArray(resp) ? resp : []);
       setText(document.getElementById("containerCount"), String(containers.length));
       renderContainers(wrap);
       updateTabTimestamp("containers");
@@ -1189,7 +1190,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
   function getSiteDomains() {
     var d = {};
-    mappings.mapped.forEach(function(m) { d[m.containerName] = true; });
+    mappings.mapped.forEach(function(m) { d[m.container_name] = true; });
     return d;
   }
 
@@ -1263,7 +1264,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         c.ports.forEach(function(p) {
           var ptag = document.createElement("span");
           ptag.className = "port-tag";
-          setText(ptag, p.hostPort + ":" + p.containerPort + "/" + p.protocol);
+          setText(ptag, p.host_port + ":" + p.container_port + "/" + p.protocol);
           tdPorts.appendChild(ptag);
         });
       } else {
@@ -1302,7 +1303,8 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   async function loadSites() {
     var wrap = document.getElementById("sitesContent");
     try {
-      sites = await apiFetch("/api/sites");
+      var resp = await apiFetch("/api/sites");
+      sites = (resp && resp.data) ? resp.data : (Array.isArray(resp) ? resp : []);
       setText(document.getElementById("siteCount"), String(sites.length));
       renderSites(wrap);
       updateTabTimestamp("sites");
@@ -1357,7 +1359,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       var tdPort = document.createElement("td");
       var ptag = document.createElement("span");
       ptag.className = "port-tag";
-      setText(ptag, String(s.listenPort));
+      setText(ptag, String(s.listen_port));
       tdPort.appendChild(ptag);
       tr.appendChild(tdPort);
 
@@ -1367,24 +1369,24 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       proxyCode.style.fontFamily = '"SF Mono","Fira Code",monospace';
       proxyCode.style.fontSize = "0.8125rem";
       proxyCode.style.color = "var(--text-secondary)";
-      setText(proxyCode, s.proxyPass || "-");
+      setText(proxyCode, s.proxy_pass || "-");
       tdProxy.appendChild(proxyCode);
       tr.appendChild(tdProxy);
 
       // SSL
       var tdSSL = document.createElement("td");
       var sslSpan = document.createElement("span");
-      sslSpan.className = "ssl-icon " + (s.sslEnabled ? "ssl-enabled" : "ssl-disabled");
-      setText(sslSpan, s.sslEnabled ? "\uD83D\uDD12" : "\uD83D\uDD13");
+      sslSpan.className = "ssl-icon " + (s.ssl_enabled ? "ssl-enabled" : "ssl-disabled");
+      setText(sslSpan, s.ssl_enabled ? "\uD83D\uDD12" : "\uD83D\uDD13");
       tdSSL.appendChild(sslSpan);
-      var sslLabel = document.createTextNode(" " + (s.sslEnabled ? "Enabled" : "Disabled"));
+      var sslLabel = document.createTextNode(" " + (s.ssl_enabled ? "Enabled" : "Disabled"));
       tdSSL.appendChild(sslLabel);
       tr.appendChild(tdSSL);
 
       // Auto-Renew
       var tdRenew = document.createElement("td");
-      setText(tdRenew, s.sslAutoRenew ? "Yes" : "No");
-      tdRenew.style.color = s.sslAutoRenew ? "var(--green)" : "var(--text-muted)";
+      setText(tdRenew, s.ssl_auto_renew ? "Yes" : "No");
+      tdRenew.style.color = s.ssl_auto_renew ? "var(--green)" : "var(--text-muted)";
       tr.appendChild(tdRenew);
 
       // Status
@@ -1419,7 +1421,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
       // SSL toggle
       var sslBtn = document.createElement("button");
-      if (s.sslEnabled) {
+      if (s.ssl_enabled) {
         sslBtn.className = "btn btn-sm btn-danger";
         setText(sslBtn, "Disable SSL");
       } else {
@@ -1428,7 +1430,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       }
       (function(site) {
         sslBtn.addEventListener("click", function() {
-          var action = site.sslEnabled ? "disable" : "enable";
+          var action = site.ssl_enabled ? "disable" : "enable";
           confirmAction("SSL " + action, "Are you sure you want to " + action + " SSL for " + site.domain + "?", async function() {
             try {
               await apiFetch("/api/ssl/" + action, { method: "POST", body: { domain: site.domain } });
@@ -1452,10 +1454,14 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   async function loadMappings() {
     var wrap = document.getElementById("mappingsContent");
     try {
-      mappings = await apiFetch("/api/mappings");
-      var total = (mappings.mapped ? mappings.mapped.length : 0) +
-                  (mappings.unmappedContainers ? mappings.unmappedContainers.length : 0) +
-                  (mappings.orphanedSites ? mappings.orphanedSites.length : 0);
+      var resp = await apiFetch("/api/mappings");
+      var data = (resp && resp.data) ? resp.data : resp;
+      mappings = {
+        mapped: (data && data.mapped) || [],
+        unmappedContainers: (data && data.unmappedContainers) || [],
+        orphanedSites: (data && data.orphanedSites) || []
+      };
+      var total = mappings.mapped.length + mappings.unmappedContainers.length + mappings.orphanedSites.length;
       setText(document.getElementById("mappingCount"), String(total));
       renderMappings(wrap);
       updateTabTimestamp("mappings");
@@ -1508,14 +1514,14 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
         var td1 = document.createElement("td");
         var s1 = document.createElement("strong");
-        setText(s1, m.containerName);
+        setText(s1, m.container_name);
         td1.appendChild(s1);
         tr.appendChild(td1);
 
         var td2 = document.createElement("td");
         var ptag = document.createElement("span");
         ptag.className = "port-tag";
-        setText(ptag, String(m.containerPort));
+        setText(ptag, String(m.container_port));
         td2.appendChild(ptag);
         tr.appendChild(td2);
 
@@ -1529,14 +1535,14 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
         var td4 = document.createElement("td");
         var domS = document.createElement("strong");
-        setText(domS, m.nginxDomain);
+        setText(domS, m.nginx_domain);
         td4.appendChild(domS);
         tr.appendChild(td4);
 
         var td5 = document.createElement("td");
         var sslS = document.createElement("span");
-        sslS.className = "ssl-icon " + (m.sslEnabled ? "ssl-enabled" : "ssl-disabled");
-        setText(sslS, m.sslEnabled ? "\uD83D\uDD12" : "\uD83D\uDD13");
+        sslS.className = "ssl-icon " + (m.ssl_enabled ? "ssl-enabled" : "ssl-disabled");
+        setText(sslS, m.ssl_enabled ? "\uD83D\uDD12" : "\uD83D\uDD13");
         td5.appendChild(sslS);
         tr.appendChild(td5);
 
@@ -1627,8 +1633,8 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
         var td5 = document.createElement("td");
         var sslS = document.createElement("span");
-        sslS.className = "ssl-icon " + (s.sslEnabled ? "ssl-enabled" : "ssl-disabled");
-        setText(sslS, s.sslEnabled ? "\uD83D\uDD12" : "\uD83D\uDD13");
+        sslS.className = "ssl-icon " + (s.ssl_enabled ? "ssl-enabled" : "ssl-disabled");
+        setText(sslS, s.ssl_enabled ? "\uD83D\uDD12" : "\uD83D\uDD13");
         td5.appendChild(sslS);
         tr.appendChild(td5);
 
@@ -1657,7 +1663,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     document.getElementById("assocDomain").value = "";
     var port = "";
     if (container.ports && container.ports.length) {
-      port = String(container.ports[0].containerPort || container.ports[0].hostPort || "");
+      port = String(container.ports[0].container_port || container.ports[0].host_port || "");
     }
     document.getElementById("assocPort").value = port;
     document.getElementById("assocTemplate").value = "nestjs";
@@ -1681,10 +1687,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       await apiFetch("/api/sites/create", {
         method: "POST",
         body: {
-          templateType: document.getElementById("assocTemplate").value,
+          template_type: document.getElementById("assocTemplate").value,
           domain: document.getElementById("assocDomain").value,
-          containerPort: parseInt(document.getElementById("assocPort").value, 10),
-          containerId: document.getElementById("assocContainerId").value
+          port: parseInt(document.getElementById("assocPort").value, 10)
         }
       });
       assocModal.classList.remove("show");

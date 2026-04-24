@@ -178,14 +178,34 @@ func (s *Server) handleMappings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mappings, err := mapper.MapContainersToSites()
+	mapped, err := mapper.MapContainersToSites()
 	if err != nil {
 		log.Printf("Error listing mappings: %v", err)
 		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to list mappings"})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: mappings})
+	unmapped, err := mapper.GetUnmappedContainers()
+	if err != nil {
+		log.Printf("Error listing unmapped containers: %v", err)
+		// Non-fatal: continue with empty unmapped list.
+		unmapped = nil
+	}
+
+	orphaned, err := mapper.GetOrphanedSites()
+	if err != nil {
+		log.Printf("Error listing orphaned sites: %v", err)
+		// Non-fatal: continue with empty orphaned list.
+		orphaned = nil
+	}
+
+	result := map[string]interface{}{
+		"mapped":             mapped,
+		"unmappedContainers": unmapped,
+		"orphanedSites":      orphaned,
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: result})
 }
 
 func (s *Server) handleSSLEnable(w http.ResponseWriter, r *http.Request) {
