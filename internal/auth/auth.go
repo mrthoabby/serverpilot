@@ -118,6 +118,21 @@ func ValidatePassword(config *Config, password string) bool {
 	return err == nil
 }
 
+// ResetPassword updates the password hash for an existing config and saves it.
+func ResetPassword(config *Config, newPassword string) error {
+	if len(newPassword) < 8 {
+		return fmt.Errorf("password must be at least 8 characters")
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	config.PasswordHash = string(hash)
+	return saveConfig(*config)
+}
+
 // GenerateSessionToken creates a cryptographically secure random token.
 func GenerateSessionToken() (string, error) {
 	return generateRandomHex(32)

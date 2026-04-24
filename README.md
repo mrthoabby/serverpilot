@@ -294,6 +294,7 @@ serverpilot/
 │   ├── start.go                    # sp start [--port] [-d]
 │   ├── stop.go                     # sp stop
 │   ├── status.go                   # sp status
+│   ├── credentials.go              # sp credentials [--reset]
 │   ├── expose.go                   # sp expose --domain [--port]
 │   └── update.go                   # sp update (auto-actualización + restart)
 │
