@@ -2,7 +2,6 @@ package web
 
 import (
 	"encoding/json"
-	"html/template"
 	"log"
 	"net/http"
 	"regexp"
@@ -45,40 +44,6 @@ type siteCreateRequest struct {
 	Port         int    `json:"port"`
 }
 
-// Dashboard page template.
-var dashboardTemplate = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
-<html>
-<head>
-    <title>ServerPilot Dashboard</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-    <div id="app">
-        <h1>ServerPilot Dashboard</h1>
-        <div id="login-form">
-            <h2>Login</h2>
-            <form id="loginForm">
-                <input type="text" id="username" placeholder="Username" required>
-                <input type="password" id="password" placeholder="Password" required>
-                <button type="submit">Login</button>
-            </form>
-        </div>
-        <div id="dashboard" style="display:none;">
-            <nav>
-                <button onclick="loadContainers()">Containers</button>
-                <button onclick="loadSites()">Sites</button>
-                <button onclick="loadMappings()">Mappings</button>
-                <button onclick="logout()">Logout</button>
-            </nav>
-            <div id="content"></div>
-        </div>
-    </div>
-    <script src="/static/app.js"></script>
-</body>
-</html>`))
-
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
@@ -88,11 +53,18 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := dashboardTemplate.Execute(w, nil); err != nil {
-		log.Printf("Error rendering dashboard: %v", err)
+
+	// Serve the embedded index.html from the static directory.
+	data, err := staticFiles.ReadFile("static/index.html")
+	if err != nil {
+		log.Printf("Error reading embedded index.html: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
 	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Write(data)
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -132,7 +104,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   false, // Set to true in production behind HTTPS
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   86400, // 24 hours
 	})
 
