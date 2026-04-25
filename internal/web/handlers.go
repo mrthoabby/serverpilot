@@ -284,6 +284,25 @@ func (s *Server) handleMappings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: result})
 }
 
+// findCertbot searches for certbot binary in common locations.
+func findCertbot() (string, error) {
+	candidates := []string{
+		"/usr/bin/certbot",
+		"/usr/local/bin/certbot",
+		"/snap/bin/certbot",
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c, nil
+		}
+	}
+	// Try PATH lookup as last resort.
+	if p, err := exec.LookPath("certbot"); err == nil {
+		return p, nil
+	}
+	return "", fmt.Errorf("certbot not found — install it with: sudo apt install certbot python3-certbot-nginx")
+}
+
 // sseWriteEvent writes an SSE event to the ResponseWriter and flushes.
 func sseWriteEvent(w http.ResponseWriter, flusher http.Flusher, event, data string) {
 	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
@@ -326,14 +345,22 @@ func (s *Server) handleSSLEnable(w http.ResponseWriter, r *http.Request) {
 
 	sseWriteLog(w, flusher, "[Step 1/3] Requesting SSL certificate for "+req.Domain+"...")
 
-	cmd := exec.Command("/usr/bin/certbot", "--nginx", "-d", req.Domain, "--non-interactive", "--agree-tos")
+	certbotBin, err := findCertbot()
+	if err != nil {
+		sseWriteLog(w, flusher, "ERROR: "+err.Error())
+		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"certbot not found"}`)
+		return
+	}
+	sseWriteLog(w, flusher, "Using certbot: "+certbotBin)
+
+	cmd := exec.Command(certbotBin, "--nginx", "-d", req.Domain, "--non-interactive", "--agree-tos")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		sseWriteLog(w, flusher, "ERROR: failed to create stdout pipe: "+err.Error())
 		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to start certbot"}`)
 		return
 	}
-	cmd.Stderr = cmd.Stdout // merge stderr into stdout
+	cmd.Stderr = cmd.Stdout
 
 	if err := cmd.Start(); err != nil {
 		sseWriteLog(w, flusher, "ERROR: failed to start certbot: "+err.Error())
@@ -397,33 +424,38 @@ func (s *Server) handleSSLDisable(w http.ResponseWriter, r *http.Request) {
 
 	sseWriteLog(w, flusher, "[Step 1/3] Removing SSL certificate for "+req.Domain+"...")
 
-	cmd := exec.Command("/usr/bin/certbot", "delete", "--cert-name", req.Domain, "--non-interactive")
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		sseWriteLog(w, flusher, "ERROR: failed to create stdout pipe: "+err.Error())
-		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to start certbot"}`)
-		return
-	}
-	cmd.Stderr = cmd.Stdout
+	certbotBin2, certbotErr2 := findCertbot()
+	if certbotErr2 != nil {
+		sseWriteLog(w, flusher, "WARNING: "+certbotErr2.Error()+" — skipping certificate removal")
+	} else {
+		sseWriteLog(w, flusher, "Using certbot: "+certbotBin2)
+		cmd := exec.Command(certbotBin2, "delete", "--cert-name", req.Domain, "--non-interactive")
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			sseWriteLog(w, flusher, "ERROR: failed to create stdout pipe: "+err.Error())
+			sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to start certbot"}`)
+			return
+		}
+		cmd.Stderr = cmd.Stdout
 
-	if err := cmd.Start(); err != nil {
-		sseWriteLog(w, flusher, "ERROR: failed to start certbot: "+err.Error())
-		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to start certbot"}`)
-		return
-	}
+		if err := cmd.Start(); err != nil {
+			sseWriteLog(w, flusher, "ERROR: failed to start certbot: "+err.Error())
+			sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to start certbot"}`)
+			return
+		}
 
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		line := scanner.Text()
-		log.Printf("[certbot disable %s] %s", req.Domain, line)
-		sseWriteLog(w, flusher, line)
-	}
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			line := scanner.Text()
+			log.Printf("[certbot disable %s] %s", req.Domain, line)
+			sseWriteLog(w, flusher, line)
+		}
 
-	err = cmd.Wait()
-	if err != nil {
-		sseWriteLog(w, flusher, "ERROR: certbot delete failed: "+err.Error())
-		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"certbot delete failed"}`)
-		return
+		if err = cmd.Wait(); err != nil {
+			sseWriteLog(w, flusher, "ERROR: certbot delete failed: "+err.Error())
+			sseWriteEvent(w, flusher, "done", `{"success":false,"error":"certbot delete failed"}`)
+			return
+		}
 	}
 
 	sseWriteLog(w, flusher, "[Step 2/3] Certificate removed. Reloading nginx...")
@@ -437,6 +469,12 @@ func (s *Server) handleSSLDisable(w http.ResponseWriter, r *http.Request) {
 	sseWriteEvent(w, flusher, "done", `{"success":true,"message":"SSL disabled for `+req.Domain+`"}`)
 }
 
+// siteDeleteRequest includes both domain (server_name) and config_name (filename).
+type siteDeleteRequest struct {
+	Domain     string `json:"domain"`
+	ConfigName string `json:"config_name"`
+}
+
 // handleSiteDelete completely removes a site: nginx config, symlink, SSL cert, then reloads.
 func (s *Server) handleSiteDelete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -444,15 +482,28 @@ func (s *Server) handleSiteDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req domainRequest
+	var req siteDeleteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
 		return
 	}
 
-	if !isValidDomain(req.Domain) {
-		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid domain format"})
+	// Determine config name: prefer explicit config_name, fallback to domain.
+	configName := req.ConfigName
+	if configName == "" {
+		configName = req.Domain
+	}
+
+	if !isValidConfigName(configName) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid site name format"})
 		return
+	}
+
+	// Domain is used for SSL cert removal — may differ from config filename.
+	domain := req.Domain
+	displayName := domain
+	if displayName == "" || displayName == "_" {
+		displayName = configName
 	}
 
 	flusher, ok := w.(http.Flusher)
@@ -466,55 +517,62 @@ func (s *Server) handleSiteDelete(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	domain := req.Domain
-
-	// Step 1: Remove SSL certificate if present.
-	sseWriteLog(w, flusher, "[Step 1/4] Checking SSL certificate for "+domain+"...")
-	certPath := fmt.Sprintf("/etc/letsencrypt/live/%s", domain)
-	if _, err := os.Stat(certPath); err == nil {
-		sseWriteLog(w, flusher, "SSL certificate found. Removing with certbot...")
-		cmd := exec.Command("/usr/bin/certbot", "delete", "--cert-name", domain, "--non-interactive")
-		stdout, err := cmd.StdoutPipe()
-		if err == nil {
-			cmd.Stderr = cmd.Stdout
-			if startErr := cmd.Start(); startErr == nil {
-				scanner := bufio.NewScanner(stdout)
-				for scanner.Scan() {
-					sseWriteLog(w, flusher, scanner.Text())
-				}
-				if waitErr := cmd.Wait(); waitErr != nil {
-					sseWriteLog(w, flusher, "WARNING: certbot delete failed: "+waitErr.Error())
-				} else {
-					sseWriteLog(w, flusher, "SSL certificate removed.")
-				}
+	// Step 1: Remove SSL certificate if present (only if domain is a real domain, not "_").
+	sseWriteLog(w, flusher, "[Step 1/4] Checking SSL certificate...")
+	if domain != "" && domain != "_" && isValidDomain(domain) {
+		certPath := fmt.Sprintf("/etc/letsencrypt/live/%s", domain)
+		if _, err := os.Stat(certPath); err == nil {
+			sseWriteLog(w, flusher, "SSL certificate found for "+domain+". Removing with certbot...")
+			certbotBin, certbotErr := findCertbot()
+			if certbotErr != nil {
+				sseWriteLog(w, flusher, "WARNING: "+certbotErr.Error()+" — skipping certificate removal")
 			} else {
-				sseWriteLog(w, flusher, "WARNING: could not start certbot: "+startErr.Error())
+				cmd := exec.Command(certbotBin, "delete", "--cert-name", domain, "--non-interactive")
+				stdout, err := cmd.StdoutPipe()
+				if err == nil {
+					cmd.Stderr = cmd.Stdout
+					if startErr := cmd.Start(); startErr == nil {
+						scanner := bufio.NewScanner(stdout)
+						for scanner.Scan() {
+							sseWriteLog(w, flusher, scanner.Text())
+						}
+						if waitErr := cmd.Wait(); waitErr != nil {
+							sseWriteLog(w, flusher, "WARNING: certbot delete failed: "+waitErr.Error())
+						} else {
+							sseWriteLog(w, flusher, "SSL certificate removed.")
+						}
+					} else {
+						sseWriteLog(w, flusher, "WARNING: could not start certbot: "+startErr.Error())
+					}
+				}
 			}
+		} else {
+			sseWriteLog(w, flusher, "No SSL certificate found. Skipping.")
 		}
 	} else {
-		sseWriteLog(w, flusher, "No SSL certificate found. Skipping.")
+		sseWriteLog(w, flusher, "No real domain — skipping SSL certificate removal.")
 	}
 
 	// Step 2: Remove symlink from sites-enabled.
 	sseWriteLog(w, flusher, "[Step 2/4] Removing site from sites-enabled...")
-	enabledPath := filepath.Join("/etc/nginx/sites-enabled", domain)
+	enabledPath := filepath.Join("/etc/nginx/sites-enabled", configName)
 	if info, err := os.Lstat(enabledPath); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
+		if info.Mode()&os.ModeSymlink != 0 || info.Mode().IsRegular() {
 			if err := os.Remove(enabledPath); err != nil {
-				sseWriteLog(w, flusher, "WARNING: failed to remove symlink: "+err.Error())
+				sseWriteLog(w, flusher, "WARNING: failed to remove from sites-enabled: "+err.Error())
 			} else {
-				sseWriteLog(w, flusher, "Symlink removed from sites-enabled.")
+				sseWriteLog(w, flusher, "Removed from sites-enabled.")
 			}
 		} else {
-			sseWriteLog(w, flusher, "WARNING: sites-enabled entry is not a symlink — skipping for safety.")
+			sseWriteLog(w, flusher, "WARNING: sites-enabled entry is a directory — skipping for safety.")
 		}
 	} else {
-		sseWriteLog(w, flusher, "No symlink found in sites-enabled. Skipping.")
+		sseWriteLog(w, flusher, "No entry found in sites-enabled. Skipping.")
 	}
 
 	// Step 3: Remove config from sites-available.
 	sseWriteLog(w, flusher, "[Step 3/4] Removing config from sites-available...")
-	availablePath := filepath.Join("/etc/nginx/sites-available", domain)
+	availablePath := filepath.Join("/etc/nginx/sites-available", configName)
 	if _, err := os.Stat(availablePath); err == nil {
 		if err := os.Remove(availablePath); err != nil {
 			sseWriteLog(w, flusher, "ERROR: failed to remove config: "+err.Error())
@@ -534,8 +592,8 @@ func (s *Server) handleSiteDelete(w http.ResponseWriter, r *http.Request) {
 		sseWriteLog(w, flusher, "Nginx reloaded successfully.")
 	}
 
-	sseWriteLog(w, flusher, "Site "+domain+" completely removed!")
-	sseWriteEvent(w, flusher, "done", `{"success":true,"message":"Site `+domain+` deleted"}`)
+	sseWriteLog(w, flusher, "Site "+displayName+" completely removed!")
+	sseWriteEvent(w, flusher, "done", `{"success":true,"message":"Site `+displayName+` deleted"}`)
 }
 
 func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
@@ -1215,7 +1273,15 @@ func (s *Server) handleSettingsSSLEnable(w http.ResponseWriter, r *http.Request)
 
 	sseWriteLog(w, flusher, "[Step 1/3] Requesting SSL certificate for "+domain+"...")
 
-	cmd := exec.Command("/usr/bin/certbot", "--nginx", "-d", domain, "--non-interactive", "--agree-tos")
+	certbotBin, certbotFindErr := findCertbot()
+	if certbotFindErr != nil {
+		sseWriteLog(w, flusher, "ERROR: "+certbotFindErr.Error())
+		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"certbot not found","dependency_missing":"certbot"}`)
+		return
+	}
+	sseWriteLog(w, flusher, "Using certbot: "+certbotBin)
+
+	cmd := exec.Command(certbotBin, "--nginx", "-d", domain, "--non-interactive", "--agree-tos")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		sseWriteLog(w, flusher, "ERROR: failed to create stdout pipe: "+err.Error())
@@ -1421,6 +1487,91 @@ server {
 `, domain, port, port, port, port, port)
 }
 
+// dependencyInstallRequest contains the package name to install.
+type dependencyInstallRequest struct {
+	Package string `json:"package"`
+}
+
+// knownDependencies maps dependency names to their apt install commands.
+var knownDependencies = map[string][]string{
+	"certbot": {"apt", "install", "-y", "certbot", "python3-certbot-nginx"},
+}
+
+// handleDependencyInstall installs a missing dependency via apt with SSE streaming logs.
+func (s *Server) handleDependencyInstall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	var req dependencyInstallRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	installArgs, ok := knownDependencies[req.Package]
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "unknown dependency: " + req.Package})
+		return
+	}
+
+	flusher, flusherOk := w.(http.Flusher)
+	if !flusherOk {
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "streaming not supported"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	sseWriteLog(w, flusher, "[Step 1/2] Installing "+req.Package+"...")
+	sseWriteLog(w, flusher, "Running: "+strings.Join(installArgs, " "))
+
+	cmd := exec.Command(installArgs[0], installArgs[1:]...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		sseWriteLog(w, flusher, "ERROR: failed to create stdout pipe: "+err.Error())
+		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to start installer"}`)
+		return
+	}
+	cmd.Stderr = cmd.Stdout
+
+	if err := cmd.Start(); err != nil {
+		sseWriteLog(w, flusher, "ERROR: failed to start installer: "+err.Error())
+		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to start installer"}`)
+		return
+	}
+
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := scanner.Text()
+		log.Printf("[install %s] %s", req.Package, line)
+		sseWriteLog(w, flusher, line)
+	}
+
+	if err := cmd.Wait(); err != nil {
+		sseWriteLog(w, flusher, "ERROR: installation failed: "+err.Error())
+		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"installation failed"}`)
+		return
+	}
+
+	sseWriteLog(w, flusher, "[Step 2/2] Verifying installation...")
+	// Verify the dependency is now available.
+	if req.Package == "certbot" {
+		if _, findErr := findCertbot(); findErr != nil {
+			sseWriteLog(w, flusher, "ERROR: "+req.Package+" still not found after installation.")
+			sseWriteEvent(w, flusher, "done", `{"success":false,"error":"installation completed but binary not found"}`)
+			return
+		}
+	}
+
+	sseWriteLog(w, flusher, req.Package+" installed successfully!")
+	sseWriteEvent(w, flusher, "done", `{"success":true,"message":"`+req.Package+` installed successfully"}`)
+}
+
 type gdAppRequest struct {
 	Domain        string `json:"domain"`
 	ContainerName string `json:"container_name"`
@@ -1464,49 +1615,101 @@ func (s *Server) handleGDAppActivate(w http.ResponseWriter, r *http.Request) {
 	domain := req.Domain
 	port := req.Port
 
-	// Step 1: Install WebSocket map.
-	sseWriteLog(w, flusher, "[Step 1/6] Installing WebSocket map in /etc/nginx/conf.d/...")
-	if err := os.WriteFile(websocketMapPath, []byte(websocketMapContent), 0644); err != nil {
-		sseWriteLog(w, flusher, "ERROR: failed to write websocket map: "+err.Error())
-		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to write websocket map"}`)
-		return
-	}
-	sseWriteLog(w, flusher, "WebSocket map installed.")
+	// Track what we created so we can rollback on failure.
+	createdWebsocketMap := false
+	createdConfig := false
+	createdSymlink := false
+	absPath := filepath.Join("/etc/nginx/sites-available", domain)
 
-	// Step 2: Generate and write nginx config.
+	rollback := func(reason string) {
+		sseWriteLog(w, flusher, "")
+		sseWriteLog(w, flusher, "Rolling back changes due to failure...")
+		if createdSymlink {
+			os.Remove(filepath.Join("/etc/nginx/sites-enabled", domain))
+			sseWriteLog(w, flusher, "  Removed symlink from sites-enabled.")
+		}
+		if createdConfig {
+			os.Remove(absPath)
+			sseWriteLog(w, flusher, "  Removed nginx config from sites-available.")
+		}
+		if createdWebsocketMap {
+			// Only remove if no other site uses it.
+			sites, _ := nginx.ListSites()
+			otherUses := false
+			for _, site := range sites {
+				if site.Domain != domain {
+					content, err := nginx.ReadConfigContent(filepath.Base(site.ConfigPath))
+					if err == nil && strings.Contains(content, "connection_upgrade") {
+						otherUses = true
+						break
+					}
+				}
+			}
+			if !otherUses {
+				os.Remove(websocketMapPath)
+				sseWriteLog(w, flusher, "  Removed WebSocket map.")
+			}
+		}
+		_ = nginx.ReloadNginx()
+		sseWriteLog(w, flusher, "Rollback complete.")
+		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"`+reason+`"}`)
+	}
+
+	// Step 1: Install WebSocket map (idempotent).
+	sseWriteLog(w, flusher, "[Step 1/6] Installing WebSocket map in /etc/nginx/conf.d/...")
+	if _, err := os.Stat(websocketMapPath); err == nil {
+		sseWriteLog(w, flusher, "WebSocket map already exists. Skipping.")
+	} else {
+		if err := os.WriteFile(websocketMapPath, []byte(websocketMapContent), 0644); err != nil {
+			sseWriteLog(w, flusher, "ERROR: failed to write websocket map: "+err.Error())
+			sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to write websocket map"}`)
+			return
+		}
+		createdWebsocketMap = true
+		sseWriteLog(w, flusher, "WebSocket map installed.")
+	}
+
+	// Step 2: Generate and write nginx config (idempotent).
 	sseWriteLog(w, flusher, "[Step 2/6] Creating nginx config for "+domain+"...")
+	if _, err := os.Stat(absPath); err == nil {
+		sseWriteLog(w, flusher, "Nginx config already exists. Overwriting with latest template.")
+	}
 	config := gdAppNginxTemplate(domain, port)
-	configPath := filepath.Join("/etc/nginx/sites-available", domain)
-	absPath, err := filepath.Abs(configPath)
-	if err != nil || !strings.HasPrefix(absPath, "/etc/nginx/") {
+	configPathAbs, err := filepath.Abs(absPath)
+	if err != nil || !strings.HasPrefix(configPathAbs, "/etc/nginx/") {
 		sseWriteLog(w, flusher, "ERROR: invalid config path")
-		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"invalid config path"}`)
+		rollback("invalid config path")
 		return
 	}
+	absPath = configPathAbs
 	if err := os.WriteFile(absPath, []byte(config), 0644); err != nil {
 		sseWriteLog(w, flusher, "ERROR: failed to write nginx config: "+err.Error())
-		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to write nginx config"}`)
+		rollback("failed to write nginx config")
 		return
 	}
+	createdConfig = true
 	sseWriteLog(w, flusher, "Nginx config created at "+absPath)
 
-	// Step 3: Enable the site.
+	// Step 3: Enable the site (idempotent).
 	sseWriteLog(w, flusher, "[Step 3/6] Enabling site...")
-	if err := nginx.EnableSite(domain); err != nil {
-		sseWriteLog(w, flusher, "ERROR: failed to enable site: "+err.Error())
-		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to enable site"}`)
-		return
+	enabledPath := filepath.Join("/etc/nginx/sites-enabled", domain)
+	if _, err := os.Lstat(enabledPath); err == nil {
+		sseWriteLog(w, flusher, "Site already enabled. Skipping.")
+	} else {
+		if err := nginx.EnableSite(domain); err != nil {
+			sseWriteLog(w, flusher, "ERROR: failed to enable site: "+err.Error())
+			rollback("failed to enable site")
+			return
+		}
+		createdSymlink = true
+		sseWriteLog(w, flusher, "Site enabled in sites-enabled.")
 	}
-	sseWriteLog(w, flusher, "Site enabled in sites-enabled.")
 
 	// Step 4: Validate and reload nginx.
 	sseWriteLog(w, flusher, "[Step 4/6] Validating nginx config...")
 	if err := nginx.TestConfig(); err != nil {
 		sseWriteLog(w, flusher, "ERROR: nginx config test failed: "+err.Error())
-		sseWriteLog(w, flusher, "Cleaning up...")
-		os.Remove(filepath.Join("/etc/nginx/sites-enabled", domain))
-		os.Remove(absPath)
-		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"nginx config validation failed"}`)
+		rollback("nginx config validation failed")
 		return
 	}
 	if err := nginx.ReloadNginx(); err != nil {
@@ -1515,32 +1718,44 @@ func (s *Server) handleGDAppActivate(w http.ResponseWriter, r *http.Request) {
 		sseWriteLog(w, flusher, "Nginx reloaded successfully.")
 	}
 
-	// Step 5: Obtain SSL certificate via certbot.
+	// Step 5: Obtain SSL certificate via certbot (idempotent — skips if cert exists).
 	sseWriteLog(w, flusher, "[Step 5/6] Requesting SSL certificate for "+domain+"...")
-	cmd := exec.Command("/usr/bin/certbot", "--nginx", "-d", domain, "--non-interactive", "--agree-tos", "--redirect")
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		sseWriteLog(w, flusher, "ERROR: failed to create stdout pipe: "+err.Error())
-		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to start certbot"}`)
-		return
-	}
-	cmd.Stderr = cmd.Stdout
-	if err := cmd.Start(); err != nil {
-		sseWriteLog(w, flusher, "ERROR: failed to start certbot: "+err.Error())
-		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to start certbot"}`)
-		return
-	}
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		line := scanner.Text()
-		log.Printf("[certbot gd-app %s] %s", domain, line)
-		sseWriteLog(w, flusher, line)
-	}
-	if err := cmd.Wait(); err != nil {
-		sseWriteLog(w, flusher, "ERROR: certbot failed: "+err.Error())
-		sseWriteLog(w, flusher, "The site is active on HTTP but SSL could not be configured.")
-		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"certbot failed — site is active on HTTP only"}`)
-		return
+	sslCertPath := fmt.Sprintf("/etc/letsencrypt/live/%s", domain)
+	if _, err := os.Stat(sslCertPath); err == nil {
+		sseWriteLog(w, flusher, "SSL certificate already exists for "+domain+". Skipping.")
+	} else {
+		certbotBin, certbotFindErr := findCertbot()
+		if certbotFindErr != nil {
+			sseWriteLog(w, flusher, "ERROR: "+certbotFindErr.Error())
+			sseWriteLog(w, flusher, "The site is active on HTTP but SSL could not be configured.")
+			sseWriteEvent(w, flusher, "done", `{"success":false,"error":"certbot not found — site active on HTTP only","dependency_missing":"certbot"}`)
+			return
+		}
+		sseWriteLog(w, flusher, "Using certbot: "+certbotBin)
+		cmd := exec.Command(certbotBin, "--nginx", "-d", domain, "--non-interactive", "--agree-tos", "--redirect")
+		stdout, pipeErr := cmd.StdoutPipe()
+		if pipeErr != nil {
+			sseWriteLog(w, flusher, "ERROR: failed to create stdout pipe: "+pipeErr.Error())
+			rollback("failed to start certbot")
+			return
+		}
+		cmd.Stderr = cmd.Stdout
+		if startErr := cmd.Start(); startErr != nil {
+			sseWriteLog(w, flusher, "ERROR: failed to start certbot: "+startErr.Error())
+			rollback("failed to start certbot")
+			return
+		}
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			line := scanner.Text()
+			log.Printf("[certbot gd-app %s] %s", domain, line)
+			sseWriteLog(w, flusher, line)
+		}
+		if waitErr := cmd.Wait(); waitErr != nil {
+			sseWriteLog(w, flusher, "ERROR: certbot failed: "+waitErr.Error())
+			rollback("certbot failed — SSL could not be configured")
+			return
+		}
 	}
 
 	// Step 6: Final reload.
@@ -1589,21 +1804,26 @@ func (s *Server) handleGDAppDeactivate(w http.ResponseWriter, r *http.Request) {
 
 	// Step 1: Remove SSL certificate.
 	sseWriteLog(w, flusher, "[Step 1/5] Removing SSL certificate for "+domain+"...")
-	certPath := fmt.Sprintf("/etc/letsencrypt/live/%s", domain)
-	if _, err := os.Stat(certPath); err == nil {
-		cmd := exec.Command("/usr/bin/certbot", "delete", "--cert-name", domain, "--non-interactive")
-		stdout, err := cmd.StdoutPipe()
-		if err == nil {
-			cmd.Stderr = cmd.Stdout
-			if startErr := cmd.Start(); startErr == nil {
-				scanner := bufio.NewScanner(stdout)
-				for scanner.Scan() {
-					sseWriteLog(w, flusher, scanner.Text())
-				}
-				if waitErr := cmd.Wait(); waitErr != nil {
-					sseWriteLog(w, flusher, "WARNING: certbot delete failed: "+waitErr.Error())
-				} else {
-					sseWriteLog(w, flusher, "SSL certificate removed.")
+	deactCertPath := fmt.Sprintf("/etc/letsencrypt/live/%s", domain)
+	if _, err := os.Stat(deactCertPath); err == nil {
+		certbotBin, certbotErr := findCertbot()
+		if certbotErr != nil {
+			sseWriteLog(w, flusher, "WARNING: "+certbotErr.Error()+" — skipping certificate removal")
+		} else {
+			cmd := exec.Command(certbotBin, "delete", "--cert-name", domain, "--non-interactive")
+			stdout, err := cmd.StdoutPipe()
+			if err == nil {
+				cmd.Stderr = cmd.Stdout
+				if startErr := cmd.Start(); startErr == nil {
+					scanner := bufio.NewScanner(stdout)
+					for scanner.Scan() {
+						sseWriteLog(w, flusher, scanner.Text())
+					}
+					if waitErr := cmd.Wait(); waitErr != nil {
+						sseWriteLog(w, flusher, "WARNING: certbot delete failed: "+waitErr.Error())
+					} else {
+						sseWriteLog(w, flusher, "SSL certificate removed.")
+					}
 				}
 			}
 		}

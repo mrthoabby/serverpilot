@@ -10,8 +10,21 @@ import (
 	"github.com/mrthoabby/serverpilot/internal/nginx"
 )
 
-const certbotPath = "/usr/bin/certbot"
 const systemctlPath = "/usr/bin/systemctl"
+
+// findCertbot searches common paths for the certbot binary.
+func findCertbot() (string, error) {
+	paths := []string{"/usr/bin/certbot", "/usr/local/bin/certbot", "/snap/bin/certbot"}
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+	}
+	if p, err := exec.LookPath("certbot"); err == nil {
+		return p, nil
+	}
+	return "", fmt.Errorf("certbot not found — install it with: sudo apt install certbot python3-certbot-nginx")
+}
 
 // SSLStatus represents the SSL status for a domain.
 type SSLStatus struct {
@@ -27,6 +40,10 @@ func EnableSSL(domain string) error {
 		return fmt.Errorf("invalid domain format")
 	}
 
+	certbotPath, err := findCertbot()
+	if err != nil {
+		return err
+	}
 	cmd := exec.Command(certbotPath, "--nginx", "-d", domain, "--non-interactive", "--agree-tos")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -65,6 +82,10 @@ func DisableSSL(domain string) error {
 	}
 
 	// Use certbot to remove SSL.
+	certbotPath, err := findCertbot()
+	if err != nil {
+		return err
+	}
 	cmd := exec.Command(certbotPath, "delete", "--cert-name", domain, "--non-interactive")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -95,6 +116,12 @@ func CheckSSLStatus(domain string) (*SSLStatus, error) {
 	status.CertPath = certPath
 
 	// Use certbot to check expiry.
+	certbotPath, certbotErr := findCertbot()
+	if certbotErr != nil {
+		// Can't check expiry without certbot — use file fallback.
+		status.ExpiresAt = info.ModTime().Add(90 * 24 * time.Hour)
+		return status, nil
+	}
 	cmd := exec.Command(certbotPath, "certificates", "--cert-name", domain)
 	output, err := cmd.CombinedOutput()
 	if err == nil {

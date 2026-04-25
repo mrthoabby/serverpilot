@@ -1448,6 +1448,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     </div>
     <div class="progress-actions">
       <button type="button" class="btn btn-sm btn-outline" id="progressCloseBtn" style="display:none;">Close</button>
+      <button type="button" class="btn btn-sm" id="progressInstallBtn" style="display:none;background:#8a2be2;color:#fff;margin-left:8px;">Install & Retry</button>
     </div>
   </div>
 </div>
@@ -2099,13 +2100,14 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       deleteBtn.className = "btn btn-sm btn-danger";
       setText(deleteBtn, "Delete");
       (function(site) {
+        var configName = site.config_path ? site.config_path.split("/").pop() : site.domain;
         deleteBtn.addEventListener("click", function() {
-          confirmAction("Delete Site", "Are you sure you want to completely delete " + site.domain + "? This will remove the nginx config, symlink, and SSL certificate.", function() {
+          confirmAction("Delete Site", "Are you sure you want to completely delete " + (site.domain || configName) + "? This will remove the nginx config, symlink, and SSL certificate.", function() {
             runStreamedOperation(
               "/api/sites/delete",
-              { domain: site.domain },
+              { domain: site.domain, config_name: configName },
               "Deleting Site",
-              "Removing all configuration for " + site.domain
+              "Removing all configuration for " + (site.domain || configName)
             );
           });
         });
@@ -2692,7 +2694,12 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   var progressSpinner = document.getElementById("progressSpinner");
   var progressStatusText = document.getElementById("progressStatusText");
   var progressCloseBtn = document.getElementById("progressCloseBtn");
+  var progressInstallBtn = document.getElementById("progressInstallBtn");
   var currentEventSource = null;
+  var lastStreamedUrl = "";
+  var lastStreamedBody = null;
+  var lastStreamedTitle = "";
+  var lastStreamedSubtitle = "";
 
   function openProgressModal(title, subtitle) {
     setText(document.getElementById("progressTitle"), title);
@@ -2701,6 +2708,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     progressSpinner.style.display = "inline-block";
     setText(progressStatusText, "Working...");
     progressCloseBtn.style.display = "none";
+    progressInstallBtn.style.display = "none";
     progressModal.classList.add("show");
   }
 
@@ -2721,7 +2729,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     progressLog.scrollTop = progressLog.scrollHeight;
   }
 
-  function finishProgress(success, message) {
+  function finishProgress(success, message, depMissing) {
     progressSpinner.style.display = "none";
     if (success) {
       setText(progressStatusText, "Completed successfully");
@@ -2731,6 +2739,73 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       progressStatusText.style.color = "var(--red)";
     }
     progressCloseBtn.style.display = "inline-flex";
+    // Show "Install & Retry" button when a dependency is missing.
+    if (depMissing) {
+      progressInstallBtn.style.display = "inline-flex";
+      progressInstallBtn.onclick = function() {
+        progressInstallBtn.style.display = "none";
+        progressCloseBtn.style.display = "none";
+        progressSpinner.style.display = "inline-block";
+        setText(progressStatusText, "Installing " + depMissing + "...");
+        progressStatusText.style.color = "";
+        appendLogLine("");
+        appendLogLine("--- Installing " + depMissing + " ---");
+        // Call the install endpoint.
+        fetch("/api/dependencies/install", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ "package": depMissing }),
+          credentials: "same-origin"
+        }).then(function(response) {
+          var reader = response.body.getReader();
+          var decoder = new TextDecoder();
+          var buf = "";
+          function readChunk() {
+            return reader.read().then(function(result) {
+              if (result.done) {
+                if (buf.trim()) processSSEBuffer(buf);
+                return;
+              }
+              buf += decoder.decode(result.value, { stream: true });
+              var parts = buf.split("\n\n");
+              buf = parts.pop();
+              parts.forEach(function(part) {
+                // Parse install events inline (don't trigger finishProgress yet).
+                var evt = "message", data = "";
+                part.split("\n").forEach(function(line) {
+                  if (line.indexOf("event: ") === 0) evt = line.substring(7).trim();
+                  else if (line.indexOf("data: ") === 0) data = line.substring(6);
+                });
+                if (evt === "log" && data) {
+                  try { appendLogLine(JSON.parse(data)); } catch(e) { appendLogLine(data); }
+                } else if (evt === "done" && data) {
+                  try {
+                    var res = JSON.parse(data);
+                    if (res.success) {
+                      appendLogLine("");
+                      appendLogLine("--- Retrying original operation ---");
+                      appendLogLine("");
+                      // Retry the original operation.
+                      runStreamedOperation(lastStreamedUrl, lastStreamedBody, lastStreamedTitle, lastStreamedSubtitle);
+                    } else {
+                      finishProgress(false, "Installation failed: " + (res.error || ""));
+                    }
+                  } catch(e) {
+                    finishProgress(false, "Installation failed");
+                  }
+                }
+              });
+              return readChunk();
+            });
+          }
+          return readChunk();
+        }).catch(function(err) {
+          finishProgress(false, "Install request failed: " + err.message);
+        });
+      };
+    } else {
+      progressInstallBtn.style.display = "none";
+    }
   }
 
   function closeProgressModal() {
@@ -2756,6 +2831,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
   // Run an SSE-streamed operation via POST, showing logs in the progress modal.
   function runStreamedOperation(url, body, title, subtitle) {
+    lastStreamedUrl = url;
+    lastStreamedBody = body;
+    lastStreamedTitle = title;
+    lastStreamedSubtitle = subtitle;
     openProgressModal(title, subtitle);
 
     // We use fetch + ReadableStream instead of EventSource because we need POST.
@@ -2827,7 +2906,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     } else if (event === "done") {
       try {
         var result = JSON.parse(data);
-        finishProgress(result.success !== false, result.error || result.message || "");
+        finishProgress(result.success !== false, result.error || result.message || "", result.dependency_missing || null);
       } catch(e) {
         finishProgress(true, "");
       }
