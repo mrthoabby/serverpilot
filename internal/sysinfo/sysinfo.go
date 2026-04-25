@@ -427,7 +427,8 @@ func readDiskInfo() []DiskInfo {
 }
 
 // readDiskBreakdown runs du on key directories to show what occupies disk space.
-// It uses a 10-second timeout to prevent hanging on very large directories.
+// Uses du -sm (NOT -x: we need to count Docker overlays and bind mounts).
+// Timeout is 10s per directory (large dirs like /usr need more time).
 func readDiskBreakdown() []DiskBreakdownEntry {
 	dirs := []struct {
 		path  string
@@ -445,49 +446,130 @@ func readDiskBreakdown() []DiskBreakdownEntry {
 		{"/etc", "Configuration (/etc)"},
 		{"/snap", "Snap Packages"},
 		{"/var/www", "Web Files (/var/www)"},
+		{"/root", "Root Home (/root)"},
+		{"/srv", "Server Data (/srv)"},
+		{"/var/lib", "Variable Data (/var/lib)"},
+		{"/var/spool", "Mail/Print Spool (/var/spool)"},
+		{"/var/backups", "Backups (/var/backups)"},
 	}
 
-	var entries []DiskBreakdownEntry
-	for _, d := range dirs {
-		// Check if directory exists before running du.
+	type duResult struct {
+		idx    int
+		sizeMB float64
+	}
+
+	// Run all du commands in parallel with concurrency limit.
+	resultsCh := make(chan duResult, len(dirs))
+	sem := make(chan struct{}, 4)
+	var wg sync.WaitGroup
+
+	validDirs := []struct {
+		idx   int
+		path  string
+		label string
+	}{}
+	for i, d := range dirs {
 		if _, err := os.Stat(d.path); os.IsNotExist(err) {
 			continue
 		}
-		// Use du -smx (megabytes, summarize, don't cross filesystems) with 5s timeout.
-		cmd := exec.Command("du", "-smx", d.path)
-		// Use Output() (stdout only) — NOT CombinedOutput — because du
-		// often prints permission-denied to stderr which would corrupt parsing.
-		done := make(chan []byte, 1)
-		go func() {
-			out, _ := cmd.Output()
-			done <- out
-		}()
-		var output []byte
-		select {
-		case output = <-done:
-		case <-time.After(5 * time.Second):
-			if cmd.Process != nil {
-				cmd.Process.Kill()
+		validDirs = append(validDirs, struct {
+			idx   int
+			path  string
+			label string
+		}{i, d.path, d.label})
+	}
+
+	for _, vd := range validDirs {
+		wg.Add(1)
+		go func(idx int, path string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			// du -sm: megabytes, summarize. NO -x flag so Docker overlays are counted.
+			cmd := exec.Command("du", "-sm", path)
+			done := make(chan []byte, 1)
+			go func() {
+				out, _ := cmd.Output()
+				done <- out
+			}()
+
+			var output []byte
+			select {
+			case output = <-done:
+			case <-time.After(10 * time.Second):
+				if cmd.Process != nil {
+					cmd.Process.Kill()
+				}
+				return
 			}
-			continue
+			if len(output) == 0 {
+				return
+			}
+			line := strings.TrimSpace(string(output))
+			parts := strings.Fields(line)
+			if len(parts) < 1 {
+				return
+			}
+			sizeMB, err := strconv.ParseFloat(parts[0], 64)
+			if err != nil {
+				return
+			}
+			resultsCh <- duResult{idx: idx, sizeMB: sizeMB}
+		}(vd.idx, vd.path)
+	}
+
+	wg.Wait()
+	close(resultsCh)
+
+	// Collect results, dedup overlapping paths (/var/lib vs /var/lib/docker).
+	sizeByIdx := make(map[int]float64)
+	for r := range resultsCh {
+		sizeByIdx[r.idx] = r.sizeMB
+	}
+
+	// Subtract child sizes from parent to avoid double-counting.
+	// /var/lib includes /var/lib/docker, /var/lib/mysql, /var/lib/postgresql.
+	varLibIdx := -1
+	dockerIdx := -1
+	mysqlIdx := -1
+	pgIdx := -1
+	for i, d := range dirs {
+		switch d.path {
+		case "/var/lib":
+			varLibIdx = i
+		case "/var/lib/docker":
+			dockerIdx = i
+		case "/var/lib/mysql":
+			mysqlIdx = i
+		case "/var/lib/postgresql":
+			pgIdx = i
 		}
-		if len(output) == 0 {
-			continue
+	}
+	if varLibIdx >= 0 {
+		varLibSize := sizeByIdx[varLibIdx]
+		// Subtract children that are listed separately.
+		for _, childIdx := range []int{dockerIdx, mysqlIdx, pgIdx} {
+			if childIdx >= 0 {
+				varLibSize -= sizeByIdx[childIdx]
+			}
 		}
-		line := strings.TrimSpace(string(output))
-		parts := strings.Fields(line)
-		if len(parts) < 1 {
-			continue
+		if varLibSize < 0 {
+			varLibSize = 0
 		}
-		sizeMB, err := strconv.ParseFloat(parts[0], 64)
-		if err != nil || sizeMB < 1 {
-			continue // skip tiny directories
+		sizeByIdx[varLibIdx] = varLibSize
+	}
+
+	var entries []DiskBreakdownEntry
+	for idx, sizeMB := range sizeByIdx {
+		if sizeMB < 1 {
+			continue // skip tiny
 		}
 		entries = append(entries, DiskBreakdownEntry{
-			Path:   d.path,
-			Label:  d.label,
+			Path:   dirs[idx].path,
+			Label:  dirs[idx].label,
 			SizeMB: sizeMB,
-			SizeGB: float64(int(sizeMB/1024*100)) / 100, // 2 decimal places
+			SizeGB: float64(int(sizeMB/1024*100)) / 100,
 		})
 	}
 
@@ -569,7 +651,7 @@ func DiskDetailDir(dirPath string) ([]DiskDetailEntry, error) {
 			defer func() { <-sem }()
 
 			childPath := filepath.Join(clean, d.Name())
-			cmd := exec.Command("du", "-smx", childPath)
+			cmd := exec.Command("du", "-sm", childPath)
 			// Use Output() (stdout only) — stderr has permission errors that corrupt parsing.
 			done := make(chan []byte, 1)
 			go func() {

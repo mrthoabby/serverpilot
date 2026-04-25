@@ -3681,11 +3681,30 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
     diskTotalSizeMB = rootDiskSizeMB || (rootDiskUsedMB + rootDiskAvailMB);
 
+    // Calculate "Other / System" — disk space used but not in any scanned directory.
+    var scannedMB = 0;
+    items.forEach(function(e) { scannedMB += e.size_mb; });
+    var otherMB = rootDiskUsedMB - scannedMB;
+    if (otherMB > 10) {
+      items.push({
+        path: "(other)",
+        name: "Other / System",
+        size_mb: otherMB,
+        size_gb: parseFloat((otherMB / 1024).toFixed(2)),
+        is_dir: false,
+        type: "other"
+      });
+    }
+
+    // Re-sort by size descending so Other lands in the right position.
+    items.sort(function(a, b) { return b.size_mb - a.size_mb; });
+
     var diskTitle = document.getElementById("diskBreakdownTitle");
-    if (diskTitle && rootDiskAvailMB > 0) {
+    if (diskTitle) {
       var freeGB = (rootDiskAvailMB / 1024).toFixed(2);
+      var usedGB = (rootDiskUsedMB / 1024).toFixed(2);
       var totalGB = (diskTotalSizeMB / 1024).toFixed(2);
-      diskTitle.innerHTML = 'Disk Usage Explorer (' + totalGB + ' GB total) — <span style="color:var(--green);font-weight:700;">Free: ' + freeGB + ' GB (' + rootDiskAvailMB + ' MB)</span>';
+      diskTitle.innerHTML = 'Disk Usage Explorer (' + totalGB + ' GB total — ' + usedGB + ' GB used) — <span style="color:var(--green);font-weight:700;">Free: ' + freeGB + ' GB (' + rootDiskAvailMB + ' MB)</span>';
     }
 
     diskCurrentPath = null;
@@ -3792,6 +3811,23 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         '<td style="padding:4px 8px;border-bottom:1px solid var(--border);"><div style="background:var(--bg-input);border-radius:4px;height:12px;overflow:hidden;"><div style="width:' + barW.toFixed(1) + '%;height:100%;background:' + color + ';border-radius:4px;"></div></div></td>';
       tbody.appendChild(tr);
     });
+    // Total row — only in overview mode (diskCurrentPath is null).
+    if (!diskCurrentPath && diskTotalSizeMB > 0) {
+      var totalUsedMB = 0;
+      filtered.forEach(function(e) { totalUsedMB += e.size_mb; });
+      var totalUsedGB = totalUsedMB / 1024;
+      var totalPct = totalUsedMB / refMB * 100;
+      var totalTr = document.createElement("tr");
+      totalTr.innerHTML =
+        '<td style="padding:6px 4px;border-top:2px solid var(--accent);"></td>' +
+        '<td style="padding:6px 8px;border-top:2px solid var(--accent);font-weight:700;color:var(--accent);">Total Used</td>' +
+        '<td style="padding:6px 4px;border-top:2px solid var(--accent);"></td>' +
+        '<td style="padding:6px 8px;border-top:2px solid var(--accent);text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:var(--accent);">' + totalUsedGB.toFixed(2) + '</td>' +
+        '<td style="padding:6px 8px;border-top:2px solid var(--accent);text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:var(--accent);">' + Math.round(totalUsedMB) + '</td>' +
+        '<td style="padding:6px 8px;border-top:2px solid var(--accent);text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:var(--accent);">' + totalPct.toFixed(1) + '%</td>' +
+        '<td style="padding:6px 8px;border-top:2px solid var(--accent);"><div style="background:var(--bg-input);border-radius:4px;height:12px;overflow:hidden;"><div style="width:' + (totalPct > 100 ? 100 : totalPct).toFixed(1) + '%;height:100%;background:var(--accent);border-radius:4px;"></div></div></td>';
+      tbody.appendChild(totalTr);
+    }
   }
 
   function renderDiskBreadcrumb(path) {
