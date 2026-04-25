@@ -1180,11 +1180,9 @@ func serverPilotNginxTemplate(domain string, port int) string {
     listen 80;
     server_name %s;
 
-    # Security headers
-    add_header X-Frame-Options "DENY" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    add_header Content-Security-Policy "default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'" always;
+    # Note: X-Frame-Options, X-Content-Type-Options, Referrer-Policy, and
+    # Permissions-Policy are set by the Go SecurityMiddleware to avoid
+    # duplicate headers when behind Cloudflare or other reverse proxies.
 
     location / {
         proxy_pass http://127.0.0.1:%d;

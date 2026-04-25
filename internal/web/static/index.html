@@ -36,7 +36,7 @@ body {
 
 /* ── Login Screen ── */
 .login-wrapper {
-  display: none;
+  display: flex;          /* Visible by default — JS hides it if session is valid */
   align-items: center;
   justify-content: center;
   min-height: 100vh;
@@ -1461,7 +1461,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 <!-- Toast Container -->
 <div class="toast-container" id="toastContainer"></div>
 
-<script>
+<script data-cfasync="false">
 (function() {
   "use strict";
 
