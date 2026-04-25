@@ -916,6 +916,12 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   color: #ffa500;
 }
 
+.label-btn.active-gd-app {
+  background: rgba(138, 43, 226, 0.2);
+  border-color: #8a2be2;
+  color: #8a2be2;
+}
+
 .label-badge {
   display: inline-flex;
   align-items: center;
@@ -951,6 +957,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 .label-badge-frontend {
   background: rgba(255, 165, 0, 0.1);
   color: #ffa500;
+}
+
+.label-badge-gd-app {
+  background: rgba(138, 43, 226, 0.1);
+  color: #8a2be2;
 }
 
 /* ── Update Banner ── */
@@ -1402,6 +1413,29 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   </div>
 </div>
 
+<!-- GD-App Activate Modal -->
+<div class="modal-overlay" id="gdappModal">
+  <div class="modal" style="max-width: 480px;">
+    <h3>Activate GD-App Site</h3>
+    <p class="modal-sub" id="gdappModalSub">Set up the full nginx configuration with WebSocket, SSE, SSL, and security headers.</p>
+    <form id="gdappForm">
+      <input type="hidden" id="gdappContainerName">
+      <div class="form-group">
+        <label for="gdappDomain">Domain</label>
+        <input type="text" id="gdappDomain" required placeholder="docs.example.com">
+      </div>
+      <div class="form-group">
+        <label for="gdappPort">Container Port</label>
+        <input type="text" id="gdappPort" required placeholder="3010" value="3010">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="gdappCancelBtn">Cancel</button>
+        <button type="submit" class="btn" id="gdappSubmitBtn" style="background:rgba(138,43,226,0.9); color:#fff;">Activate Site</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Progress / Log Modal -->
 <div class="modal-overlay" id="progressModal">
   <div class="modal progress-modal">
@@ -1692,7 +1726,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
   function getSiteDomains() {
     var d = {};
-    mappings.mapped.forEach(function(m) { d[m.container_name] = true; });
+    mappings.mapped.forEach(function(m) {
+      d[m.container_name] = m.nginx_domain || true;
+    });
     return d;
   }
 
@@ -1783,7 +1819,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       var labelDiv = document.createElement("div");
       labelDiv.className = "label-selector";
 
-      ["api", "nestjs", "nextjs", "frontend", "back"].forEach(function(lbl) {
+      ["api", "nestjs", "nextjs", "frontend", "gd-app", "back"].forEach(function(lbl) {
         var btn = document.createElement("button");
         btn.className = "label-btn" + (currentLabel === lbl ? " active-" + lbl : "");
         setText(btn, lbl);
@@ -1812,6 +1848,26 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         linked.className = "badge badge-info";
         setText(linked, "Site linked");
         tdAct.appendChild(linked);
+        // If gd-app, show Deactivate button next to the badge
+        if (currentLabel === "gd-app") {
+          var deactBtn = document.createElement("button");
+          deactBtn.className = "btn btn-sm btn-danger";
+          deactBtn.style.marginLeft = "0.5rem";
+          setText(deactBtn, "Deactivate");
+          (function(containerName, linkedDomain) {
+            deactBtn.addEventListener("click", function() {
+              confirmAction("Deactivate GD-App", "This will remove the nginx config, SSL certificate, and all site configuration for " + linkedDomain + ". Continue?", function() {
+                runStreamedOperation(
+                  "/api/gdapp/deactivate",
+                  { domain: linkedDomain },
+                  "Deactivating GD-App",
+                  "Removing all configuration for " + linkedDomain
+                );
+              });
+            });
+          })(c.name, siteDomains[c.name]);
+          tdAct.appendChild(deactBtn);
+        }
       } else if (currentLabel === "api") {
         // API label → Associate API button
         var apiBtn = document.createElement("button");
@@ -1846,6 +1902,20 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         setText(frontBtn, "Associate Frontend");
         frontBtn.addEventListener("click", function() { openAssociateModal(c, "frontend"); });
         tdAct.appendChild(frontBtn);
+      } else if (currentLabel === "gd-app") {
+        // GD-App label → Activate Site (full flow with SSL)
+        var gdBtn = document.createElement("button");
+        gdBtn.className = "btn btn-sm";
+        gdBtn.style.background = "rgba(138,43,226,0.15)";
+        gdBtn.style.color = "#8a2be2";
+        gdBtn.style.border = "1px solid rgba(138,43,226,0.3)";
+        setText(gdBtn, "Activate Site");
+        (function(container) {
+          gdBtn.addEventListener("click", function() {
+            openGDAppActivateModal(container);
+          });
+        })(c);
+        tdAct.appendChild(gdBtn);
       } else if (currentLabel === "back") {
         // Backend label → no action, show badge
         var backBadge = document.createElement("span");
@@ -2801,6 +2871,55 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (tabLoaders[activeTab]) tabLoaders[activeTab]();
   });
 
+  // ── GD-App Activate Modal ──
+  var gdappModal = document.getElementById("gdappModal");
+
+  function openGDAppActivateModal(container) {
+    document.getElementById("gdappContainerName").value = container.name;
+    document.getElementById("gdappDomain").value = "";
+    var port = "3010"; // default GD-App port
+    if (container.ports && container.ports.length) {
+      port = String(container.ports[0].container_port || container.ports[0].host_port || "3010");
+    }
+    document.getElementById("gdappPort").value = port;
+    setText(document.getElementById("gdappModalSub"),
+      "Set up full nginx for \"" + container.name + "\" with WebSocket, SSE streaming, SSL, and security headers.");
+    gdappModal.classList.add("show");
+  }
+
+  document.getElementById("gdappCancelBtn").addEventListener("click", function() {
+    gdappModal.classList.remove("show");
+  });
+
+  gdappModal.addEventListener("click", function(e) {
+    if (e.target === gdappModal) gdappModal.classList.remove("show");
+  });
+
+  document.getElementById("gdappForm").addEventListener("submit", function(e) {
+    e.preventDefault();
+    var domain = document.getElementById("gdappDomain").value.trim();
+    var port = parseInt(document.getElementById("gdappPort").value, 10);
+    var containerName = document.getElementById("gdappContainerName").value;
+
+    if (!domain) {
+      showToast("Enter a domain", "error");
+      return;
+    }
+    if (!port || port < 1 || port > 65535) {
+      showToast("Invalid port number", "error");
+      return;
+    }
+
+    gdappModal.classList.remove("show");
+
+    runStreamedOperation(
+      "/api/gdapp/activate",
+      { domain: domain, container_name: containerName, port: port },
+      "Activating GD-App",
+      domain + " — full setup with SSL, WebSocket, SSE"
+    );
+  });
+
   // ── Settings ──
   var settingsData = { domain: "", ssl_enabled: false, insecure_blocked: false, port: 0 };
 
@@ -2956,6 +3075,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (e.key === "Escape") {
       assocModal.classList.remove("show");
       confirmModal.classList.remove("show");
+      gdappModal.classList.remove("show");
       pendingConfirm = null;
       closeConfigEditor();
       if (progressCloseBtn.style.display !== "none") closeProgressModal();
