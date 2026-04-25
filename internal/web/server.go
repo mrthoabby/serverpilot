@@ -62,6 +62,7 @@ func (s *Server) Start() error {
 	mux.Handle("/api/system/disk-detail", s.authMiddleware(http.HandlerFunc(s.handleDiskDetail)))
 	mux.Handle("/api/system/disk-top-files", s.authMiddleware(http.HandlerFunc(s.handleDiskTopFiles)))
 	mux.Handle("/api/system/disk-clean", s.authMiddleware(http.HandlerFunc(s.handleDiskClean)))
+	mux.Handle("/api/system/kill-process", s.authMiddleware(http.HandlerFunc(s.handleKillProcess)))
 	mux.Handle("/api/system/disk-hidden-files", s.authMiddleware(http.HandlerFunc(s.handleDiskHiddenFiles)))
 	mux.Handle("/api/system/disk-hidden-files/add", s.authMiddleware(http.HandlerFunc(s.handleDiskHiddenFilesAdd)))
 	mux.Handle("/api/system/disk-hidden-files/remove", s.authMiddleware(http.HandlerFunc(s.handleDiskHiddenFilesRemove)))

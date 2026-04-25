@@ -1231,6 +1231,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
                       <th style="padding:5px 8px;">RSS (MB)</th>
                       <th style="padding:5px 8px;">Estado</th>
                       <th style="padding:5px 8px;">Tipo</th>
+                      <th style="padding:5px 8px;width:60px;"></th>
                     </tr>
                   </thead>
                   <tbody id="memProcBody"></tbody>
@@ -3665,6 +3666,34 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (panel) panel.style.display = "none";
   };
 
+  // Kill a non-monitored process by PID (sends SIGTERM via backend).
+  window.killProcess = function(pid, name, btn) {
+    if (!confirm("Terminar proceso " + name + " (PID " + pid + ")?\nSe enviará SIGTERM.")) return;
+    var origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span style="font-size:0.7rem;">...</span>';
+    apiFetch("/api/system/kill-process", {
+      method: "POST",
+      body: { pid: pid }
+    }).then(function(data) {
+      if (data && data.success) {
+        btn.style.borderColor = "#3fb95066";
+        btn.style.color = "#3fb950";
+        btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" style="vertical-align:-1px;"><path d="M3 8l4 4 6-7" stroke="#3fb950" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> OK';
+        // Refresh the process table after a brief delay to show updated list.
+        setTimeout(function() { window.openMemDetail(window._lastMemData); }, 1500);
+      } else {
+        btn.innerHTML = origHTML;
+        btn.disabled = false;
+        alert("Error: " + (data && data.error ? data.error : "no se pudo terminar el proceso"));
+      }
+    }).catch(function() {
+      btn.innerHTML = origHTML;
+      btn.disabled = false;
+      alert("Error de conexión al intentar terminar el proceso");
+    });
+  };
+
   // Update only the stat cards in the memory detail panel (no re-fetch of processes).
   // Called on auto-refresh to keep stats in sync with the pie chart.
   function updateMemDetailStats(memData) {
@@ -3692,6 +3721,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   }
 
   window.openMemDetail = function(memData) {
+    window._lastMemData = memData;
     var panel = document.getElementById("memDetailPanel");
     if (!panel) return;
     panel.style.display = "block";
@@ -3761,6 +3791,14 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
             ? '<span style="background:#1f4822;color:#3fb950;padding:1px 6px;border-radius:3px;font-size:0.7rem;">monitoreado</span>'
             : '<span style="background:#3b2800;color:#d29922;padding:1px 6px;border-radius:3px;font-size:0.7rem;">no monitoreado</span>';
           var stateColor = p.state === "S" ? "#3fb950" : p.state === "R" ? "#58a6ff" : "#8b949e";
+          var killBtn = isMonitored ? '' :
+            '<button onclick="killProcess(' + p.pid + ', \'' + escapeHtml(p.name) + '\', this)" ' +
+            'style="background:none;border:1px solid #f8514966;color:#f85149;border-radius:4px;padding:2px 7px;font-size:0.72rem;cursor:pointer;transition:all 0.15s;" ' +
+            'onmouseenter="this.style.background=\'#f8514922\'" onmouseleave="this.style.background=\'none\'" ' +
+            'title="Enviar SIGTERM al proceso">' +
+            '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" style="vertical-align:-1px;margin-right:2px;">' +
+            '<path d="M4 4l8 8M12 4l-8 8" stroke="#f85149" stroke-width="1.5" stroke-linecap="round"/>' +
+            '</svg>Kill</button>';
           rows += '<tr style="border-bottom:1px solid var(--border);">' +
             '<td style="padding:5px 8px;color:var(--text-muted);font-family:monospace;">' + p.pid + '</td>' +
             '<td style="padding:5px 8px;font-weight:500;">' + escapeHtml(p.name) + '</td>' +
@@ -3774,6 +3812,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
             '</td>' +
             '<td style="padding:5px 8px;color:' + stateColor + ';font-family:monospace;">' + escapeHtml(p.state || "?") + '</td>' +
             '<td style="padding:5px 8px;">' + typeLabel + '</td>' +
+            '<td style="padding:5px 8px;text-align:center;">' + killBtn + '</td>' +
             '</tr>';
         });
         if (tbody) tbody.innerHTML = rows;

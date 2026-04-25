@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/mrthoabby/serverpilot/internal/auth"
@@ -2320,4 +2321,78 @@ func (s *Server) handleGDAppDeactivate(w http.ResponseWriter, r *http.Request) {
 	sseWriteLog(w, flusher, "")
 	sseWriteLog(w, flusher, "GD-App site "+domain+" completely deactivated!")
 	sseWriteEvent(w, flusher, "done", `{"success":true,"message":"GD-App deactivated for `+domain+`"}`)
+}
+
+// protectedProcesses are process names that must never be killed from the UI.
+// Killing any of these would destabilise the host or lose the dashboard itself.
+var protectedProcesses = map[string]bool{
+	"serverpilot": true,
+	"nginx":       true,
+	"docker":      true,
+	"dockerd":     true,
+	"containerd":  true,
+	"systemd":     true,
+	"init":        true,
+	"sshd":       true,
+}
+
+// handleKillProcess sends SIGTERM to a process by PID after strict validation.
+// POST /api/system/kill-process  body: {"pid": 12345}
+//
+// Security: only accepts numeric PIDs, refuses PID ≤ 1, refuses protected
+// process names (reads /proc/PID/comm to verify), and uses SIGTERM (not SIGKILL)
+// so the process gets a chance to clean up. The endpoint is behind authMiddleware.
+func (s *Server) handleKillProcess(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+
+	var req struct {
+		PID int `json:"pid"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	// PID must be > 1 (never allow killing init/PID 1).
+	if req.PID <= 1 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid PID"})
+		return
+	}
+
+	// Read the process name from /proc to validate it exists and isn't protected.
+	commPath := fmt.Sprintf("/proc/%d/comm", req.PID)
+	commBytes, err := os.ReadFile(commPath)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, apiResponse{Error: "process not found"})
+		return
+	}
+	procName := strings.TrimSpace(string(commBytes))
+
+	if protectedProcesses[procName] {
+		writeJSON(w, http.StatusForbidden, apiResponse{Error: fmt.Sprintf("cannot kill protected process: %s", procName)})
+		return
+	}
+
+	// Send SIGTERM — graceful termination, not SIGKILL.
+	proc, err := os.FindProcess(req.PID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, apiResponse{Error: "process not found"})
+		return
+	}
+
+	if err := proc.Signal(syscall.SIGTERM); err != nil {
+		log.Printf("kill-process: failed to send SIGTERM to PID %d (%s): %v", req.PID, procName, err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to terminate process: " + err.Error()})
+		return
+	}
+
+	log.Printf("kill-process: sent SIGTERM to PID %d (%s)", req.PID, procName)
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]interface{}{
+		"pid":     req.PID,
+		"name":    procName,
+		"message": fmt.Sprintf("SIGTERM sent to %s (PID %d)", procName, req.PID),
+	}})
 }
