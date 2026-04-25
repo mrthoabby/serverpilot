@@ -3849,10 +3849,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (tbody)   tbody.innerHTML = "";
 
     apiFetch("/api/system/memory-detail")
-      .then(function(resp) { return resp.json(); })
       .then(function(data) {
         if (loadMsg) loadMsg.textContent = "";
-        if (!data.success || !data.data) return;
+        if (!data || !data.success || !data.data) return;
         var detail = data.data;
 
         // Update cache stats with fresh buffers/cached from backend.
