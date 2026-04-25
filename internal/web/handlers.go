@@ -376,7 +376,7 @@ func (s *Server) handleSSLEnable(w http.ResponseWriter, r *http.Request) {
 	}
 	sseWriteLog(w, flusher, "Using certbot: "+certbotBin)
 
-	certArgs := s.certbotEnableArgs(certbotBin, req.Domain, false)
+	certArgs := s.certbotEnableArgs(certbotBin, req.Domain, true)
 	cmd := exec.Command(certArgs[0], certArgs[1:]...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1349,7 +1349,7 @@ func (s *Server) handleSettingsSSLEnable(w http.ResponseWriter, r *http.Request)
 	}
 	sseWriteLog(w, flusher, "Using certbot: "+certbotBin)
 
-	settingsCertArgs := s.certbotEnableArgs(certbotBin, domain, false)
+	settingsCertArgs := s.certbotEnableArgs(certbotBin, domain, true)
 	cmd := exec.Command(settingsCertArgs[0], settingsCertArgs[1:]...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1391,44 +1391,18 @@ func (s *Server) handleSettingsSSLEnable(w http.ResponseWriter, r *http.Request)
 		sseWriteLog(w, flusher, "WARNING: could not save config: "+err.Error())
 	}
 
-	// Step 3: Auto-block insecure traffic — add HTTP→HTTPS redirect to the nginx config
-	// so the dashboard is NEVER accessible over plain HTTP after SSL is enabled.
-	sseWriteLog(w, flusher, "[Step 3/3] Blocking insecure HTTP traffic...")
-	if !s.config.InsecureBlocked {
-		configName := domain
-		configContent, readErr := nginx.ReadConfigContent(configName)
-		if readErr != nil {
-			sseWriteLog(w, flusher, "WARNING: could not read nginx config to add redirect: "+readErr.Error())
-		} else if !strings.Contains(configContent, "return 301 https://") {
-			redirectBlock := fmt.Sprintf("\n# HTTP → HTTPS redirect (auto-enabled with SSL)\nserver {\n    listen 80;\n    server_name %s;\n    return 301 https://$host$request_uri;\n}\n", domain)
-			newContent := configContent + "\n" + redirectBlock
-			if _, writeErr := nginx.WriteConfigContent(configName, newContent, true); writeErr != nil {
-				sseWriteLog(w, flusher, "WARNING: could not add HTTPS redirect: "+writeErr.Error())
-			} else {
-				if reloadErr := nginx.ReloadNginx(); reloadErr != nil {
-					sseWriteLog(w, flusher, "WARNING: redirect added but nginx reload failed: "+reloadErr.Error())
-				} else {
-					sseWriteLog(w, flusher, "HTTP→HTTPS redirect enabled. All traffic now goes through SSL.")
-				}
-				s.config.InsecureBlocked = true
-				_ = auth.SaveConfig(*s.config)
-			}
-		} else {
-			sseWriteLog(w, flusher, "HTTP redirect already in place.")
-			s.config.InsecureBlocked = true
-			_ = auth.SaveConfig(*s.config)
-		}
-	} else {
-		sseWriteLog(w, flusher, "HTTP redirect already configured.")
-	}
-
+	sseWriteLog(w, flusher, "[Step 3/3] Done!")
 	sseWriteLog(w, flusher, "")
-	sseWriteLog(w, flusher, "SSL enabled for ServerPilot at "+domain+"! All traffic is now encrypted.")
+	sseWriteLog(w, flusher, "SSL enabled for ServerPilot at "+domain+"!")
+	sseWriteLog(w, flusher, "Tip: Go to Settings → Step 3 to block insecure HTTP traffic for this domain.")
 	sseWriteEvent(w, flusher, "done", `{"success":true,"message":"SSL enabled for ServerPilot"}`)
 }
 
-// handleSettingsBlockInsecure modifies the nginx config to redirect all HTTP→HTTPS
-// and marks it as permanently blocked.
+// insecureBlockRedirectComment is used to identify the redirect block we add/remove.
+const insecureBlockRedirectComment = "# ServerPilot HTTP → HTTPS redirect"
+
+// handleSettingsBlockInsecure toggles the HTTP→HTTPS redirect for ServerPilot's domain.
+// It only affects ServerPilot's own domain — other sites' port 80 config is untouched.
 func (s *Server) handleSettingsBlockInsecure(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
@@ -1446,12 +1420,6 @@ func (s *Server) handleSettingsBlockInsecure(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if s.config.InsecureBlocked {
-		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "insecure traffic is already blocked"})
-		return
-	}
-
-	// Read the current nginx config.
 	configName := domain
 	content, err := nginx.ReadConfigContent(configName)
 	if err != nil {
@@ -1460,46 +1428,72 @@ func (s *Server) handleSettingsBlockInsecure(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Add HTTP→HTTPS redirect block if not already present.
-	redirectBlock := fmt.Sprintf(`
-# HTTP → HTTPS redirect (insecure traffic blocked)
-server {
-    listen 80;
-    server_name %s;
-    return 301 https://$host$request_uri;
-}
-`, domain)
+	if s.config.InsecureBlocked {
+		// ── DISABLE: Remove the redirect block ──
+		// Find and remove the redirect block we added.
+		if idx := strings.Index(content, insecureBlockRedirectComment); idx != -1 {
+			// Find the end of the server{} block after our comment.
+			endMarker := "\n}\n"
+			endIdx := strings.Index(content[idx:], endMarker)
+			if endIdx != -1 {
+				blockToRemove := content[idx : idx+endIdx+len(endMarker)]
+				newContent := strings.Replace(content, blockToRemove, "", 1)
+				// Clean up extra blank lines.
+				for strings.Contains(newContent, "\n\n\n") {
+					newContent = strings.ReplaceAll(newContent, "\n\n\n", "\n\n")
+				}
+				if _, writeErr := nginx.WriteConfigContent(configName, newContent, true); writeErr != nil {
+					log.Printf("Error removing redirect block: %v", writeErr)
+					writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to remove redirect — nginx validation failed"})
+					return
+				}
+			}
+		}
 
-	// Check if redirect already exists.
-	if strings.Contains(content, "return 301 https://") {
-		// Already has redirect — just mark as blocked.
-	} else {
-		// Append redirect block to the config file.
-		newContent := content + "\n" + redirectBlock
-		if _, err := nginx.WriteConfigContent(configName, newContent, true); err != nil {
-			log.Printf("Error writing redirect config: %v", err)
-			writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to write redirect config — nginx validation failed"})
+		if reloadErr := nginx.ReloadNginx(); reloadErr != nil {
+			log.Printf("Error reloading nginx after unblocking: %v", reloadErr)
+			writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "config updated but nginx reload failed"})
 			return
 		}
-	}
 
-	// Reload nginx.
-	if err := nginx.ReloadNginx(); err != nil {
-		log.Printf("Error reloading nginx after blocking insecure: %v", err)
-		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "config written but nginx reload failed"})
-		return
-	}
+		s.config.InsecureBlocked = false
+		if saveErr := auth.SaveConfig(*s.config); saveErr != nil {
+			log.Printf("Error saving config after unblocking: %v", saveErr)
+		}
 
-	// Update config.
-	s.config.InsecureBlocked = true
-	if err := auth.SaveConfig(*s.config); err != nil {
-		log.Printf("Error saving config after blocking insecure: %v", err)
-	}
+		writeJSON(w, http.StatusOK, apiResponse{
+			Success: true,
+			Data:    map[string]string{"message": "HTTP access re-enabled for " + domain + "."},
+		})
+	} else {
+		// ── ENABLE: Add the redirect block ──
+		redirectBlock := fmt.Sprintf("\n%s\nserver {\n    listen 80;\n    server_name %s;\n    return 301 https://$host$request_uri;\n}\n", insecureBlockRedirectComment, domain)
 
-	writeJSON(w, http.StatusOK, apiResponse{
-		Success: true,
-		Data:    map[string]string{"message": "Insecure traffic blocked. All HTTP requests now redirect to HTTPS."},
-	})
+		if !strings.Contains(content, "return 301 https://") {
+			newContent := content + "\n" + redirectBlock
+			if _, writeErr := nginx.WriteConfigContent(configName, newContent, true); writeErr != nil {
+				log.Printf("Error writing redirect config: %v", writeErr)
+				writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to write redirect — nginx validation failed"})
+				return
+			}
+		}
+
+		if reloadErr := nginx.ReloadNginx(); reloadErr != nil {
+			log.Printf("Error reloading nginx after blocking: %v", reloadErr)
+			writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "config written but nginx reload failed"})
+			return
+		}
+
+		s.config.InsecureBlocked = true
+		if saveErr := auth.SaveConfig(*s.config); saveErr != nil {
+			log.Printf("Error saving config after blocking: %v", saveErr)
+		}
+
+		writeJSON(w, http.StatusOK, apiResponse{
+			Success: true,
+			Data:    map[string]string{"message": "HTTP traffic blocked for " + domain + ". All requests redirect to HTTPS."},
+		})
+	}
 }
 
 // ── GD-App Handlers ──

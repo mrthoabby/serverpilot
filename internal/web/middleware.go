@@ -2,7 +2,9 @@ package web
 
 import (
 	"log"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -79,22 +81,47 @@ func (s *Server) SecurityMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 
-		if s.config.SSLEnabled {
+		if s.config.SSLEnabled && s.config.Domain != "" {
 			// HSTS: tell browsers to always use HTTPS for 1 year, include subdomains.
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 
 			// Defense-in-depth: if a request arrives over plain HTTP (X-Forwarded-Proto
-			// set by nginx), redirect to HTTPS. This only triggers if nginx redirect
-			// was somehow bypassed.
-			if r.Header.Get("X-Forwarded-Proto") == "http" {
-				target := "https://" + r.Host + r.URL.RequestURI()
+			// set by nginx), redirect to HTTPS.
+			proto := r.Header.Get("X-Forwarded-Proto")
+			if proto == "http" {
+				target := "https://" + s.config.Domain + r.URL.RequestURI()
 				http.Redirect(w, r, target, http.StatusMovedPermanently)
 				return
+			}
+
+			// Block direct access that bypasses nginx entirely.
+			// If SSL is enabled, legitimate requests come through nginx which sets
+			// X-Forwarded-Proto. A missing header means someone is hitting the Go
+			// server directly — only allow from loopback (nginx on same host).
+			if proto == "" {
+				remoteIP := r.RemoteAddr
+				if host, _, err := net.SplitHostPort(remoteIP); err == nil {
+					remoteIP = host
+				}
+				if !isLoopback(remoteIP) {
+					log.Printf("Blocked direct access from %s (SSL enabled, must go through nginx)", r.RemoteAddr)
+					http.Error(w, "Direct access not allowed. Use https://"+s.config.Domain, http.StatusForbidden)
+					return
+				}
 			}
 		}
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isLoopback returns true if the IP is a loopback address (127.x.x.x or ::1).
+func isLoopback(ip string) bool {
+	if strings.HasPrefix(ip, "127.") || ip == "::1" || ip == "localhost" {
+		return true
+	}
+	parsed := net.ParseIP(ip)
+	return parsed != nil && parsed.IsLoopback()
 }
 
 // RecoveryMiddleware recovers from panics and returns a 500 error.

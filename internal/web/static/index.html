@@ -1342,7 +1342,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
               <span class="settings-step-title">Block Insecure Traffic</span>
               <span class="settings-step-status" id="settingsBlockStatus"></span>
             </div>
-            <p class="settings-step-desc">Redirect all HTTP traffic to HTTPS. This is a one-time action — once enabled, ServerPilot will only be accessible over HTTPS.</p>
+            <p class="settings-step-desc">Redirect HTTP to HTTPS for ServerPilot's domain only. Other sites on port 80 are not affected. You can toggle this on/off.</p>
             <div style="margin-top:0.5rem;">
               <button class="btn btn-sm btn-warning" id="settingsBlockBtn" disabled>Block Insecure Traffic</button>
             </div>
@@ -3083,20 +3083,21 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       sslBtn.disabled = true;
     }
 
-    // Step 3: Block insecure
+    // Step 3: Block insecure (toggle — can enable and disable)
     if (settingsData.ssl_enabled) {
       step3.classList.remove("disabled");
+      blockBtn.disabled = false;
+      blockBtn.style.display = "inline-flex";
       if (settingsData.insecure_blocked) {
-        blockStatus.textContent = "Blocked";
+        blockStatus.textContent = "Blocked — HTTP redirects to HTTPS";
         blockStatus.className = "settings-step-status configured";
         step3Num.classList.add("done");
-        blockBtn.style.display = "none"; // Disappears once done
+        setText(blockBtn, "Allow HTTP (Disable Block)");
+        blockBtn.className = "btn btn-sm btn-outline";
       } else {
         blockStatus.textContent = "HTTP still allowed";
         blockStatus.className = "settings-step-status pending";
         step3Num.classList.remove("done");
-        blockBtn.disabled = false;
-        blockBtn.style.display = "inline-flex";
         setText(blockBtn, "Block Insecure Traffic");
         blockBtn.className = "btn btn-sm btn-warning";
       }
@@ -3167,22 +3168,27 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     });
   });
 
-  // Block insecure traffic
+  // Block / Unblock insecure traffic (toggle)
   document.getElementById("settingsBlockBtn").addEventListener("click", function() {
     if (!settingsData.ssl_enabled) return;
-    confirmAction("Block Insecure Traffic", "This will redirect ALL HTTP traffic to HTTPS for " + settingsData.domain + ". This action cannot be undone from the dashboard. Continue?", async function() {
+    var isBlocked = settingsData.insecure_blocked;
+    var title = isBlocked ? "Allow HTTP Traffic" : "Block Insecure Traffic";
+    var msg = isBlocked
+      ? "This will re-enable HTTP access for " + settingsData.domain + ". HTTPS will still work, but HTTP will no longer redirect. Continue?"
+      : "This will redirect ALL HTTP traffic to HTTPS for " + settingsData.domain + " only. Other sites on port 80 are not affected. Continue?";
+    confirmAction(title, msg, async function() {
       var btn = document.getElementById("settingsBlockBtn");
       btn.disabled = true;
-      setText(btn, "Blocking...");
+      setText(btn, isBlocked ? "Unblocking..." : "Blocking...");
       try {
         await apiFetch("/api/settings/block-insecure", { method: "POST", body: {} });
-        showToast("Insecure traffic blocked. All HTTP now redirects to HTTPS.", "success");
+        showToast(isBlocked ? "HTTP access re-enabled for " + settingsData.domain : "HTTP blocked — all traffic redirects to HTTPS.", "success");
         await loadSettings();
         await loadSites();
       } catch(err) {
         showToast("Failed: " + err.message, "error");
         btn.disabled = false;
-        setText(btn, "Block Insecure Traffic");
+        renderSettings();
       }
     });
   });

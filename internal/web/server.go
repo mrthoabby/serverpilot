@@ -81,7 +81,16 @@ func (s *Server) Start() error {
 	// Start the background memory history collector (snapshots every 5 min).
 	sysinfo.StartHistoryCollector()
 
-	addr := fmt.Sprintf(":%d", s.port)
-	log.Printf("Starting server on %s", addr)
+	// When SSL is enabled, bind only to localhost so the Go server is NOT
+	// directly reachable from the internet — all traffic must go through nginx
+	// which handles SSL termination. This prevents bypassing HTTPS.
+	var addr string
+	if s.config.SSLEnabled && s.config.Domain != "" {
+		addr = fmt.Sprintf("127.0.0.1:%d", s.port)
+		log.Printf("SSL enabled — binding to %s (localhost only, behind nginx)", addr)
+	} else {
+		addr = fmt.Sprintf(":%d", s.port)
+		log.Printf("Starting server on %s (all interfaces)", addr)
+	}
 	return http.ListenAndServe(addr, handler)
 }
