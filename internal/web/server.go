@@ -79,9 +79,14 @@ func (s *Server) Start() error {
 	// Static files.
 	mux.Handle("/static/", http.FileServer(http.FS(staticFiles)))
 
+	// Initialise the scanner/bot detection logger (non-fatal if log path is unavailable).
+	initScannerLogger()
+
 	// Wrap everything with security, logging, and recovery middleware.
-	// Order: Recovery (outermost) → Logging → Security → routes.
-	handler := RecoveryMiddleware(LoggingMiddleware(s.SecurityMiddleware(mux)))
+	// Order: Recovery (outermost) → Logging → Security → ClientHeader → routes.
+	// ClientHeaderMiddleware sits inside SecurityMiddleware so it only fires for
+	// requests that already passed the SSL / loopback check.
+	handler := RecoveryMiddleware(LoggingMiddleware(s.SecurityMiddleware(s.ClientHeaderMiddleware(mux))))
 
 	// Start the background memory history collector (snapshots every 5 min).
 	sysinfo.StartHistoryCollector()

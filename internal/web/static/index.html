@@ -1618,8 +1618,15 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   async function apiFetch(url, opts) {
     opts = opts || {};
     opts.credentials = "same-origin";
+    // Client identity headers — always sent on every API call.
+    // The backend logs any request that arrives without these as a potential scanner/bot.
+    opts.headers = Object.assign({
+      "X-SP-Client": "dashboard",
+      "X-SP-Build": "1",
+      "X-SP-Source": "ui"
+    }, opts.headers || {});
     if (opts.body && typeof opts.body === "object" && !(opts.body instanceof FormData)) {
-      opts.headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
+      opts.headers["Content-Type"] = "application/json";
       opts.body = JSON.stringify(opts.body);
     }
     var resp = await fetch(url, opts);
@@ -3346,7 +3353,12 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (diskResp) {
       var breakdown = diskResp.data || diskResp;
       if (sysData) sysData.disk_breakdown = breakdown;
+      // Preserve the directory the user is currently browsing — renderDiskBreakdown
+      // resets diskCurrentPath to null (overview mode), so we save it first and
+      // re-drill into the same path once the overview has refreshed.
+      var browsingPath = diskCurrentPath;
       renderDiskBreakdown(sysData || { disk_breakdown: breakdown });
+      if (browsingPath) { diskDrillInto(browsingPath); }
     }
   }
 
