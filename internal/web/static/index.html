@@ -1250,7 +1250,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         <div class="res-card">
           <div class="res-card-label">Disk</div>
           <div class="res-card-value" id="resDiskValue">--</div>
-          <div class="res-card-sub" id="resDiskSub">-- / -- MB</div>
+          <div class="res-card-sub" id="resDiskSub">-- / -- GB</div>
+          <div class="res-card-sub" id="resDiskSubMB" style="font-size:0.7rem;color:var(--text-muted);margin-top:2px;">-- / -- MB</div>
+          <div class="res-card-sub" id="resDiskAvail" style="font-size:0.75rem;color:var(--green);margin-top:2px;">Available: --</div>
         </div>
         <div class="res-card">
           <div class="res-card-label">Uptime</div>
@@ -1273,6 +1275,30 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
           <div class="card-header"><h2>CPU Usage by Container</h2></div>
           <div class="res-chart-body">
             <svg id="cpuBarChart" viewBox="0 0 400 280" class="bar-svg"></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Disk Breakdown -->
+      <div class="card" style="margin-top:1rem;">
+        <div class="card-header"><h2>Disk Usage Breakdown</h2></div>
+        <div style="display:flex;flex-wrap:wrap;gap:1rem;padding:1rem;">
+          <div style="flex:1;min-width:280px;">
+            <svg id="diskPieChart" viewBox="0 0 340 340" class="pie-svg"></svg>
+          </div>
+          <div style="flex:1.5;min-width:320px;overflow-x:auto;">
+            <table class="res-table" id="diskBreakdownTable" style="width:100%;font-size:0.85rem;">
+              <thead>
+                <tr>
+                  <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">Directory</th>
+                  <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">Size (GB)</th>
+                  <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">Size (MB)</th>
+                  <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">%</th>
+                  <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);min-width:120px;">Bar</th>
+                </tr>
+              </thead>
+              <tbody id="diskBreakdownBody"></tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -1474,6 +1500,12 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
   function setText(el, text) {
     el.textContent = text;
+  }
+
+  function escapeHtml(str) {
+    var div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
   }
 
   function showToast(message, type) {
@@ -3243,9 +3275,12 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (d.disk && d.disk.length > 0) {
       var rootDisk = d.disk[0];
       setText(document.getElementById("resDiskValue"), rootDisk.used_percent.toFixed(1) + "%");
-      var sizeGB = (rootDisk.size_mb / 1024).toFixed(1);
-      var usedGB = (rootDisk.used_mb / 1024).toFixed(1);
-      setText(document.getElementById("resDiskSub"), usedGB + " / " + sizeGB + " GB (" + rootDisk.used_mb + " / " + rootDisk.size_mb + " MB)");
+      var sizeGB = (rootDisk.size_mb / 1024).toFixed(2);
+      var usedGB = (rootDisk.used_mb / 1024).toFixed(2);
+      var availGB = (rootDisk.avail_mb / 1024).toFixed(2);
+      setText(document.getElementById("resDiskSub"), usedGB + " / " + sizeGB + " GB (used/total)");
+      setText(document.getElementById("resDiskSubMB"), rootDisk.used_mb + " / " + rootDisk.size_mb + " MB (used/total)");
+      setText(document.getElementById("resDiskAvail"), "Available: " + availGB + " GB (" + rootDisk.avail_mb + " MB)");
     }
 
     setText(document.getElementById("resUptime"), d.uptime || "--");
@@ -3262,6 +3297,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     // Container Stats Table
     renderContainerStats(d);
+
+    // Disk Breakdown Chart + Table
+    renderDiskBreakdown(d);
   }
 
   // ── SVG Pie Chart ──
@@ -3544,6 +3582,156 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     svg.appendChild(circle);
 
     return svg;
+  }
+
+  // ── Disk Breakdown Pie + Table ──
+  var DISK_COLORS = ["#00b4d8", "#3fb950", "#f85149", "#d29922", "#db6d28", "#8b5cf6", "#ec4899", "#6366f1", "#14b8a6", "#f97316", "#a855f7", "#ef4444"];
+
+  function renderDiskBreakdown(d) {
+    var svg = document.getElementById("diskPieChart");
+    var tbody = document.getElementById("diskBreakdownBody");
+    if (!svg || !tbody) return;
+    svg.innerHTML = "";
+    tbody.innerHTML = "";
+
+    var entries = d.disk_breakdown;
+    if (!entries || entries.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="padding:1rem;color:var(--text-muted);text-align:center;">No disk breakdown data available</td></tr>';
+      return;
+    }
+
+    // Calculate total for percentages
+    var totalMB = 0;
+    entries.forEach(function(e) { totalMB += e.size_mb; });
+
+    // Get the root disk total for "Other" calculation
+    var rootDiskMB = 0;
+    if (d.disk && d.disk.length > 0) {
+      rootDiskMB = d.disk[0].used_mb;
+    }
+
+    // Build slices for pie chart
+    var slices = [];
+    entries.forEach(function(e) {
+      slices.push({ label: e.label, path: e.path, sizeMB: e.size_mb, sizeGB: e.size_gb });
+    });
+
+    // Add "Other" if there's a gap between sum of known dirs and total used
+    if (rootDiskMB > totalMB) {
+      var otherMB = rootDiskMB - totalMB;
+      if (otherMB > 10) { // only show if > 10 MB
+        slices.push({ label: "Other / System", path: "(other)", sizeMB: otherMB, sizeGB: Math.round(otherMB / 1024 * 100) / 100 });
+      }
+    }
+
+    var pieTotalMB = 0;
+    slices.forEach(function(s) { pieTotalMB += s.sizeMB; });
+    var maxMB = slices.length > 0 ? slices[0].sizeMB : 1;
+
+    // Render pie chart
+    var cx = 140, cy = 130, r = 100;
+    var startAngle = -Math.PI / 2;
+    var ns = "http://www.w3.org/2000/svg";
+
+    slices.forEach(function(slice, i) {
+      var pct = pieTotalMB > 0 ? slice.sizeMB / pieTotalMB : 0;
+      var angle = pct * 2 * Math.PI;
+      if (angle < 0.01) return; // skip tiny slices
+      var endAngle = startAngle + angle;
+      var largeArc = angle > Math.PI ? 1 : 0;
+
+      var x1 = cx + r * Math.cos(startAngle);
+      var y1 = cy + r * Math.sin(startAngle);
+      var x2 = cx + r * Math.cos(endAngle);
+      var y2 = cy + r * Math.sin(endAngle);
+
+      var pathD;
+      if (pct >= 0.999) {
+        pathD = "M " + (cx - r) + " " + cy +
+                " A " + r + " " + r + " 0 1 1 " + (cx + r) + " " + cy +
+                " A " + r + " " + r + " 0 1 1 " + (cx - r) + " " + cy + " Z";
+      } else {
+        pathD = "M " + cx + " " + cy +
+                " L " + x1 + " " + y1 +
+                " A " + r + " " + r + " 0 " + largeArc + " 1 " + x2 + " " + y2 + " Z";
+      }
+
+      var path = document.createElementNS(ns, "path");
+      path.setAttribute("d", pathD);
+      path.setAttribute("fill", DISK_COLORS[i % DISK_COLORS.length]);
+      path.setAttribute("stroke", "#0d1117");
+      path.setAttribute("stroke-width", "2");
+      svg.appendChild(path);
+
+      startAngle = endAngle;
+    });
+
+    // Pie legend
+    var legendStartY = 255;
+    var colWidth = 170;
+    slices.forEach(function(slice, i) {
+      var col = i % 2;
+      var row = Math.floor(i / 2);
+      var lx = 5 + col * colWidth;
+      var ly = legendStartY + row * 16;
+
+      var rect = document.createElementNS(ns, "rect");
+      rect.setAttribute("x", lx);
+      rect.setAttribute("y", ly - 7);
+      rect.setAttribute("width", 8);
+      rect.setAttribute("height", 8);
+      rect.setAttribute("rx", 2);
+      rect.setAttribute("fill", DISK_COLORS[i % DISK_COLORS.length]);
+      svg.appendChild(rect);
+
+      var txt = document.createElementNS(ns, "text");
+      txt.setAttribute("x", lx + 12);
+      txt.setAttribute("y", ly);
+      txt.setAttribute("fill", "#8b949e");
+      txt.setAttribute("font-size", "10");
+      txt.setAttribute("font-family", "-apple-system, sans-serif");
+      var pctVal = pieTotalMB > 0 ? (slice.sizeMB / pieTotalMB * 100).toFixed(1) : "0.0";
+      txt.textContent = slice.sizeGB + " GB — " + slice.label;
+      svg.appendChild(txt);
+    });
+
+    // Adjust SVG viewBox height if many entries
+    var totalLegendRows = Math.ceil(slices.length / 2);
+    var neededH = legendStartY + totalLegendRows * 16 + 10;
+    if (neededH > 340) svg.setAttribute("viewBox", "0 0 340 " + neededH);
+
+    // Render table
+    slices.forEach(function(slice, i) {
+      var pct = pieTotalMB > 0 ? (slice.sizeMB / pieTotalMB * 100) : 0;
+      var barWidth = maxMB > 0 ? (slice.sizeMB / maxMB * 100) : 0;
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--border);">' +
+          '<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + DISK_COLORS[i % DISK_COLORS.length] + ';margin-right:6px;vertical-align:middle;"></span>' +
+          '<span style="color:var(--text-primary);font-weight:500;">' + escapeHtml(slice.label) + '</span>' +
+          '<br><span style="font-size:0.75rem;color:var(--text-muted);">' + escapeHtml(slice.path) + '</span>' +
+        '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--text-primary);font-weight:600;">' + slice.sizeGB.toFixed(2) + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary);">' + Math.round(slice.sizeMB) + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary);">' + pct.toFixed(1) + '%</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--border);">' +
+          '<div style="background:var(--bg-input);border-radius:4px;height:14px;overflow:hidden;">' +
+            '<div style="width:' + barWidth.toFixed(1) + '%;height:100%;background:' + DISK_COLORS[i % DISK_COLORS.length] + ';border-radius:4px;transition:width 0.3s;"></div>' +
+          '</div>' +
+        '</td>';
+      tbody.appendChild(tr);
+    });
+
+    // Total row
+    var totalGB = Math.round(pieTotalMB / 1024 * 100) / 100;
+    var trTotal = document.createElement("tr");
+    trTotal.innerHTML =
+      '<td style="padding:8px;font-weight:700;color:var(--accent);">Total Scanned</td>' +
+      '<td style="padding:8px;text-align:right;font-weight:700;color:var(--accent);">' + totalGB.toFixed(2) + '</td>' +
+      '<td style="padding:8px;text-align:right;font-weight:700;color:var(--accent);">' + Math.round(pieTotalMB) + '</td>' +
+      '<td style="padding:8px;text-align:right;font-weight:700;color:var(--accent);">100%</td>' +
+      '<td></td>';
+    tbody.appendChild(trTotal);
   }
 
   function renderServicesTable(d) {

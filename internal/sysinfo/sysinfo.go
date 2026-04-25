@@ -29,7 +29,8 @@ type SystemInfo struct {
 	NumCPU      int             `json:"num_cpu"`
 	LoadAvg     *LoadAverage    `json:"load_avg"`
 	Memory      *MemoryInfo     `json:"memory"`
-	Disk        []DiskInfo      `json:"disk"`
+	Disk          []DiskInfo        `json:"disk"`
+	DiskBreakdown []DiskBreakdownEntry `json:"disk_breakdown,omitempty"`
 	Containers  []ContainerStat `json:"containers"`
 	SelfProcess *ProcessInfo    `json:"self_process"`
 	Services    []ServiceInfo   `json:"services"`
@@ -62,6 +63,14 @@ type DiskInfo struct {
 	AvailMB     int64   `json:"avail_mb"`
 	UsedPercent float64 `json:"used_percent"`
 	MountPoint  string  `json:"mount_point"`
+}
+
+// DiskBreakdownEntry shows how much space a specific directory uses.
+type DiskBreakdownEntry struct {
+	Path   string  `json:"path"`
+	Label  string  `json:"label"`
+	SizeMB float64 `json:"size_mb"`
+	SizeGB float64 `json:"size_gb"`
 }
 
 // ContainerStat from docker stats.
@@ -208,6 +217,7 @@ func Collect() (*SystemInfo, error) {
 
 	// These shell out — cached to avoid overhead.
 	info.Disk = readDiskInfo()
+	info.DiskBreakdown = readDiskBreakdown()
 	info.Containers = readDockerStats()
 	info.Services = readServices()
 
@@ -336,6 +346,87 @@ func readDiskInfo() []DiskInfo {
 		})
 	}
 	return disks
+}
+
+// readDiskBreakdown runs du on key directories to show what occupies disk space.
+// It uses a 10-second timeout to prevent hanging on very large directories.
+func readDiskBreakdown() []DiskBreakdownEntry {
+	dirs := []struct {
+		path  string
+		label string
+	}{
+		{"/var/lib/docker", "Docker (images, containers, volumes)"},
+		{"/var/log", "System Logs"},
+		{"/home", "Home Directories"},
+		{"/tmp", "Temporary Files"},
+		{"/var/lib/mysql", "MySQL Data"},
+		{"/var/lib/postgresql", "PostgreSQL Data"},
+		{"/opt", "Optional Software (/opt)"},
+		{"/usr", "System Programs (/usr)"},
+		{"/var/cache", "Package Cache"},
+		{"/etc", "Configuration (/etc)"},
+		{"/snap", "Snap Packages"},
+		{"/var/www", "Web Files (/var/www)"},
+	}
+
+	var entries []DiskBreakdownEntry
+	for _, d := range dirs {
+		// Check if directory exists before running du.
+		if _, err := os.Stat(d.path); os.IsNotExist(err) {
+			continue
+		}
+		// Use du -sm for megabytes summary, with 5s timeout.
+		cmd := exec.Command("du", "-sm", d.path)
+		// Limit execution time.
+		done := make(chan struct{})
+		var output []byte
+		var cmdErr error
+		go func() {
+			output, cmdErr = cmd.Output()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			if cmd.Process != nil {
+				cmd.Process.Kill()
+			}
+			continue
+		}
+		if cmdErr != nil {
+			// du may fail due to permissions — try with stderr suppressed.
+			// Parse whatever partial output we got.
+			if len(output) == 0 {
+				continue
+			}
+		}
+		line := strings.TrimSpace(string(output))
+		parts := strings.Fields(line)
+		if len(parts) < 1 {
+			continue
+		}
+		sizeMB, err := strconv.ParseFloat(parts[0], 64)
+		if err != nil || sizeMB < 1 {
+			continue // skip tiny directories
+		}
+		entries = append(entries, DiskBreakdownEntry{
+			Path:   d.path,
+			Label:  d.label,
+			SizeMB: sizeMB,
+			SizeGB: float64(int(sizeMB/1024*100)) / 100, // 2 decimal places
+		})
+	}
+
+	// Sort by size descending.
+	for i := 0; i < len(entries); i++ {
+		for j := i + 1; j < len(entries); j++ {
+			if entries[j].SizeMB > entries[i].SizeMB {
+				entries[i], entries[j] = entries[j], entries[i]
+			}
+		}
+	}
+
+	return entries
 }
 
 // readDockerStats gets a snapshot of container resource usage.
