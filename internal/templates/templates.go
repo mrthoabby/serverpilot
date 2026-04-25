@@ -19,6 +19,10 @@ const (
 	NestJS TemplateType = "nestjs"
 	// API is a standard reverse proxy template with rate limiting headers.
 	API TemplateType = "api"
+	// NextJS is an optimized reverse proxy for Next.js apps (SSR, ISR, static assets, image optimization).
+	NextJS TemplateType = "nextjs"
+	// Frontend is a static file / SPA template (React, Vue, Angular, etc.) served directly by Nginx.
+	Frontend TemplateType = "frontend"
 )
 
 var domainRegex = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$`)
@@ -67,6 +71,119 @@ const apiTemplate = `server {
 }
 `
 
+const nextjsTemplate = `server {
+    listen 80;
+    server_name {{.Domain}};
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # Next.js static assets — long cache, immutable
+    location /_next/static/ {
+        proxy_pass http://127.0.0.1:{{.Port}};
+        proxy_cache_valid 200 365d;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        access_log off;
+    }
+
+    # Next.js image optimization
+    location /_next/image {
+        proxy_pass http://127.0.0.1:{{.Port}};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60;
+    }
+
+    # Public static files
+    location /public/ {
+        proxy_pass http://127.0.0.1:{{.Port}};
+        add_header Cache-Control "public, max-age=86400";
+        access_log off;
+    }
+
+    # Next.js data routes (ISR / SSR JSON payloads)
+    location /_next/data/ {
+        proxy_pass http://127.0.0.1:{{.Port}};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # API routes
+    location /api/ {
+        proxy_pass http://127.0.0.1:{{.Port}};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 30;
+    }
+
+    # Main — SSR pages, WebSocket for HMR in dev
+    location / {
+        proxy_pass http://127.0.0.1:{{.Port}};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 86400;
+        proxy_buffering off;
+    }
+}
+`
+
+const frontendTemplate = `server {
+    listen 80;
+    server_name {{.Domain}};
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript image/svg+xml;
+
+    # All requests proxy to the frontend dev server / container
+    location / {
+        proxy_pass http://127.0.0.1:{{.Port}};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 86400;
+        proxy_buffering off;
+    }
+
+    # Static assets — cache aggressively
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|map)$ {
+        proxy_pass http://127.0.0.1:{{.Port}};
+        add_header Cache-Control "public, max-age=2592000";
+        access_log off;
+    }
+}
+`
+
 // GetTemplate returns the rendered nginx config string for the given template type.
 func GetTemplate(templateType TemplateType, domain string, port int) (string, error) {
 	if !isValidDomain(domain) {
@@ -83,6 +200,10 @@ func GetTemplate(templateType TemplateType, domain string, port int) (string, er
 		tmplStr = nestjsTemplate
 	case API:
 		tmplStr = apiTemplate
+	case NextJS:
+		tmplStr = nextjsTemplate
+	case Frontend:
+		tmplStr = frontendTemplate
 	default:
 		return "", fmt.Errorf("unknown template type: %s", string(templateType))
 	}

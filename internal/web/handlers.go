@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -282,6 +284,18 @@ func (s *Server) handleMappings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: result})
 }
 
+// sseWriteEvent writes an SSE event to the ResponseWriter and flushes.
+func sseWriteEvent(w http.ResponseWriter, flusher http.Flusher, event, data string) {
+	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
+	flusher.Flush()
+}
+
+// sseWriteLog writes a log-line SSE event.
+func sseWriteLog(w http.ResponseWriter, flusher http.Flusher, line string) {
+	escaped, _ := json.Marshal(line)
+	sseWriteEvent(w, flusher, "log", string(escaped))
+}
+
 func (s *Server) handleSSLEnable(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
@@ -299,13 +313,58 @@ func (s *Server) handleSSLEnable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := mapper.EnableSSL(req.Domain); err != nil {
-		log.Printf("Error enabling SSL for %s: %v", req.Domain, err)
-		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to enable SSL"})
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "streaming not supported"})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{"message": "SSL enabled for " + req.Domain}})
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	sseWriteLog(w, flusher, "[Step 1/3] Requesting SSL certificate for "+req.Domain+"...")
+
+	cmd := exec.Command("/usr/bin/certbot", "--nginx", "-d", req.Domain, "--non-interactive", "--agree-tos")
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		sseWriteLog(w, flusher, "ERROR: failed to create stdout pipe: "+err.Error())
+		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to start certbot"}`)
+		return
+	}
+	cmd.Stderr = cmd.Stdout // merge stderr into stdout
+
+	if err := cmd.Start(); err != nil {
+		sseWriteLog(w, flusher, "ERROR: failed to start certbot: "+err.Error())
+		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to start certbot"}`)
+		return
+	}
+
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := scanner.Text()
+		log.Printf("[certbot enable %s] %s", req.Domain, line)
+		sseWriteLog(w, flusher, line)
+	}
+
+	err = cmd.Wait()
+	if err != nil {
+		sseWriteLog(w, flusher, "ERROR: certbot failed: "+err.Error())
+		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"certbot failed"}`)
+		return
+	}
+
+	sseWriteLog(w, flusher, "[Step 2/3] Certificate obtained. Reloading nginx...")
+	if err := nginx.ReloadNginx(); err != nil {
+		sseWriteLog(w, flusher, "WARNING: nginx reload failed: "+err.Error())
+		sseWriteLog(w, flusher, "SSL certificate was installed but nginx did not reload.")
+	} else {
+		sseWriteLog(w, flusher, "Nginx reloaded successfully.")
+	}
+
+	sseWriteLog(w, flusher, "[Step 3/3] SSL enabled for "+req.Domain+"!")
+	sseWriteEvent(w, flusher, "done", `{"success":true,"message":"SSL enabled for `+req.Domain+`"}`)
 }
 
 func (s *Server) handleSSLDisable(w http.ResponseWriter, r *http.Request) {
@@ -325,13 +384,158 @@ func (s *Server) handleSSLDisable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := mapper.DisableSSL(req.Domain); err != nil {
-		log.Printf("Error disabling SSL for %s: %v", req.Domain, err)
-		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to disable SSL"})
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "streaming not supported"})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{"message": "SSL disabled for " + req.Domain}})
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	sseWriteLog(w, flusher, "[Step 1/3] Removing SSL certificate for "+req.Domain+"...")
+
+	cmd := exec.Command("/usr/bin/certbot", "delete", "--cert-name", req.Domain, "--non-interactive")
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		sseWriteLog(w, flusher, "ERROR: failed to create stdout pipe: "+err.Error())
+		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to start certbot"}`)
+		return
+	}
+	cmd.Stderr = cmd.Stdout
+
+	if err := cmd.Start(); err != nil {
+		sseWriteLog(w, flusher, "ERROR: failed to start certbot: "+err.Error())
+		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to start certbot"}`)
+		return
+	}
+
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := scanner.Text()
+		log.Printf("[certbot disable %s] %s", req.Domain, line)
+		sseWriteLog(w, flusher, line)
+	}
+
+	err = cmd.Wait()
+	if err != nil {
+		sseWriteLog(w, flusher, "ERROR: certbot delete failed: "+err.Error())
+		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"certbot delete failed"}`)
+		return
+	}
+
+	sseWriteLog(w, flusher, "[Step 2/3] Certificate removed. Reloading nginx...")
+	if err := nginx.ReloadNginx(); err != nil {
+		sseWriteLog(w, flusher, "WARNING: nginx reload failed: "+err.Error())
+	} else {
+		sseWriteLog(w, flusher, "Nginx reloaded successfully.")
+	}
+
+	sseWriteLog(w, flusher, "[Step 3/3] SSL disabled for "+req.Domain+"!")
+	sseWriteEvent(w, flusher, "done", `{"success":true,"message":"SSL disabled for `+req.Domain+`"}`)
+}
+
+// handleSiteDelete completely removes a site: nginx config, symlink, SSL cert, then reloads.
+func (s *Server) handleSiteDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	var req domainRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	if !isValidDomain(req.Domain) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid domain format"})
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "streaming not supported"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	domain := req.Domain
+
+	// Step 1: Remove SSL certificate if present.
+	sseWriteLog(w, flusher, "[Step 1/4] Checking SSL certificate for "+domain+"...")
+	certPath := fmt.Sprintf("/etc/letsencrypt/live/%s", domain)
+	if _, err := os.Stat(certPath); err == nil {
+		sseWriteLog(w, flusher, "SSL certificate found. Removing with certbot...")
+		cmd := exec.Command("/usr/bin/certbot", "delete", "--cert-name", domain, "--non-interactive")
+		stdout, err := cmd.StdoutPipe()
+		if err == nil {
+			cmd.Stderr = cmd.Stdout
+			if startErr := cmd.Start(); startErr == nil {
+				scanner := bufio.NewScanner(stdout)
+				for scanner.Scan() {
+					sseWriteLog(w, flusher, scanner.Text())
+				}
+				if waitErr := cmd.Wait(); waitErr != nil {
+					sseWriteLog(w, flusher, "WARNING: certbot delete failed: "+waitErr.Error())
+				} else {
+					sseWriteLog(w, flusher, "SSL certificate removed.")
+				}
+			} else {
+				sseWriteLog(w, flusher, "WARNING: could not start certbot: "+startErr.Error())
+			}
+		}
+	} else {
+		sseWriteLog(w, flusher, "No SSL certificate found. Skipping.")
+	}
+
+	// Step 2: Remove symlink from sites-enabled.
+	sseWriteLog(w, flusher, "[Step 2/4] Removing site from sites-enabled...")
+	enabledPath := filepath.Join("/etc/nginx/sites-enabled", domain)
+	if info, err := os.Lstat(enabledPath); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			if err := os.Remove(enabledPath); err != nil {
+				sseWriteLog(w, flusher, "WARNING: failed to remove symlink: "+err.Error())
+			} else {
+				sseWriteLog(w, flusher, "Symlink removed from sites-enabled.")
+			}
+		} else {
+			sseWriteLog(w, flusher, "WARNING: sites-enabled entry is not a symlink — skipping for safety.")
+		}
+	} else {
+		sseWriteLog(w, flusher, "No symlink found in sites-enabled. Skipping.")
+	}
+
+	// Step 3: Remove config from sites-available.
+	sseWriteLog(w, flusher, "[Step 3/4] Removing config from sites-available...")
+	availablePath := filepath.Join("/etc/nginx/sites-available", domain)
+	if _, err := os.Stat(availablePath); err == nil {
+		if err := os.Remove(availablePath); err != nil {
+			sseWriteLog(w, flusher, "ERROR: failed to remove config: "+err.Error())
+			sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to remove config file"}`)
+			return
+		}
+		sseWriteLog(w, flusher, "Config file removed.")
+	} else {
+		sseWriteLog(w, flusher, "No config file found. Skipping.")
+	}
+
+	// Step 4: Reload nginx.
+	sseWriteLog(w, flusher, "[Step 4/4] Reloading nginx...")
+	if err := nginx.ReloadNginx(); err != nil {
+		sseWriteLog(w, flusher, "WARNING: nginx reload failed: "+err.Error())
+	} else {
+		sseWriteLog(w, flusher, "Nginx reloaded successfully.")
+	}
+
+	sseWriteLog(w, flusher, "Site "+domain+" completely removed!")
+	sseWriteEvent(w, flusher, "done", `{"success":true,"message":"Site `+domain+` deleted"}`)
 }
 
 func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
@@ -357,8 +561,8 @@ func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tmplType := templates.TemplateType(strings.ToLower(req.TemplateType))
-	if tmplType != templates.NestJS && tmplType != templates.API {
-		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid template type; use 'nestjs' or 'api'"})
+	if tmplType != templates.NestJS && tmplType != templates.API && tmplType != templates.NextJS && tmplType != templates.Frontend {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid template type; use 'nestjs', 'api', 'nextjs', or 'frontend'"})
 		return
 	}
 
@@ -476,6 +680,22 @@ func containsHTML(s string) bool {
 	return htmlTagRegex.MatchString(s)
 }
 
+// isValidConfigName validates a config filename (more permissive than domain — allows underscores, tildes).
+func isValidConfigName(name string) bool {
+	if len(name) == 0 || len(name) > 253 {
+		return false
+	}
+	if name == "." || name == ".." || strings.Contains(name, "/") || strings.Contains(name, "\\") {
+		return false
+	}
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_' || c == '~') {
+			return false
+		}
+	}
+	return !containsHTML(name)
+}
+
 // ── Nginx Config Editor Handlers ──
 
 func (s *Server) handleSiteConfigRead(w http.ResponseWriter, r *http.Request) {
@@ -485,8 +705,8 @@ func (s *Server) handleSiteConfigRead(w http.ResponseWriter, r *http.Request) {
 	}
 
 	domain := r.URL.Query().Get("domain")
-	if !isValidDomain(domain) {
-		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid domain format"})
+	if !isValidConfigName(domain) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid config name"})
 		return
 	}
 
@@ -524,8 +744,8 @@ func (s *Server) handleSiteConfigSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !isValidDomain(req.Domain) {
-		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid domain format"})
+	if !isValidConfigName(req.Domain) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid config name"})
 		return
 	}
 
@@ -845,4 +1065,272 @@ func downloadAndReplace(tagVersion string) error {
 	}
 
 	return nil
+}
+
+// ── Settings Handlers ──
+
+// handleSettingsGet returns the current ServerPilot settings (domain, SSL, insecure blocked).
+func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"domain":           s.config.Domain,
+			"ssl_enabled":      s.config.SSLEnabled,
+			"insecure_blocked": s.config.InsecureBlocked,
+			"port":             s.port,
+		},
+	})
+}
+
+type settingsDomainRequest struct {
+	Domain string `json:"domain"`
+}
+
+// serverPilotNginxTemplate generates an nginx config for the ServerPilot dashboard itself.
+func serverPilotNginxTemplate(domain string, port int) string {
+	return fmt.Sprintf(`server {
+    listen 80;
+    server_name %s;
+
+    # Security headers
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'" always;
+
+    location / {
+        proxy_pass http://127.0.0.1:%d;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300;
+        proxy_connect_timeout 10;
+
+        # SSE streaming support (for progress modals)
+        proxy_buffering off;
+        proxy_cache off;
+    }
+}
+`, domain, port)
+}
+
+// handleSettingsDomain sets the domain for ServerPilot and creates its nginx site.
+func (s *Server) handleSettingsDomain(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	var req settingsDomainRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	if !isValidDomain(req.Domain) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid domain format"})
+		return
+	}
+
+	// Generate and write the nginx config for ServerPilot.
+	config := serverPilotNginxTemplate(req.Domain, s.port)
+	configPath := filepath.Join("/etc/nginx/sites-available", req.Domain)
+
+	absPath, err := filepath.Abs(configPath)
+	if err != nil || !strings.HasPrefix(absPath, "/etc/nginx/") {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid config path"})
+		return
+	}
+
+	if err := os.WriteFile(absPath, []byte(config), 0644); err != nil {
+		log.Printf("Error writing ServerPilot nginx config: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to write nginx config"})
+		return
+	}
+
+	// Enable the site.
+	if err := nginx.EnableSite(req.Domain); err != nil {
+		log.Printf("Error enabling ServerPilot site: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to enable site: " + err.Error()})
+		return
+	}
+
+	// Reload nginx.
+	if err := nginx.ReloadNginx(); err != nil {
+		log.Printf("Error reloading nginx for ServerPilot domain: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "site created but nginx reload failed: " + err.Error()})
+		return
+	}
+
+	// Save the domain in config.
+	s.config.Domain = req.Domain
+	s.config.SSLEnabled = false
+	s.config.InsecureBlocked = false
+	if err := auth.SaveConfig(*s.config); err != nil {
+		log.Printf("Error saving config with domain: %v", err)
+		// Non-fatal: the nginx site is already up.
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data:    map[string]string{"message": "Domain set to " + req.Domain + ". Nginx site created."},
+	})
+}
+
+// handleSettingsSSLEnable enables SSL for the ServerPilot domain via certbot (SSE streaming).
+func (s *Server) handleSettingsSSLEnable(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	domain := s.config.Domain
+	if domain == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "no domain configured — set domain first"})
+		return
+	}
+
+	if s.config.SSLEnabled {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "SSL is already enabled"})
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "streaming not supported"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	sseWriteLog(w, flusher, "[Step 1/3] Requesting SSL certificate for "+domain+"...")
+
+	cmd := exec.Command("/usr/bin/certbot", "--nginx", "-d", domain, "--non-interactive", "--agree-tos")
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		sseWriteLog(w, flusher, "ERROR: failed to create stdout pipe: "+err.Error())
+		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to start certbot"}`)
+		return
+	}
+	cmd.Stderr = cmd.Stdout
+
+	if err := cmd.Start(); err != nil {
+		sseWriteLog(w, flusher, "ERROR: failed to start certbot: "+err.Error())
+		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to start certbot"}`)
+		return
+	}
+
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := scanner.Text()
+		log.Printf("[certbot ServerPilot SSL %s] %s", domain, line)
+		sseWriteLog(w, flusher, line)
+	}
+
+	if err := cmd.Wait(); err != nil {
+		sseWriteLog(w, flusher, "ERROR: certbot failed: "+err.Error())
+		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"certbot failed — check logs above"}`)
+		return
+	}
+
+	sseWriteLog(w, flusher, "[Step 2/3] Certificate obtained. Reloading nginx...")
+	if err := nginx.ReloadNginx(); err != nil {
+		sseWriteLog(w, flusher, "WARNING: nginx reload failed: "+err.Error())
+	} else {
+		sseWriteLog(w, flusher, "Nginx reloaded successfully.")
+	}
+
+	// Update config.
+	s.config.SSLEnabled = true
+	if err := auth.SaveConfig(*s.config); err != nil {
+		sseWriteLog(w, flusher, "WARNING: could not save config: "+err.Error())
+	}
+
+	sseWriteLog(w, flusher, "[Step 3/3] SSL enabled for ServerPilot at "+domain+"!")
+	sseWriteEvent(w, flusher, "done", `{"success":true,"message":"SSL enabled for ServerPilot"}`)
+}
+
+// handleSettingsBlockInsecure modifies the nginx config to redirect all HTTP→HTTPS
+// and marks it as permanently blocked.
+func (s *Server) handleSettingsBlockInsecure(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	domain := s.config.Domain
+	if domain == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "no domain configured"})
+		return
+	}
+
+	if !s.config.SSLEnabled {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "SSL must be enabled first"})
+		return
+	}
+
+	if s.config.InsecureBlocked {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "insecure traffic is already blocked"})
+		return
+	}
+
+	// Read the current nginx config.
+	configName := domain
+	content, err := nginx.ReadConfigContent(configName)
+	if err != nil {
+		log.Printf("Error reading ServerPilot nginx config: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to read nginx config"})
+		return
+	}
+
+	// Add HTTP→HTTPS redirect block if not already present.
+	redirectBlock := fmt.Sprintf(`
+# HTTP → HTTPS redirect (insecure traffic blocked)
+server {
+    listen 80;
+    server_name %s;
+    return 301 https://$host$request_uri;
+}
+`, domain)
+
+	// Check if redirect already exists.
+	if strings.Contains(content, "return 301 https://") {
+		// Already has redirect — just mark as blocked.
+	} else {
+		// Append redirect block to the config file.
+		newContent := content + "\n" + redirectBlock
+		if _, err := nginx.WriteConfigContent(configName, newContent, true); err != nil {
+			log.Printf("Error writing redirect config: %v", err)
+			writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to write redirect config — nginx validation failed"})
+			return
+		}
+	}
+
+	// Reload nginx.
+	if err := nginx.ReloadNginx(); err != nil {
+		log.Printf("Error reloading nginx after blocking insecure: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "config written but nginx reload failed"})
+		return
+	}
+
+	// Update config.
+	s.config.InsecureBlocked = true
+	if err := auth.SaveConfig(*s.config); err != nil {
+		log.Printf("Error saving config after blocking insecure: %v", err)
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data:    map[string]string{"message": "Insecure traffic blocked. All HTTP requests now redirect to HTTPS."},
+	})
 }

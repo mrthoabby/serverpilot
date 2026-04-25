@@ -17,11 +17,14 @@ import (
 const configDir = "/etc/serverpilot"
 const configFile = "/etc/serverpilot/config.json"
 
-// Config holds the authentication configuration.
+// Config holds the authentication and ServerPilot configuration.
 type Config struct {
-	Username      string `json:"username"`
-	PasswordHash  string `json:"password_hash"`
-	SessionSecret string `json:"session_secret"`
+	Username        string `json:"username"`
+	PasswordHash    string `json:"password_hash"`
+	SessionSecret   string `json:"session_secret"`
+	Domain          string `json:"domain,omitempty"`
+	SSLEnabled      bool   `json:"ssl_enabled,omitempty"`
+	InsecureBlocked bool   `json:"insecure_blocked,omitempty"`
 }
 
 // SessionStore manages active sessions in memory.
@@ -158,6 +161,11 @@ func (s *SessionStore) RemoveSession(token string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.sessions, token)
+}
+
+// SaveConfig persists the configuration to disk. Exported for use by settings handlers.
+func SaveConfig(config Config) error {
+	return saveConfig(config)
 }
 
 func saveConfig(config Config) error {

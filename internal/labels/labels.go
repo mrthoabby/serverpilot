@@ -11,9 +11,11 @@ import (
 type Label string
 
 const (
-	LabelAPI    Label = "api"
-	LabelNestJS Label = "nestjs"
-	LabelBack   Label = "back"
+	LabelAPI      Label = "api"
+	LabelNestJS   Label = "nestjs"
+	LabelBack     Label = "back"
+	LabelNextJS   Label = "nextjs"
+	LabelFrontend Label = "frontend"
 )
 
 // labelsFile stores labels alongside the main serverpilot config.
@@ -28,7 +30,7 @@ var (
 // ValidLabel returns true if the given string is one of the allowed labels.
 func ValidLabel(l string) bool {
 	switch Label(l) {
-	case LabelAPI, LabelNestJS, LabelBack:
+	case LabelAPI, LabelNestJS, LabelBack, LabelNextJS, LabelFrontend:
 		return true
 	}
 	return false

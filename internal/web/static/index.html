@@ -591,6 +591,157 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   gap: 0.5rem;
 }
 
+/* ── Progress / Log Modal ── */
+.progress-modal {
+  max-width: 620px;
+}
+
+.progress-modal h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.progress-modal .progress-domain {
+  color: var(--accent);
+  font-weight: 400;
+  font-size: 0.9rem;
+}
+
+.progress-log {
+  width: 100%;
+  min-height: 220px;
+  max-height: 360px;
+  background: var(--bg-primary);
+  color: var(--green);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  font-size: 0.75rem;
+  line-height: 1.7;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: 0.5rem;
+}
+
+.progress-log .log-error {
+  color: var(--red);
+}
+
+.progress-log .log-warning {
+  color: #ffa500;
+}
+
+.progress-log .log-step {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.progress-log .log-success {
+  color: var(--green);
+  font-weight: 700;
+}
+
+.progress-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-right: 0.5rem;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.progress-status {
+  display: flex;
+  align-items: center;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  margin-top: 0.75rem;
+}
+
+.progress-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+/* ── Settings Steps ── */
+.settings-step {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+}
+
+.settings-step-header {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin-bottom: 0.375rem;
+}
+
+.settings-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.settings-step-num.done {
+  background: var(--green);
+}
+
+.settings-step-title {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+}
+
+.settings-step-status {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+}
+
+.settings-step-status.configured {
+  background: rgba(63, 185, 80, 0.15);
+  color: var(--green);
+}
+
+.settings-step-status.pending {
+  background: rgba(139, 148, 158, 0.15);
+  color: var(--text-secondary);
+}
+
+.settings-step-desc {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.settings-step.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 /* ── Refresh Bar ── */
 .refresh-bar {
   display: flex;
@@ -753,6 +904,18 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   color: var(--text-secondary);
 }
 
+.label-btn.active-nextjs {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: #fff;
+  color: #fff;
+}
+
+.label-btn.active-frontend {
+  background: rgba(255, 165, 0, 0.2);
+  border-color: #ffa500;
+  color: #ffa500;
+}
+
 .label-badge {
   display: inline-flex;
   align-items: center;
@@ -778,6 +941,16 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 .label-badge-back {
   background: rgba(139, 148, 158, 0.15);
   color: var(--text-secondary);
+}
+
+.label-badge-nextjs {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.label-badge-frontend {
+  background: rgba(255, 165, 0, 0.1);
+  color: #ffa500;
 }
 
 /* ── Update Banner ── */
@@ -925,6 +1098,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       <button class="tab-btn" data-tab="resources">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 1.5a5.5 5.5 0 110 11 5.5 5.5 0 010-11zM8 4a.75.75 0 01.75.75v2.5h2.5a.75.75 0 010 1.5h-2.5v2.5a.75.75 0 01-1.5 0v-2.5h-2.5a.75.75 0 010-1.5h2.5v-2.5A.75.75 0 018 4z"/></svg>
         Resources
+      </button>
+      <button class="tab-btn" data-tab="settings">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4.754a3.246 3.246 0 100 6.492 3.246 3.246 0 000-6.492zM5.754 8a2.246 2.246 0 114.492 0 2.246 2.246 0 01-4.492 0z"/><path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 01-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 01-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 01.52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 011.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 011.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 01.52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 01-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 01-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 002.693 1.115l.291-.16c.764-.415 1.6.422 1.184 1.185l-.159.292a1.873 1.873 0 001.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 00-1.115 2.693l.16.291c.415.764-.422 1.6-1.185 1.184l-.292-.159a1.873 1.873 0 00-2.692 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 00-2.693-1.115l-.291.16c-.764.415-1.6-.422-1.184-1.185l.159-.292A1.873 1.873 0 001.945 8.93l-.318-.094c-.835-.246-.835-1.428 0-1.674l.319-.094a1.873 1.873 0 001.115-2.693l-.16-.291c-.415-.764.422-1.6 1.185-1.184l.292.159a1.873 1.873 0 002.692-1.116l.094-.318z"/></svg>
+        Settings
       </button>
     </div>
 
@@ -1105,6 +1282,59 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         </div>
       </div>
     </div>
+
+    <!-- Settings Tab -->
+    <div class="tab-panel" id="panel-settings">
+      <div class="card" style="max-width: 600px;">
+        <div class="card-header"><h2>ServerPilot Settings</h2></div>
+        <div style="padding: 1.25rem;">
+          <p style="color:var(--text-secondary); font-size:0.875rem; margin-bottom: 1.25rem;">
+            Configure the domain, SSL certificate, and security for your ServerPilot dashboard.
+          </p>
+
+          <!-- Step 1: Domain -->
+          <div class="settings-step" id="settingsStep1">
+            <div class="settings-step-header">
+              <span class="settings-step-num">1</span>
+              <span class="settings-step-title">Set Domain</span>
+              <span class="settings-step-status" id="settingsDomainStatus"></span>
+            </div>
+            <p class="settings-step-desc">Enter the domain where ServerPilot will be accessible.</p>
+            <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
+              <input type="text" id="settingsDomainInput" placeholder="pilot.example.com" style="flex:1; background:var(--bg-input); color:var(--text-primary); border:1px solid var(--border); border-radius:6px; padding:0.5rem 0.75rem; font-size:0.875rem; outline:none;">
+              <button class="btn btn-sm btn-primary" id="settingsDomainBtn">Save Domain</button>
+            </div>
+          </div>
+
+          <!-- Step 2: SSL -->
+          <div class="settings-step" id="settingsStep2" style="margin-top:1.25rem;">
+            <div class="settings-step-header">
+              <span class="settings-step-num">2</span>
+              <span class="settings-step-title">Enable SSL</span>
+              <span class="settings-step-status" id="settingsSSLStatus"></span>
+            </div>
+            <p class="settings-step-desc">Obtain an SSL certificate via Let's Encrypt for your dashboard domain.</p>
+            <div style="margin-top:0.5rem;">
+              <button class="btn btn-sm btn-success" id="settingsSSLBtn" disabled>Enable SSL</button>
+            </div>
+          </div>
+
+          <!-- Step 3: Block Insecure -->
+          <div class="settings-step" id="settingsStep3" style="margin-top:1.25rem;">
+            <div class="settings-step-header">
+              <span class="settings-step-num">3</span>
+              <span class="settings-step-title">Block Insecure Traffic</span>
+              <span class="settings-step-status" id="settingsBlockStatus"></span>
+            </div>
+            <p class="settings-step-desc">Redirect all HTTP traffic to HTTPS. This is a one-time action — once enabled, ServerPilot will only be accessible over HTTPS.</p>
+            <div style="margin-top:0.5rem;">
+              <button class="btn btn-sm btn-warning" id="settingsBlockBtn" disabled>Block Insecure Traffic</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1118,8 +1348,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       <div class="form-group">
         <label for="assocTemplate">Template Type</label>
         <select id="assocTemplate">
-          <option value="nestjs">NestJS</option>
-          <option value="api">API</option>
+          <option value="nestjs">NestJS (WebSocket + Proxy)</option>
+          <option value="nextjs">Next.js (SSR + ISR + Static)</option>
+          <option value="frontend">Frontend / SPA (React, Vue, etc.)</option>
+          <option value="api">API (Rate Limiting + Proxy)</option>
         </select>
       </div>
       <div class="form-group">
@@ -1166,6 +1398,22 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         <button type="button" class="btn btn-sm btn-warning" id="configSaveBtn">Save</button>
         <button type="button" class="btn btn-sm btn-success" id="configSaveReloadBtn">Save &amp; Reload</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Progress / Log Modal -->
+<div class="modal-overlay" id="progressModal">
+  <div class="modal progress-modal">
+    <h3 id="progressTitle">Processing</h3>
+    <p class="modal-sub" id="progressSubtitle"></p>
+    <div class="progress-log" id="progressLog"></div>
+    <div class="progress-status" id="progressStatus">
+      <span class="progress-spinner" id="progressSpinner"></span>
+      <span id="progressStatusText">Working...</span>
+    </div>
+    <div class="progress-actions">
+      <button type="button" class="btn btn-sm btn-outline" id="progressCloseBtn" style="display:none;">Close</button>
     </div>
   </div>
 </div>
@@ -1244,7 +1492,8 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     sites:      function() { return loadSites(); },
     images:     function() { return loadImages(); },
     mappings:   function() { return loadMappings(); },
-    resources:  function() { return loadResources(); }
+    resources:  function() { return loadResources(); },
+    settings:   function() { return loadSettings(); }
   };
 
   // ── Cookie-based refresh config (no localStorage) ──
@@ -1534,7 +1783,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       var labelDiv = document.createElement("div");
       labelDiv.className = "label-selector";
 
-      ["api", "nestjs", "back"].forEach(function(lbl) {
+      ["api", "nestjs", "nextjs", "frontend", "back"].forEach(function(lbl) {
         var btn = document.createElement("button");
         btn.className = "label-btn" + (currentLabel === lbl ? " active-" + lbl : "");
         setText(btn, lbl);
@@ -1577,6 +1826,26 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         setText(nestBtn, "Associate Site");
         nestBtn.addEventListener("click", function() { openAssociateModal(c, "nestjs"); });
         tdAct.appendChild(nestBtn);
+      } else if (currentLabel === "nextjs") {
+        // Next.js label → Associate Next.js button
+        var nextBtn = document.createElement("button");
+        nextBtn.className = "btn btn-sm";
+        nextBtn.style.background = "rgba(255,255,255,0.15)";
+        nextBtn.style.color = "#fff";
+        nextBtn.style.border = "1px solid rgba(255,255,255,0.3)";
+        setText(nextBtn, "Associate Next.js");
+        nextBtn.addEventListener("click", function() { openAssociateModal(c, "nextjs"); });
+        tdAct.appendChild(nextBtn);
+      } else if (currentLabel === "frontend") {
+        // Frontend label → Associate Frontend button
+        var frontBtn = document.createElement("button");
+        frontBtn.className = "btn btn-sm";
+        frontBtn.style.background = "rgba(255,165,0,0.15)";
+        frontBtn.style.color = "#ffa500";
+        frontBtn.style.border = "1px solid rgba(255,165,0,0.3)";
+        setText(frontBtn, "Associate Frontend");
+        frontBtn.addEventListener("click", function() { openAssociateModal(c, "frontend"); });
+        tdAct.appendChild(frontBtn);
       } else if (currentLabel === "back") {
         // Backend label → no action, show badge
         var backBadge = document.createElement("span");
@@ -1731,12 +2000,13 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       (function(site) {
         sslBtn.addEventListener("click", function() {
           var action = site.ssl_enabled ? "disable" : "enable";
-          confirmAction("SSL " + action, "Are you sure you want to " + action + " SSL for " + site.domain + "?", async function() {
-            try {
-              await apiFetch("/api/ssl/" + action, { method: "POST", body: { domain: site.domain } });
-              showToast("SSL " + action + "d successfully", "success");
-              await Promise.all([loadSites(), loadMappings(), loadContainers()]);
-            } catch(err) { showToast("Failed: " + err.message, "error"); }
+          confirmAction("SSL " + action, "Are you sure you want to " + action + " SSL for " + site.domain + "?", function() {
+            runStreamedOperation(
+              "/api/ssl/" + action,
+              { domain: site.domain },
+              (action === "enable" ? "Enabling" : "Disabling") + " SSL",
+              site.domain
+            );
           });
         });
       })(s);
@@ -1748,10 +2018,29 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       setText(editBtn, "Edit Config");
       (function(site) {
         editBtn.addEventListener("click", function() {
-          openConfigEditor(site.domain);
+          var configName = site.config_path ? site.config_path.split("/").pop() : site.domain;
+          openConfigEditor(configName, site.domain);
         });
       })(s);
       tdAct.appendChild(editBtn);
+
+      // Delete Site button
+      var deleteBtn = document.createElement("button");
+      deleteBtn.className = "btn btn-sm btn-danger";
+      setText(deleteBtn, "Delete");
+      (function(site) {
+        deleteBtn.addEventListener("click", function() {
+          confirmAction("Delete Site", "Are you sure you want to completely delete " + site.domain + "? This will remove the nginx config, symlink, and SSL certificate.", function() {
+            runStreamedOperation(
+              "/api/sites/delete",
+              { domain: site.domain },
+              "Deleting Site",
+              "Removing all configuration for " + site.domain
+            );
+          });
+        });
+      })(s);
+      tdAct.appendChild(deleteBtn);
 
       tr.appendChild(tdAct);
       tbody.appendChild(tr);
@@ -2176,7 +2465,8 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   function openAssociateModal(container, templateType) {
     document.getElementById("assocContainerId").value = container.id;
     var label = templateType || "nestjs";
-    var actionText = label === "api" ? "Create an API reverse proxy" : "Create an Nginx site";
+    var templateNames = { api: "API reverse proxy", nestjs: "NestJS site", nextjs: "Next.js site", frontend: "Frontend/SPA site" };
+    var actionText = "Create " + (templateNames[label] || "an Nginx site");
     setText(document.getElementById("associateModalSub"), actionText + " for \"" + container.name + "\"");
     document.getElementById("assocDomain").value = "";
     var port = "";
@@ -2229,16 +2519,16 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   var configOriginalContent = "";
   var configCurrentDomain = "";
 
-  async function openConfigEditor(domain) {
-    configCurrentDomain = domain;
-    setText(configDomainSpan, domain);
+  async function openConfigEditor(configName, displayDomain) {
+    configCurrentDomain = configName;
+    setText(configDomainSpan, displayDomain || configName);
     configTextarea.value = "";
     configErrorBox.style.display = "none";
     setText(configErrorBox, "");
     configModal.classList.add("show");
 
     try {
-      var resp = await apiFetch("/api/sites/config?domain=" + encodeURIComponent(domain));
+      var resp = await apiFetch("/api/sites/config?domain=" + encodeURIComponent(configName));
       var data = (resp && resp.data) ? resp.data : resp;
       configOriginalContent = data.content || "";
       configTextarea.value = configOriginalContent;
@@ -2326,6 +2616,154 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
   });
 
+  // ── Progress / Log Modal ──
+  var progressModal = document.getElementById("progressModal");
+  var progressLog = document.getElementById("progressLog");
+  var progressSpinner = document.getElementById("progressSpinner");
+  var progressStatusText = document.getElementById("progressStatusText");
+  var progressCloseBtn = document.getElementById("progressCloseBtn");
+  var currentEventSource = null;
+
+  function openProgressModal(title, subtitle) {
+    setText(document.getElementById("progressTitle"), title);
+    setText(document.getElementById("progressSubtitle"), subtitle || "");
+    progressLog.innerHTML = "";
+    progressSpinner.style.display = "inline-block";
+    setText(progressStatusText, "Working...");
+    progressCloseBtn.style.display = "none";
+    progressModal.classList.add("show");
+  }
+
+  function appendLogLine(text) {
+    var line = document.createElement("div");
+    // Color-code lines based on content.
+    if (text.indexOf("ERROR") !== -1) {
+      line.className = "log-error";
+    } else if (text.indexOf("WARNING") !== -1) {
+      line.className = "log-warning";
+    } else if (/^\[Step/.test(text)) {
+      line.className = "log-step";
+    } else if (text.indexOf("successfully") !== -1 || text.indexOf("enabled") !== -1 || text.indexOf("removed!") !== -1 || text.indexOf("deleted") !== -1) {
+      line.className = "log-success";
+    }
+    setText(line, text);
+    progressLog.appendChild(line);
+    progressLog.scrollTop = progressLog.scrollHeight;
+  }
+
+  function finishProgress(success, message) {
+    progressSpinner.style.display = "none";
+    if (success) {
+      setText(progressStatusText, "Completed successfully");
+      progressStatusText.style.color = "var(--green)";
+    } else {
+      setText(progressStatusText, "Failed: " + (message || "unknown error"));
+      progressStatusText.style.color = "var(--red)";
+    }
+    progressCloseBtn.style.display = "inline-flex";
+  }
+
+  function closeProgressModal() {
+    progressModal.classList.remove("show");
+    progressStatusText.style.color = "";
+    if (currentEventSource) {
+      currentEventSource.close();
+      currentEventSource = null;
+    }
+  }
+
+  progressCloseBtn.addEventListener("click", function() {
+    closeProgressModal();
+    Promise.all([loadSites(), loadMappings(), loadContainers(), loadSettings()]);
+  });
+
+  progressModal.addEventListener("click", function(e) {
+    if (e.target === progressModal && progressCloseBtn.style.display !== "none") {
+      closeProgressModal();
+      Promise.all([loadSites(), loadMappings(), loadContainers(), loadSettings()]);
+    }
+  });
+
+  // Run an SSE-streamed operation via POST, showing logs in the progress modal.
+  function runStreamedOperation(url, body, title, subtitle) {
+    openProgressModal(title, subtitle);
+
+    // We use fetch + ReadableStream instead of EventSource because we need POST.
+    var sessionCookie = document.cookie;
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      credentials: "same-origin"
+    }).then(function(response) {
+      if (!response.ok) {
+        return response.text().then(function(t) {
+          appendLogLine("ERROR: Server returned " + response.status);
+          try {
+            var errObj = JSON.parse(t);
+            appendLogLine(errObj.error || t);
+          } catch(e) {
+            appendLogLine(t);
+          }
+          finishProgress(false, "Server error " + response.status);
+        });
+      }
+
+      var reader = response.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = "";
+
+      function processChunk() {
+        return reader.read().then(function(result) {
+          if (result.done) {
+            // Process any remaining buffer.
+            if (buffer.trim()) processSSEBuffer(buffer);
+            return;
+          }
+          buffer += decoder.decode(result.value, { stream: true });
+          // Process complete SSE messages.
+          var parts = buffer.split("\n\n");
+          buffer = parts.pop(); // keep incomplete part
+          parts.forEach(function(part) {
+            processSSEBuffer(part);
+          });
+          return processChunk();
+        });
+      }
+
+      return processChunk();
+    }).catch(function(err) {
+      appendLogLine("ERROR: " + err.message);
+      finishProgress(false, err.message);
+    });
+  }
+
+  function processSSEBuffer(raw) {
+    var event = "message";
+    var data = "";
+    raw.split("\n").forEach(function(line) {
+      if (line.indexOf("event: ") === 0) event = line.substring(7).trim();
+      else if (line.indexOf("data: ") === 0) data = line.substring(6);
+    });
+    if (!data) return;
+
+    if (event === "log") {
+      try {
+        var text = JSON.parse(data);
+        appendLogLine(text);
+      } catch(e) {
+        appendLogLine(data);
+      }
+    } else if (event === "done") {
+      try {
+        var result = JSON.parse(data);
+        finishProgress(result.success !== false, result.error || result.message || "");
+      } catch(e) {
+        finishProgress(true, "");
+      }
+    }
+  }
+
   // ── Confirm Modal ──
   var confirmModal = document.getElementById("confirmModal");
   var pendingConfirm = null;
@@ -2363,6 +2801,156 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (tabLoaders[activeTab]) tabLoaders[activeTab]();
   });
 
+  // ── Settings ──
+  var settingsData = { domain: "", ssl_enabled: false, insecure_blocked: false, port: 0 };
+
+  async function loadSettings() {
+    try {
+      var resp = await apiFetch("/api/settings");
+      var data = (resp && resp.data) ? resp.data : resp;
+      settingsData = data || settingsData;
+    } catch(err) {
+      // Ignore — will show default state.
+    }
+    renderSettings();
+  }
+
+  function renderSettings() {
+    var domainInput = document.getElementById("settingsDomainInput");
+    var domainBtn = document.getElementById("settingsDomainBtn");
+    var domainStatus = document.getElementById("settingsDomainStatus");
+    var sslBtn = document.getElementById("settingsSSLBtn");
+    var sslStatus = document.getElementById("settingsSSLStatus");
+    var blockBtn = document.getElementById("settingsBlockBtn");
+    var blockStatus = document.getElementById("settingsBlockStatus");
+    var step1Num = document.querySelector("#settingsStep1 .settings-step-num");
+    var step2Num = document.querySelector("#settingsStep2 .settings-step-num");
+    var step3Num = document.querySelector("#settingsStep3 .settings-step-num");
+    var step2 = document.getElementById("settingsStep2");
+    var step3 = document.getElementById("settingsStep3");
+
+    // Step 1: Domain
+    if (settingsData.domain) {
+      domainInput.value = settingsData.domain;
+      domainStatus.textContent = "Configured";
+      domainStatus.className = "settings-step-status configured";
+      step1Num.classList.add("done");
+      setText(domainBtn, "Update Domain");
+    } else {
+      domainInput.value = "";
+      domainStatus.textContent = "Not set";
+      domainStatus.className = "settings-step-status pending";
+      step1Num.classList.remove("done");
+      setText(domainBtn, "Save Domain");
+    }
+
+    // Step 2: SSL
+    if (settingsData.domain) {
+      step2.classList.remove("disabled");
+      if (settingsData.ssl_enabled) {
+        sslStatus.textContent = "Enabled";
+        sslStatus.className = "settings-step-status configured";
+        step2Num.classList.add("done");
+        sslBtn.disabled = true;
+        setText(sslBtn, "SSL Enabled");
+        sslBtn.className = "btn btn-sm btn-outline";
+      } else {
+        sslStatus.textContent = "Not enabled";
+        sslStatus.className = "settings-step-status pending";
+        step2Num.classList.remove("done");
+        sslBtn.disabled = false;
+        setText(sslBtn, "Enable SSL");
+        sslBtn.className = "btn btn-sm btn-success";
+      }
+    } else {
+      step2.classList.add("disabled");
+      sslStatus.textContent = "Set domain first";
+      sslStatus.className = "settings-step-status pending";
+      sslBtn.disabled = true;
+    }
+
+    // Step 3: Block insecure
+    if (settingsData.ssl_enabled) {
+      step3.classList.remove("disabled");
+      if (settingsData.insecure_blocked) {
+        blockStatus.textContent = "Blocked";
+        blockStatus.className = "settings-step-status configured";
+        step3Num.classList.add("done");
+        blockBtn.style.display = "none"; // Disappears once done
+      } else {
+        blockStatus.textContent = "HTTP still allowed";
+        blockStatus.className = "settings-step-status pending";
+        step3Num.classList.remove("done");
+        blockBtn.disabled = false;
+        blockBtn.style.display = "inline-flex";
+        setText(blockBtn, "Block Insecure Traffic");
+        blockBtn.className = "btn btn-sm btn-warning";
+      }
+    } else {
+      step3.classList.add("disabled");
+      blockStatus.textContent = "Enable SSL first";
+      blockStatus.className = "settings-step-status pending";
+      blockBtn.disabled = true;
+      blockBtn.style.display = "inline-flex";
+    }
+  }
+
+  // Save domain
+  document.getElementById("settingsDomainBtn").addEventListener("click", async function() {
+    var btn = this;
+    var domain = document.getElementById("settingsDomainInput").value.trim();
+    if (!domain) {
+      showToast("Enter a domain first", "error");
+      return;
+    }
+    btn.disabled = true;
+    setText(btn, "Creating site...");
+    try {
+      await apiFetch("/api/settings/domain", { method: "POST", body: { domain: domain } });
+      showToast("Domain set and nginx site created for " + domain, "success");
+      await loadSettings();
+      await loadSites();
+    } catch(err) {
+      showToast("Failed: " + err.message, "error");
+    } finally {
+      btn.disabled = false;
+      setText(btn, settingsData.domain ? "Update Domain" : "Save Domain");
+    }
+  });
+
+  // Enable SSL
+  document.getElementById("settingsSSLBtn").addEventListener("click", function() {
+    if (!settingsData.domain) return;
+    confirmAction("Enable SSL", "Obtain an SSL certificate for " + settingsData.domain + " via Let's Encrypt?", function() {
+      runStreamedOperation(
+        "/api/settings/ssl-enable",
+        {},
+        "Enabling SSL for ServerPilot",
+        settingsData.domain
+      );
+    });
+  });
+
+  // Block insecure traffic
+  document.getElementById("settingsBlockBtn").addEventListener("click", function() {
+    if (!settingsData.ssl_enabled) return;
+    confirmAction("Block Insecure Traffic", "This will redirect ALL HTTP traffic to HTTPS for " + settingsData.domain + ". This action cannot be undone from the dashboard. Continue?", async function() {
+      var btn = document.getElementById("settingsBlockBtn");
+      btn.disabled = true;
+      setText(btn, "Blocking...");
+      try {
+        await apiFetch("/api/settings/block-insecure", { method: "POST", body: {} });
+        showToast("Insecure traffic blocked. All HTTP now redirects to HTTPS.", "success");
+        await loadSettings();
+        await loadSites();
+      } catch(err) {
+        showToast("Failed: " + err.message, "error");
+        btn.disabled = false;
+        setText(btn, "Block Insecure Traffic");
+      }
+    });
+  });
+
   // ── Keyboard: Escape closes modals ──
   document.addEventListener("keydown", function(e) {
     if (e.key === "Escape") {
@@ -2370,6 +2958,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       confirmModal.classList.remove("show");
       pendingConfirm = null;
       closeConfigEditor();
+      if (progressCloseBtn.style.display !== "none") closeProgressModal();
     }
   });
 

@@ -221,13 +221,31 @@ func isWithinNginxDir(path string) bool {
 	return strings.HasPrefix(resolved, nginxBaseDir)
 }
 
-// ReadConfigContent returns the raw content of the nginx config file for a given domain.
-func ReadConfigContent(domain string) (string, error) {
-	if !isValidDomain(domain) {
-		return "", fmt.Errorf("invalid domain format")
+// isValidConfigName checks that a config file name is safe (no path traversal, no slashes).
+func isValidConfigName(name string) bool {
+	if len(name) == 0 || len(name) > 253 {
+		return false
+	}
+	// Block path traversal and special names.
+	if name == "." || name == ".." || strings.Contains(name, "/") || strings.Contains(name, "\\") || strings.Contains(name, "\x00") {
+		return false
+	}
+	// Allow alphanumeric, dots, hyphens, underscores, tildes.
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_' || c == '~') {
+			return false
+		}
+	}
+	return true
+}
+
+// ReadConfigContent returns the raw content of the nginx config file for a given domain/filename.
+func ReadConfigContent(name string) (string, error) {
+	if !isValidConfigName(name) {
+		return "", fmt.Errorf("invalid config name")
 	}
 
-	configPath := filepath.Join(sitesAvailableDir, domain)
+	configPath := filepath.Join(sitesAvailableDir, name)
 	if !isWithinNginxDir(configPath) {
 		return "", fmt.Errorf("path is outside nginx directory")
 	}
@@ -240,23 +258,23 @@ func ReadConfigContent(domain string) (string, error) {
 	return string(data), nil
 }
 
-// WriteConfigContent writes new content to the nginx config file for a given domain.
+// WriteConfigContent writes new content to the nginx config file for a given domain/filename.
 // If validate is true, it writes to a temp file first, runs nginx -t to validate, and
 // only copies to the real path if valid. Always cleans up temp files.
 // Returns the nginx -t output (if any) and an error.
-func WriteConfigContent(domain string, content string, validate bool) (string, error) {
-	if !isValidDomain(domain) {
-		return "", fmt.Errorf("invalid domain format")
+func WriteConfigContent(name string, content string, validate bool) (string, error) {
+	if !isValidConfigName(name) {
+		return "", fmt.Errorf("invalid config name")
 	}
 
-	configPath := filepath.Join(sitesAvailableDir, domain)
+	configPath := filepath.Join(sitesAvailableDir, name)
 	if !isWithinNginxDir(configPath) {
 		return "", fmt.Errorf("path is outside nginx directory")
 	}
 
 	// Check config file exists first.
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return "", fmt.Errorf("config file not found: %s", domain)
+		return "", fmt.Errorf("config file not found: %s", name)
 	}
 
 	if validate {
