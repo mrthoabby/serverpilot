@@ -812,11 +812,38 @@ func (s *Server) handleDiskTopFiles(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	files, err := sysinfo.DiskTopFiles(root, limit)
+	// Fetch more than limit to account for hidden files being filtered out.
+	hidden, _ := loadHiddenFiles()
+	fetchLimit := limit + len(hidden)
+	if fetchLimit > 50 {
+		fetchLimit = 50
+	}
+
+	files, err := sysinfo.DiskTopFiles(root, fetchLimit)
 	if err != nil {
 		log.Printf("Disk top files error for %s: %v", root, err)
 		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: err.Error()})
 		return
+	}
+
+	// Filter out hidden files.
+	if len(hidden) > 0 {
+		hiddenSet := make(map[string]bool, len(hidden))
+		for _, h := range hidden {
+			hiddenSet[h] = true
+		}
+		var visible []sysinfo.DiskTopFile
+		for _, f := range files {
+			if !hiddenSet[f.Path] {
+				visible = append(visible, f)
+			}
+		}
+		files = visible
+	}
+
+	// Trim to requested limit.
+	if len(files) > limit {
+		files = files[:limit]
 	}
 
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: files})
@@ -879,6 +906,185 @@ func (s *Server) handleDiskClean(w http.ResponseWriter, r *http.Request) {
 			"failed":  failed,
 			"details": results,
 		},
+	})
+}
+
+const hiddenFilesPath = "/etc/serverpilot/hidden_files.json"
+
+// loadHiddenFiles reads the hidden file paths from disk.
+func loadHiddenFiles() ([]string, error) {
+	data, err := os.ReadFile(hiddenFilesPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, fmt.Errorf("failed to read hidden files: %w", err)
+	}
+	var paths []string
+	if err := json.Unmarshal(data, &paths); err != nil {
+		return []string{}, nil // corrupted file — start fresh
+	}
+	return paths, nil
+}
+
+// saveHiddenFiles writes the hidden file paths to disk.
+func saveHiddenFiles(paths []string) error {
+	if err := os.MkdirAll(filepath.Dir(hiddenFilesPath), 0700); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+	data, err := json.MarshalIndent(paths, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal hidden files: %w", err)
+	}
+	if err := os.WriteFile(hiddenFilesPath, data, 0600); err != nil {
+		return fmt.Errorf("failed to write hidden files: %w", err)
+	}
+	return nil
+}
+
+// handleDiskHiddenFiles returns the list of hidden file paths.
+// GET /api/system/disk-hidden-files
+func (s *Server) handleDiskHiddenFiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	paths, err := loadHiddenFiles()
+	if err != nil {
+		log.Printf("Error loading hidden files: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to load hidden files"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: paths})
+}
+
+// handleDiskHiddenFilesAdd adds paths to the hidden list.
+// POST /api/system/disk-hidden-files/add { "paths": ["/path/to/file", ...] }
+func (s *Server) handleDiskHiddenFilesAdd(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	var req struct {
+		Paths []string `json:"paths"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	if len(req.Paths) == 0 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "no paths provided"})
+		return
+	}
+	if len(req.Paths) > 100 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "too many paths (max 100)"})
+		return
+	}
+
+	// Validate all paths.
+	for _, p := range req.Paths {
+		clean := filepath.Clean(p)
+		if !filepath.IsAbs(clean) || strings.Contains(p, "..") {
+			writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid path: " + p})
+			return
+		}
+		if containsHTML(p) {
+			writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid input"})
+			return
+		}
+	}
+
+	existing, err := loadHiddenFiles()
+	if err != nil {
+		log.Printf("Error loading hidden files: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to load hidden files"})
+		return
+	}
+
+	// Build set from existing for dedup.
+	set := make(map[string]bool, len(existing))
+	for _, p := range existing {
+		set[p] = true
+	}
+
+	added := 0
+	for _, p := range req.Paths {
+		clean := filepath.Clean(p)
+		if !set[clean] {
+			existing = append(existing, clean)
+			set[clean] = true
+			added++
+		}
+	}
+
+	if err := saveHiddenFiles(existing); err != nil {
+		log.Printf("Error saving hidden files: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to save hidden files"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data:    map[string]interface{}{"added": added, "total": len(existing)},
+	})
+}
+
+// handleDiskHiddenFilesRemove removes paths from the hidden list.
+// POST /api/system/disk-hidden-files/remove { "paths": ["/path/to/file", ...] }
+func (s *Server) handleDiskHiddenFilesRemove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	var req struct {
+		Paths []string `json:"paths"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	if len(req.Paths) == 0 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "no paths provided"})
+		return
+	}
+
+	existing, err := loadHiddenFiles()
+	if err != nil {
+		log.Printf("Error loading hidden files: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to load hidden files"})
+		return
+	}
+
+	// Build removal set.
+	toRemove := make(map[string]bool, len(req.Paths))
+	for _, p := range req.Paths {
+		toRemove[filepath.Clean(p)] = true
+	}
+
+	// Filter out removed paths.
+	filtered := make([]string, 0, len(existing))
+	removed := 0
+	for _, p := range existing {
+		if toRemove[p] {
+			removed++
+		} else {
+			filtered = append(filtered, p)
+		}
+	}
+
+	if err := saveHiddenFiles(filtered); err != nil {
+		log.Printf("Error saving hidden files: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to save hidden files"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data:    map[string]interface{}{"removed": removed, "total": len(filtered)},
 	})
 }
 

@@ -1368,13 +1368,25 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         </div>
       </div>
 
-      <!-- Top Largest Files -->
+      <!-- Top Largest Files (with Hidden tab) -->
       <div class="card" style="margin-top:1rem;">
         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
-          <h2>Top 10 Largest Files</h2>
+          <div style="display:flex;align-items:center;gap:0;">
+            <button id="topFilesTabMain" onclick="topFilesSwitchTab('main')" style="padding:6px 14px;font-size:0.85rem;font-weight:600;border:none;cursor:pointer;border-bottom:2px solid var(--accent);color:var(--accent);background:transparent;">Top 10 Largest Files</button>
+            <button id="topFilesTabHidden" onclick="topFilesSwitchTab('hidden')" style="padding:6px 14px;font-size:0.85rem;font-weight:500;border:none;cursor:pointer;border-bottom:2px solid transparent;color:var(--text-muted);background:transparent;">Hidden <span id="hiddenFilesCount" style="font-size:0.7rem;background:var(--bg-input);padding:1px 6px;border-radius:8px;margin-left:4px;">0</span></button>
+          </div>
           <span id="topFilesLoading" style="font-size:0.75rem;color:var(--text-muted);">(scanning...)</span>
         </div>
-        <div style="padding:0.75rem;overflow-x:auto;">
+        <!-- Action bar for top files (hide/unhide) -->
+        <div id="topFilesActionBar" style="display:none;padding:8px 12px;background:var(--bg-input);border-bottom:1px solid var(--border);align-items:center;gap:0.5rem;flex-wrap:wrap;">
+          <span id="topFilesSelectedCount" style="font-size:0.8rem;color:var(--text-secondary);">0 selected</span>
+          <button id="topFilesHideBtn" onclick="topFilesHideSelected()" style="background:var(--accent);color:#fff;border:none;padding:4px 12px;border-radius:4px;font-size:0.75rem;cursor:pointer;">Hide Selected</button>
+          <button id="topFilesUnhideBtn" onclick="topFilesUnhideSelected()" style="display:none;background:var(--green);color:#fff;border:none;padding:4px 12px;border-radius:4px;font-size:0.75rem;cursor:pointer;">Unhide Selected</button>
+          <button onclick="topFilesSelectAll()" style="background:var(--bg-secondary);color:var(--text-secondary);border:1px solid var(--border);padding:4px 10px;border-radius:4px;font-size:0.75rem;cursor:pointer;">Select All</button>
+          <button onclick="topFilesDeselectAll()" style="background:var(--bg-secondary);color:var(--text-secondary);border:1px solid var(--border);padding:4px 10px;border-radius:4px;font-size:0.75rem;cursor:pointer;">Deselect All</button>
+        </div>
+        <!-- Main top files panel -->
+        <div id="topFilesPanelMain" style="padding:0.75rem;overflow-x:auto;">
           <table style="width:100%;font-size:0.82rem;border-collapse:collapse;">
             <thead>
               <tr>
@@ -1388,6 +1400,23 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
               </tr>
             </thead>
             <tbody id="topFilesBody"></tbody>
+          </table>
+        </div>
+        <!-- Hidden files panel -->
+        <div id="topFilesPanelHidden" style="display:none;padding:0.75rem;overflow-x:auto;">
+          <table style="width:100%;font-size:0.82rem;border-collapse:collapse;">
+            <thead>
+              <tr>
+                <th style="width:30px;padding:6px 4px;border-bottom:1px solid var(--border);"></th>
+                <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">File</th>
+                <th style="text-align:left;padding:6px 4px;border-bottom:1px solid var(--border);color:var(--text-secondary);width:50px;">Type</th>
+                <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">GB</th>
+                <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">MB</th>
+                <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">%</th>
+                <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);min-width:100px;">Bar</th>
+              </tr>
+            </thead>
+            <tbody id="hiddenFilesBody"></tbody>
           </table>
         </div>
       </div>
@@ -4162,41 +4191,218 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (btn) { btn.disabled = false; btn.textContent = "Delete Selected"; }
   };
 
+  // --- Top Files: tabs, hidden, selection ---
+  var topFilesCurrentTab = "main"; // "main" or "hidden"
+  var topFilesSelectedPaths = {};
+  var topFilesData = []; // cached main top files
+  var hiddenFilesData = []; // cached hidden file entries
+
   async function loadTopFiles() {
     var topLoading = document.getElementById("topFilesLoading");
     try {
       var resp = await apiFetch("/api/system/disk-top-files?path=/&limit=10");
       if (topLoading) topLoading.style.display = "none";
-      var files = resp.data || resp || [];
-      var tbody = document.getElementById("topFilesBody");
-      if (!tbody) return;
-      tbody.innerHTML = "";
-      if (files.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--text-muted);text-align:center;">No large files found</td></tr>';
-        return;
-      }
-      var refMB = diskTotalSizeMB > 0 ? diskTotalSizeMB : 1;
-      files.forEach(function(f, i) {
-        var pct = refMB > 0 ? (f.size_mb / refMB * 100) : 0;
-        var barW = pct > 100 ? 100 : pct;
-        var color = DISK_COLORS[i % DISK_COLORS.length];
-        var icon = TYPE_ICONS[f.type] || TYPE_ICONS.other;
-        var safePath = f.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-        var tr = document.createElement("tr");
-        tr.innerHTML =
-          '<td style="padding:4px;border-bottom:1px solid var(--border);text-align:center;"><input type="checkbox" onchange="diskToggleSelect(\'' + safePath + '\', this.checked)" style="cursor:pointer;"></td>' +
-          '<td style="padding:4px 8px;border-bottom:1px solid var(--border);"><span style="color:var(--text-primary);font-weight:500;">' + escapeHtml(f.name) + '</span><br><span style="font-size:0.7rem;color:var(--text-muted);">' + escapeHtml(f.path) + '</span></td>' +
-          '<td style="padding:4px;border-bottom:1px solid var(--border);text-align:center;">' + icon + '</td>' +
-          '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">' + f.size_gb.toFixed(2) + '</td>' +
-          '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary);">' + f.size_mb.toFixed(1) + '</td>' +
-          '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary);">' + pct.toFixed(1) + '%</td>' +
-          '<td style="padding:4px 8px;border-bottom:1px solid var(--border);"><div style="background:var(--bg-input);border-radius:4px;height:12px;overflow:hidden;"><div style="width:' + barW.toFixed(1) + '%;height:100%;background:' + color + ';border-radius:4px;"></div></div></td>';
-        tbody.appendChild(tr);
-      });
+      topFilesData = resp.data || resp || [];
+      renderTopFilesTable(topFilesData);
     } catch(err) {
       if (topLoading) topLoading.textContent = "(error)";
     }
+    // Also load hidden files count.
+    loadHiddenFiles();
   }
+
+  async function loadHiddenFiles() {
+    try {
+      var resp = await apiFetch("/api/system/disk-hidden-files");
+      var paths = resp.data || resp || [];
+      hiddenFilesData = paths;
+      var countEl = document.getElementById("hiddenFilesCount");
+      if (countEl) countEl.textContent = paths.length;
+    } catch(err) {
+      hiddenFilesData = [];
+    }
+  }
+
+  function renderTopFilesTable(files) {
+    var tbody = document.getElementById("topFilesBody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+    if (files.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--text-muted);text-align:center;">No large files found</td></tr>';
+      return;
+    }
+    var refMB = diskTotalSizeMB > 0 ? diskTotalSizeMB : 1;
+    files.forEach(function(f, i) {
+      var pct = refMB > 0 ? (f.size_mb / refMB * 100) : 0;
+      var barW = pct > 100 ? 100 : pct;
+      if (barW > 0 && barW < 1.5) barW = 1.5;
+      var color = DISK_COLORS[i % DISK_COLORS.length];
+      var icon = TYPE_ICONS[f.type] || TYPE_ICONS.other;
+      var safePath = f.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+      var isChecked = topFilesSelectedPaths[f.path] ? "checked" : "";
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        '<td style="padding:4px;border-bottom:1px solid var(--border);text-align:center;"><input type="checkbox" ' + isChecked + ' onchange="topFilesToggleSelect(\'' + safePath + '\', this.checked)" style="cursor:pointer;"></td>' +
+        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);"><span style="color:var(--text-primary);font-weight:500;">' + escapeHtml(f.name) + '</span><br><span style="font-size:0.7rem;color:var(--text-muted);">' + escapeHtml(f.path) + '</span></td>' +
+        '<td style="padding:4px;border-bottom:1px solid var(--border);text-align:center;">' + icon + '</td>' +
+        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">' + f.size_gb.toFixed(2) + '</td>' +
+        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary);">' + f.size_mb.toFixed(1) + '</td>' +
+        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary);">' + pct.toFixed(1) + '%</td>' +
+        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);"><div style="background:var(--bg-input);border-radius:4px;height:12px;overflow:hidden;"><div style="width:' + barW.toFixed(1) + '%;height:100%;background:' + color + ';border-radius:4px;"></div></div></td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function renderHiddenFilesTable() {
+    var tbody = document.getElementById("hiddenFilesBody");
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--text-muted);text-align:center;">Loading hidden files...</td></tr>';
+
+    try {
+      var resp = await apiFetch("/api/system/disk-hidden-files");
+      var paths = resp.data || resp || [];
+      hiddenFilesData = paths;
+      var countEl = document.getElementById("hiddenFilesCount");
+      if (countEl) countEl.textContent = paths.length;
+
+      tbody.innerHTML = "";
+      if (paths.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--text-muted);text-align:center;">No hidden files. Hide files from the Top 10 tab to skip them.</td></tr>';
+        return;
+      }
+
+      paths.forEach(function(p, i) {
+        var name = p.split("/").pop() || p;
+        var safePath = p.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        var isChecked = topFilesSelectedPaths[p] ? "checked" : "";
+        var color = DISK_COLORS[i % DISK_COLORS.length];
+        var tr = document.createElement("tr");
+        tr.innerHTML =
+          '<td style="padding:4px;border-bottom:1px solid var(--border);text-align:center;"><input type="checkbox" ' + isChecked + ' onchange="topFilesToggleSelect(\'' + safePath + '\', this.checked)" style="cursor:pointer;"></td>' +
+          '<td style="padding:4px 8px;border-bottom:1px solid var(--border);"><span style="color:var(--text-primary);font-weight:500;">' + escapeHtml(name) + '</span><br><span style="font-size:0.7rem;color:var(--text-muted);">' + escapeHtml(p) + '</span></td>' +
+          '<td style="padding:4px;border-bottom:1px solid var(--border);text-align:center;color:var(--text-muted);">-</td>' +
+          '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;color:var(--text-muted);">-</td>' +
+          '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;color:var(--text-muted);">-</td>' +
+          '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;color:var(--text-muted);">-</td>' +
+          '<td style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-muted);font-size:0.75rem;font-style:italic;">hidden</td>';
+        tbody.appendChild(tr);
+      });
+    } catch(err) {
+      tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--red);">Error loading hidden files</td></tr>';
+    }
+  }
+
+  window.topFilesSwitchTab = function(tab) {
+    topFilesCurrentTab = tab;
+    topFilesSelectedPaths = {};
+    showTopFilesActionBar();
+
+    var tabMain = document.getElementById("topFilesTabMain");
+    var tabHidden = document.getElementById("topFilesTabHidden");
+    var panelMain = document.getElementById("topFilesPanelMain");
+    var panelHidden = document.getElementById("topFilesPanelHidden");
+
+    if (tab === "main") {
+      tabMain.style.borderBottomColor = "var(--accent)";
+      tabMain.style.color = "var(--accent)";
+      tabMain.style.fontWeight = "600";
+      tabHidden.style.borderBottomColor = "transparent";
+      tabHidden.style.color = "var(--text-muted)";
+      tabHidden.style.fontWeight = "500";
+      panelMain.style.display = "block";
+      panelHidden.style.display = "none";
+    } else {
+      tabMain.style.borderBottomColor = "transparent";
+      tabMain.style.color = "var(--text-muted)";
+      tabMain.style.fontWeight = "500";
+      tabHidden.style.borderBottomColor = "var(--accent)";
+      tabHidden.style.color = "var(--accent)";
+      tabHidden.style.fontWeight = "600";
+      panelMain.style.display = "none";
+      panelHidden.style.display = "block";
+      renderHiddenFilesTable();
+    }
+  };
+
+  window.topFilesToggleSelect = function(path, checked) {
+    if (checked) topFilesSelectedPaths[path] = true;
+    else delete topFilesSelectedPaths[path];
+    showTopFilesActionBar();
+  };
+
+  window.topFilesSelectAll = function() {
+    if (topFilesCurrentTab === "main") {
+      topFilesData.forEach(function(f) { topFilesSelectedPaths[f.path] = true; });
+      renderTopFilesTable(topFilesData);
+    } else {
+      hiddenFilesData.forEach(function(p) { topFilesSelectedPaths[p] = true; });
+      renderHiddenFilesTable();
+    }
+    showTopFilesActionBar();
+  };
+
+  window.topFilesDeselectAll = function() {
+    topFilesSelectedPaths = {};
+    if (topFilesCurrentTab === "main") {
+      renderTopFilesTable(topFilesData);
+    } else {
+      renderHiddenFilesTable();
+    }
+    showTopFilesActionBar();
+  };
+
+  function showTopFilesActionBar() {
+    var bar = document.getElementById("topFilesActionBar");
+    var count = Object.keys(topFilesSelectedPaths).length;
+    var hideBtn = document.getElementById("topFilesHideBtn");
+    var unhideBtn = document.getElementById("topFilesUnhideBtn");
+
+    if (bar) {
+      bar.style.display = count > 0 ? "flex" : "none";
+      var countEl = document.getElementById("topFilesSelectedCount");
+      if (countEl) countEl.textContent = count + " selected";
+    }
+    // Show appropriate button based on active tab.
+    if (hideBtn) hideBtn.style.display = topFilesCurrentTab === "main" ? "inline-block" : "none";
+    if (unhideBtn) unhideBtn.style.display = topFilesCurrentTab === "hidden" ? "inline-block" : "none";
+  }
+
+  window.topFilesHideSelected = async function() {
+    var paths = Object.keys(topFilesSelectedPaths);
+    if (paths.length === 0) return;
+    var btn = document.getElementById("topFilesHideBtn");
+    if (btn) { btn.disabled = true; btn.textContent = "Hiding..."; }
+    try {
+      await apiFetch("/api/system/disk-hidden-files/add", { method: "POST", body: { paths: paths } });
+      topFilesSelectedPaths = {};
+      showTopFilesActionBar();
+      showToast(paths.length + " file(s) hidden from Top 10", "success");
+      // Reload top files (they'll be filtered out by backend).
+      loadTopFiles();
+    } catch(err) {
+      showToast("Failed to hide files: " + err.message, "error");
+    }
+    if (btn) { btn.disabled = false; btn.textContent = "Hide Selected"; }
+  };
+
+  window.topFilesUnhideSelected = async function() {
+    var paths = Object.keys(topFilesSelectedPaths);
+    if (paths.length === 0) return;
+    var btn = document.getElementById("topFilesUnhideBtn");
+    if (btn) { btn.disabled = true; btn.textContent = "Unhiding..."; }
+    try {
+      await apiFetch("/api/system/disk-hidden-files/remove", { method: "POST", body: { paths: paths } });
+      topFilesSelectedPaths = {};
+      showTopFilesActionBar();
+      showToast(paths.length + " file(s) restored to Top 10", "success");
+      // Reload hidden tab and refresh main data.
+      renderHiddenFilesTable();
+      loadTopFiles();
+    } catch(err) {
+      showToast("Failed to unhide files: " + err.message, "error");
+    }
+    if (btn) { btn.disabled = false; btn.textContent = "Unhide Selected"; }
+  };
 
   function renderServicesTable(d) {
     var wrap = document.getElementById("servicesContent");
