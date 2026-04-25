@@ -3,6 +3,7 @@ package sysinfo
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -454,10 +455,11 @@ func readDiskBreakdown() []DiskBreakdownEntry {
 		}
 		// Use du -smx (megabytes, summarize, don't cross filesystems) with 5s timeout.
 		cmd := exec.Command("du", "-smx", d.path)
-		cmd.Stderr = nil // discard stderr to save memory
+		// Use Output() (stdout only) — NOT CombinedOutput — because du
+		// often prints permission-denied to stderr which would corrupt parsing.
 		done := make(chan []byte, 1)
 		go func() {
-			out, _ := cmd.CombinedOutput()
+			out, _ := cmd.Output()
 			done <- out
 		}()
 		var output []byte
@@ -568,10 +570,10 @@ func DiskDetailDir(dirPath string) ([]DiskDetailEntry, error) {
 
 			childPath := filepath.Join(clean, d.Name())
 			cmd := exec.Command("du", "-smx", childPath)
-			cmd.Stderr = nil
+			// Use Output() (stdout only) — stderr has permission errors that corrupt parsing.
 			done := make(chan []byte, 1)
 			go func() {
-				out, _ := cmd.CombinedOutput()
+				out, _ := cmd.Output()
 				done <- out
 			}()
 
@@ -750,7 +752,7 @@ func DeletePaths(paths []string) map[string]string {
 func readDockerStats() []ContainerStat {
 	cmd := exec.Command("/usr/bin/docker", "stats", "--no-stream",
 		"--format", `{"name":"{{.Name}}","id":"{{.ID}}","cpu":"{{.CPUPerc}}","mem_usage":"{{.MemUsage}}","mem_perc":"{{.MemPerc}}","net_io":"{{.NetIO}}","block_io":"{{.BlockIO}}","pids":"{{.PIDs}}"}`)
-	cmd.Stderr = nil
+	cmd.Stderr = io.Discard // don't buffer stderr
 	output, err := cmd.Output()
 	if err != nil {
 		return nil
