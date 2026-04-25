@@ -132,6 +132,7 @@ func GetContainerDetails(id string) (*Container, error) {
 	}
 
 	var ports []PortMapping
+	seen := make(map[string]bool)
 	for containerPort, bindings := range inspectData.NetworkSettings.Ports {
 		parts := strings.Split(containerPort, "/")
 		cPort := parts[0]
@@ -140,6 +141,14 @@ func GetContainerDetails(id string) (*Container, error) {
 			proto = parts[1]
 		}
 		for _, binding := range bindings {
+			if binding.HostPort == "" {
+				continue // exposed but not published (e.g. 9000/tcp with null bindings)
+			}
+			key := binding.HostPort + ":" + cPort + "/" + proto
+			if seen[key] {
+				continue // deduplicate IPv4/IPv6 dual-stack bindings
+			}
+			seen[key] = true
 			ports = append(ports, PortMapping{
 				HostPort:      binding.HostPort,
 				ContainerPort: cPort,
@@ -248,17 +257,24 @@ func ForceRemoveImage(imageID string) error {
 }
 
 // parsePorts parses the docker ps "Ports" column into PortMapping structs.
+// Deduplicates entries that differ only in bind address (e.g. 0.0.0.0:9001
+// and :::9001 from Docker dual-stack IPv4+IPv6 binding).
 func parsePorts(portsStr string) []PortMapping {
 	var ports []PortMapping
 	if portsStr == "" {
 		return ports
 	}
 
+	seen := make(map[string]bool)
 	entries := strings.Split(portsStr, ", ")
 	for _, entry := range entries {
 		pm := parsePortEntry(entry)
 		if pm != nil {
-			ports = append(ports, *pm)
+			key := pm.HostPort + ":" + pm.ContainerPort + "/" + pm.Protocol
+			if !seen[key] {
+				seen[key] = true
+				ports = append(ports, *pm)
+			}
 		}
 	}
 	return ports
