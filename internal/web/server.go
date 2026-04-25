@@ -64,6 +64,7 @@ func (s *Server) Start() error {
 	mux.Handle("/api/update", s.authMiddleware(http.HandlerFunc(s.handleUpdate)))
 	mux.Handle("/api/settings", s.authMiddleware(http.HandlerFunc(s.handleSettingsGet)))
 	mux.Handle("/api/settings/domain", s.authMiddleware(http.HandlerFunc(s.handleSettingsDomain)))
+	mux.Handle("/api/settings/email", s.authMiddleware(http.HandlerFunc(s.handleSettingsEmail)))
 	mux.Handle("/api/settings/ssl-enable", s.authMiddleware(http.HandlerFunc(s.handleSettingsSSLEnable)))
 	mux.Handle("/api/settings/block-insecure", s.authMiddleware(http.HandlerFunc(s.handleSettingsBlockInsecure)))
 	mux.Handle("/api/dependencies/install", s.authMiddleware(http.HandlerFunc(s.handleDependencyInstall)))

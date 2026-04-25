@@ -23,6 +23,7 @@ type Config struct {
 	PasswordHash    string `json:"password_hash"`
 	SessionSecret   string `json:"session_secret"`
 	Domain          string `json:"domain,omitempty"`
+	Email           string `json:"email,omitempty"`
 	SSLEnabled      bool   `json:"ssl_enabled,omitempty"`
 	InsecureBlocked bool   `json:"insecure_blocked,omitempty"`
 }

@@ -1303,7 +1303,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
             Configure the domain, SSL certificate, and security for your ServerPilot dashboard.
           </p>
 
-          <!-- Step 1: Domain -->
+          <!-- Step 1: Domain & Email -->
           <div class="settings-step" id="settingsStep1">
             <div class="settings-step-header">
               <span class="settings-step-num">1</span>
@@ -1314,6 +1314,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
             <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
               <input type="text" id="settingsDomainInput" placeholder="pilot.example.com" style="flex:1; background:var(--bg-input); color:var(--text-primary); border:1px solid var(--border); border-radius:6px; padding:0.5rem 0.75rem; font-size:0.875rem; outline:none;">
               <button class="btn btn-sm btn-primary" id="settingsDomainBtn">Save Domain</button>
+            </div>
+            <p class="settings-step-desc" style="margin-top:0.75rem;">Email for Let's Encrypt SSL registration (required for certificate issuance).</p>
+            <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
+              <input type="email" id="settingsEmailInput" placeholder="admin@example.com" style="flex:1; background:var(--bg-input); color:var(--text-primary); border:1px solid var(--border); border-radius:6px; padding:0.5rem 0.75rem; font-size:0.875rem; outline:none;">
+              <button class="btn btn-sm btn-primary" id="settingsEmailBtn">Save Email</button>
             </div>
           </div>
 
@@ -3027,7 +3032,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var step2 = document.getElementById("settingsStep2");
     var step3 = document.getElementById("settingsStep3");
 
-    // Step 1: Domain
+    var emailInput = document.getElementById("settingsEmailInput");
+    var emailBtn = document.getElementById("settingsEmailBtn");
+
+    // Step 1: Domain & Email
     if (settingsData.domain) {
       domainInput.value = settingsData.domain;
       domainStatus.textContent = "Configured";
@@ -3040,6 +3048,14 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       domainStatus.className = "settings-step-status pending";
       step1Num.classList.remove("done");
       setText(domainBtn, "Save Domain");
+    }
+    // Email
+    if (settingsData.email) {
+      emailInput.value = settingsData.email;
+      setText(emailBtn, "Update Email");
+    } else {
+      emailInput.value = "";
+      setText(emailBtn, "Save Email");
     }
 
     // Step 2: SSL
@@ -3113,6 +3129,28 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     } finally {
       btn.disabled = false;
       setText(btn, settingsData.domain ? "Update Domain" : "Save Domain");
+    }
+  });
+
+  // Save email
+  document.getElementById("settingsEmailBtn").addEventListener("click", async function() {
+    var btn = this;
+    var email = document.getElementById("settingsEmailInput").value.trim();
+    if (!email) {
+      showToast("Enter an email first", "error");
+      return;
+    }
+    btn.disabled = true;
+    setText(btn, "Saving...");
+    try {
+      await apiFetch("/api/settings/email", { method: "POST", body: { email: email } });
+      showToast("Email saved: " + email, "success");
+      await loadSettings();
+    } catch(err) {
+      showToast("Failed: " + err.message, "error");
+    } finally {
+      btn.disabled = false;
+      setText(btn, settingsData.email ? "Update Email" : "Save Email");
     }
   });
 

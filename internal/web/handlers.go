@@ -303,6 +303,21 @@ func findCertbot() (string, error) {
 	return "", fmt.Errorf("certbot not found — install it with: sudo apt install certbot python3-certbot-nginx")
 }
 
+// certbotEnableArgs builds the certbot arguments for obtaining an SSL certificate.
+// If the config has an email, it uses --email; otherwise --register-unsafely-without-email.
+func (s *Server) certbotEnableArgs(certbotBin, domain string, redirect bool) []string {
+	args := []string{certbotBin, "--nginx", "-d", domain, "--non-interactive", "--agree-tos"}
+	if s.config.Email != "" {
+		args = append(args, "--email", s.config.Email)
+	} else {
+		args = append(args, "--register-unsafely-without-email")
+	}
+	if redirect {
+		args = append(args, "--redirect")
+	}
+	return args
+}
+
 // sseWriteEvent writes an SSE event to the ResponseWriter and flushes.
 func sseWriteEvent(w http.ResponseWriter, flusher http.Flusher, event, data string) {
 	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
@@ -353,7 +368,8 @@ func (s *Server) handleSSLEnable(w http.ResponseWriter, r *http.Request) {
 	}
 	sseWriteLog(w, flusher, "Using certbot: "+certbotBin)
 
-	cmd := exec.Command(certbotBin, "--nginx", "-d", req.Domain, "--non-interactive", "--agree-tos")
+	certArgs := s.certbotEnableArgs(certbotBin, req.Domain, false)
+	cmd := exec.Command(certArgs[0], certArgs[1:]...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		sseWriteLog(w, flusher, "ERROR: failed to create stdout pipe: "+err.Error())
@@ -1138,6 +1154,7 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 		Data: map[string]interface{}{
 			"domain":           s.config.Domain,
+			"email":            s.config.Email,
 			"ssl_enabled":      s.config.SSLEnabled,
 			"insecure_blocked": s.config.InsecureBlocked,
 			"port":             s.port,
@@ -1242,6 +1259,49 @@ func (s *Server) handleSettingsDomain(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleSettingsEmail saves the contact email used for certbot/Let's Encrypt registration.
+func (s *Server) handleSettingsEmail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	email := strings.TrimSpace(req.Email)
+	if email == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "email is required"})
+		return
+	}
+	// Basic email validation.
+	if !strings.Contains(email, "@") || !strings.Contains(email, ".") || containsHTML(email) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid email format"})
+		return
+	}
+	if len(email) > 254 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "email too long"})
+		return
+	}
+
+	s.config.Email = email
+	if err := auth.SaveConfig(*s.config); err != nil {
+		log.Printf("Error saving config with email: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to save config"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data:    map[string]string{"message": "Email saved: " + email},
+	})
+}
+
 // handleSettingsSSLEnable enables SSL for the ServerPilot domain via certbot (SSE streaming).
 func (s *Server) handleSettingsSSLEnable(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -1281,7 +1341,8 @@ func (s *Server) handleSettingsSSLEnable(w http.ResponseWriter, r *http.Request)
 	}
 	sseWriteLog(w, flusher, "Using certbot: "+certbotBin)
 
-	cmd := exec.Command(certbotBin, "--nginx", "-d", domain, "--non-interactive", "--agree-tos")
+	settingsCertArgs := s.certbotEnableArgs(certbotBin, domain, false)
+	cmd := exec.Command(settingsCertArgs[0], settingsCertArgs[1:]...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		sseWriteLog(w, flusher, "ERROR: failed to create stdout pipe: "+err.Error())
@@ -1732,7 +1793,8 @@ func (s *Server) handleGDAppActivate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sseWriteLog(w, flusher, "Using certbot: "+certbotBin)
-		cmd := exec.Command(certbotBin, "--nginx", "-d", domain, "--non-interactive", "--agree-tos", "--redirect")
+		gdCertArgs := s.certbotEnableArgs(certbotBin, domain, true)
+		cmd := exec.Command(gdCertArgs[0], gdCertArgs[1:]...)
 		stdout, pipeErr := cmd.StdoutPipe()
 		if pipeErr != nil {
 			sseWriteLog(w, flusher, "ERROR: failed to create stdout pipe: "+pipeErr.Error())
