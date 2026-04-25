@@ -1265,7 +1265,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       <div class="res-charts-row">
         <!-- Memory Pie Chart -->
         <div class="card res-chart-card">
-          <div class="card-header"><h2>Memory Distribution</h2></div>
+          <div class="card-header"><h2 id="memPieTitle">Memory Distribution</h2></div>
           <div class="res-chart-body">
             <svg id="memPieChart" viewBox="0 0 320 280" class="pie-svg"></svg>
           </div>
@@ -1279,27 +1279,74 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         </div>
       </div>
 
-      <!-- Disk Breakdown -->
+      <!-- Disk Usage Explorer -->
       <div class="card" style="margin-top:1rem;">
-        <div class="card-header"><h2>Disk Usage Breakdown</h2></div>
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+          <h2 id="diskBreakdownTitle">Disk Usage Explorer <span style="font-size:0.75rem;color:var(--text-muted);font-weight:400;" id="diskBreakdownLoading">(scanning...)</span></h2>
+          <div style="display:flex;gap:0.5rem;align-items:center;">
+            <button class="btn btn-sm" id="diskFilterAll" onclick="diskFilterBy('all')" style="background:var(--accent);color:#fff;padding:3px 10px;border-radius:4px;font-size:0.75rem;border:none;cursor:pointer;">All</button>
+            <button class="btn btn-sm" id="diskFilterDir" onclick="diskFilterBy('dir')" style="background:var(--bg-input);color:var(--text-secondary);padding:3px 10px;border-radius:4px;font-size:0.75rem;border:1px solid var(--border);cursor:pointer;">Dirs</button>
+            <button class="btn btn-sm" id="diskFilterFile" onclick="diskFilterBy('file')" style="background:var(--bg-input);color:var(--text-secondary);padding:3px 10px;border-radius:4px;font-size:0.75rem;border:1px solid var(--border);cursor:pointer;">Files</button>
+            <button class="btn btn-sm" id="diskFilterImage" onclick="diskFilterBy('image')" style="background:var(--bg-input);color:var(--text-secondary);padding:3px 10px;border-radius:4px;font-size:0.75rem;border:1px solid var(--border);cursor:pointer;">Images</button>
+            <button class="btn btn-sm" id="diskFilterLog" onclick="diskFilterBy('log')" style="background:var(--bg-input);color:var(--text-secondary);padding:3px 10px;border-radius:4px;font-size:0.75rem;border:1px solid var(--border);cursor:pointer;">Logs</button>
+            <button class="btn btn-sm" id="diskFilterArchive" onclick="diskFilterBy('archive')" style="background:var(--bg-input);color:var(--text-secondary);padding:3px 10px;border-radius:4px;font-size:0.75rem;border:1px solid var(--border);cursor:pointer;">Archives</button>
+          </div>
+        </div>
         <div style="display:flex;flex-wrap:wrap;gap:1rem;padding:1rem;">
+          <!-- Pie chart -->
           <div style="flex:1;min-width:280px;">
             <svg id="diskPieChart" viewBox="0 0 340 340" class="pie-svg"></svg>
           </div>
+          <!-- Explorer table -->
           <div style="flex:1.5;min-width:320px;overflow-x:auto;">
-            <table class="res-table" id="diskBreakdownTable" style="width:100%;font-size:0.85rem;">
+            <!-- Breadcrumb navigation -->
+            <div id="diskBreadcrumb" style="margin-bottom:0.75rem;font-size:0.8rem;color:var(--text-secondary);display:flex;align-items:center;gap:4px;flex-wrap:wrap;"></div>
+            <!-- Action bar -->
+            <div id="diskActionBar" style="display:none;margin-bottom:0.5rem;padding:8px;background:var(--bg-input);border-radius:6px;display:none;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+              <span id="diskSelectedCount" style="font-size:0.8rem;color:var(--text-secondary);">0 selected</span>
+              <button id="diskDeleteSelectedBtn" onclick="diskDeleteSelected()" style="background:var(--red);color:#fff;border:none;padding:4px 12px;border-radius:4px;font-size:0.75rem;cursor:pointer;">Delete Selected</button>
+              <button onclick="diskSelectAll()" style="background:var(--bg-secondary);color:var(--text-secondary);border:1px solid var(--border);padding:4px 10px;border-radius:4px;font-size:0.75rem;cursor:pointer;">Select All</button>
+              <button onclick="diskDeselectAll()" style="background:var(--bg-secondary);color:var(--text-secondary);border:1px solid var(--border);padding:4px 10px;border-radius:4px;font-size:0.75rem;cursor:pointer;">Deselect All</button>
+            </div>
+            <table style="width:100%;font-size:0.82rem;border-collapse:collapse;">
               <thead>
                 <tr>
-                  <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">Directory</th>
-                  <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">Size (GB)</th>
-                  <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">Size (MB)</th>
+                  <th style="width:30px;padding:6px 4px;border-bottom:1px solid var(--border);"></th>
+                  <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">Name</th>
+                  <th style="text-align:left;padding:6px 4px;border-bottom:1px solid var(--border);color:var(--text-secondary);width:50px;">Type</th>
+                  <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">GB</th>
+                  <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">MB</th>
                   <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">%</th>
-                  <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);min-width:120px;">Bar</th>
+                  <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);min-width:100px;">Bar</th>
                 </tr>
               </thead>
-              <tbody id="diskBreakdownBody"></tbody>
+              <tbody id="diskDetailBody"></tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      <!-- Top Largest Files -->
+      <div class="card" style="margin-top:1rem;">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
+          <h2>Top 10 Largest Files</h2>
+          <span id="topFilesLoading" style="font-size:0.75rem;color:var(--text-muted);">(scanning...)</span>
+        </div>
+        <div style="padding:0.75rem;overflow-x:auto;">
+          <table style="width:100%;font-size:0.82rem;border-collapse:collapse;">
+            <thead>
+              <tr>
+                <th style="width:30px;padding:6px 4px;border-bottom:1px solid var(--border);"></th>
+                <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">File</th>
+                <th style="text-align:left;padding:6px 4px;border-bottom:1px solid var(--border);color:var(--text-secondary);width:50px;">Type</th>
+                <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">GB</th>
+                <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">MB</th>
+                <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">%</th>
+                <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);min-width:100px;">Bar</th>
+              </tr>
+            </thead>
+            <tbody id="topFilesBody"></tbody>
+          </table>
         </div>
       </div>
 
@@ -3241,13 +3288,23 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   var sysData = null;
 
   async function loadResources() {
-    try {
-      var resp = await apiFetch("/api/system");
-      if (resp && resp.data) sysData = resp.data;
-      else if (resp && !resp.data) sysData = resp;
-      renderResources();
-    } catch(err) {
-      // Silently ignore if resources fail (non-critical tab).
+    // Fire both requests in parallel — main system data is fast,
+    // disk breakdown is slow (runs du on multiple directories).
+    var sysPromise = apiFetch("/api/system").catch(function() { return null; });
+    var diskPromise = apiFetch("/api/system/disk-breakdown").catch(function() { return null; });
+
+    // Render main data as soon as it arrives (don't wait for disk breakdown).
+    var resp = await sysPromise;
+    if (resp && resp.data) sysData = resp.data;
+    else if (resp && !resp.data) sysData = resp;
+    renderResources();
+
+    // When disk breakdown arrives, merge it in and render just that section.
+    var diskResp = await diskPromise;
+    if (diskResp) {
+      var breakdown = diskResp.data || diskResp;
+      if (sysData) sysData.disk_breakdown = breakdown;
+      renderDiskBreakdown(sysData || { disk_breakdown: breakdown });
     }
   }
 
@@ -3298,8 +3355,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     // Container Stats Table
     renderContainerStats(d);
 
-    // Disk Breakdown Chart + Table
-    renderDiskBreakdown(d);
+    // Disk Breakdown is loaded lazily via /api/system/disk-breakdown.
+    // Only render if data is already available (e.g., from a previous load).
+    if (d.disk_breakdown && d.disk_breakdown.length > 0) {
+      renderDiskBreakdown(d);
+    }
   }
 
   // ── SVG Pie Chart ──
@@ -3352,6 +3412,15 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     // Free memory
     var freeMem = totalMem - usedMem;
     if (freeMem > 0) slices.push({ label: "Free", value: freeMem });
+
+    // Highlight "Free" in the chart title
+    var memTitle = document.getElementById("memPieTitle");
+    if (memTitle && freeMem > 0) {
+      var freeGB = (freeMem / 1024).toFixed(2);
+      var freeIdx = slices.length - 1; // "Free" is always last
+      var freeColor = PIE_COLORS[freeIdx % PIE_COLORS.length];
+      memTitle.innerHTML = 'Memory Distribution — <span style="color:' + freeColor + ';font-weight:700;">Free: ' + freeGB + ' GB (' + freeMem + ' MB)</span>';
+    }
 
     if (slices.length === 0) return;
 
@@ -3585,153 +3654,287 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   }
 
   // ── Disk Breakdown Pie + Table ──
+  // ── Disk Usage Explorer ──
   var DISK_COLORS = ["#00b4d8", "#3fb950", "#f85149", "#d29922", "#db6d28", "#8b5cf6", "#ec4899", "#6366f1", "#14b8a6", "#f97316", "#a855f7", "#ef4444"];
+  var TYPE_ICONS = { dir: "\uD83D\uDCC1", file: "\uD83D\uDCC4", image: "\uD83D\uDDBC\uFE0F", log: "\uD83D\uDCDC", archive: "\uD83D\uDCE6", other: "\uD83D\uDCC4" };
+  var diskCurrentPath = null;
+  var diskCurrentEntries = [];
+  var diskCurrentFilter = "all";
+  var diskSelectedPaths = {};
+  var diskTotalSizeMB = 0; // total disk capacity for % calculation
 
   function renderDiskBreakdown(d) {
-    var svg = document.getElementById("diskPieChart");
-    var tbody = document.getElementById("diskBreakdownBody");
-    if (!svg || !tbody) return;
-    svg.innerHTML = "";
-    tbody.innerHTML = "";
-
+    var loadingEl = document.getElementById("diskBreakdownLoading");
+    if (loadingEl) loadingEl.style.display = "none";
     var entries = d.disk_breakdown;
-    if (!entries || entries.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" style="padding:1rem;color:var(--text-muted);text-align:center;">No disk breakdown data available</td></tr>';
-      return;
-    }
+    if (!entries || entries.length === 0) return;
 
-    // Calculate total for percentages
-    var totalMB = 0;
-    entries.forEach(function(e) { totalMB += e.size_mb; });
-
-    // Get the root disk total for "Other" calculation
-    var rootDiskMB = 0;
-    if (d.disk && d.disk.length > 0) {
-      rootDiskMB = d.disk[0].used_mb;
-    }
-
-    // Build slices for pie chart
-    var slices = [];
-    entries.forEach(function(e) {
-      slices.push({ label: e.label, path: e.path, sizeMB: e.size_mb, sizeGB: e.size_gb });
+    var items = entries.map(function(e) {
+      return { path: e.path, name: e.label, size_mb: e.size_mb, size_gb: e.size_gb, is_dir: true, type: "dir" };
     });
 
-    // Add "Other" if there's a gap between sum of known dirs and total used
-    if (rootDiskMB > totalMB) {
-      var otherMB = rootDiskMB - totalMB;
-      if (otherMB > 10) { // only show if > 10 MB
-        slices.push({ label: "Other / System", path: "(other)", sizeMB: otherMB, sizeGB: Math.round(otherMB / 1024 * 100) / 100 });
-      }
+    var rootDiskAvailMB = 0, rootDiskUsedMB = 0, rootDiskSizeMB = 0;
+    if (d.disk && d.disk.length > 0) {
+      rootDiskAvailMB = d.disk[0].avail_mb;
+      rootDiskUsedMB = d.disk[0].used_mb;
+      rootDiskSizeMB = d.disk[0].size_mb;
+    }
+    diskTotalSizeMB = rootDiskSizeMB || (rootDiskUsedMB + rootDiskAvailMB);
+
+    var diskTitle = document.getElementById("diskBreakdownTitle");
+    if (diskTitle && rootDiskAvailMB > 0) {
+      var freeGB = (rootDiskAvailMB / 1024).toFixed(2);
+      var totalGB = (diskTotalSizeMB / 1024).toFixed(2);
+      diskTitle.innerHTML = 'Disk Usage Explorer (' + totalGB + ' GB total) — <span style="color:var(--green);font-weight:700;">Free: ' + freeGB + ' GB (' + rootDiskAvailMB + ' MB)</span>';
     }
 
+    diskCurrentPath = null;
+    diskCurrentEntries = items;
+    diskCurrentFilter = "all";
+    renderDiskPie(items, rootDiskAvailMB, rootDiskUsedMB);
+    renderDiskTable(items);
+    renderDiskBreadcrumb(null);
+    showDiskActionBar();
+
+    // Load top files lazily
+    loadTopFiles();
+  }
+
+  function renderDiskPie(items, freeMB, usedMB) {
+    var svg = document.getElementById("diskPieChart");
+    if (!svg) return;
+    svg.innerHTML = "";
+    var slices = [];
+    var totalScanned = 0;
+    items.forEach(function(e) { totalScanned += e.size_mb; slices.push({ label: e.name, sizeMB: e.size_mb }); });
+    if (usedMB > totalScanned) {
+      var otherMB = usedMB - totalScanned;
+      if (otherMB > 10) slices.push({ label: "Other / System", sizeMB: otherMB });
+    }
+    if (freeMB > 0) slices.push({ label: "Free", sizeMB: freeMB });
     var pieTotalMB = 0;
     slices.forEach(function(s) { pieTotalMB += s.sizeMB; });
-    var maxMB = slices.length > 0 ? slices[0].sizeMB : 1;
+    if (pieTotalMB <= 0) return;
 
-    // Render pie chart
-    var cx = 140, cy = 130, r = 100;
-    var startAngle = -Math.PI / 2;
+    var cx = 140, cy = 130, r = 100, startAngle = -Math.PI / 2;
     var ns = "http://www.w3.org/2000/svg";
-
     slices.forEach(function(slice, i) {
-      var pct = pieTotalMB > 0 ? slice.sizeMB / pieTotalMB : 0;
+      var pct = slice.sizeMB / pieTotalMB;
       var angle = pct * 2 * Math.PI;
-      if (angle < 0.01) return; // skip tiny slices
+      if (angle < 0.005) return;
       var endAngle = startAngle + angle;
       var largeArc = angle > Math.PI ? 1 : 0;
-
-      var x1 = cx + r * Math.cos(startAngle);
-      var y1 = cy + r * Math.sin(startAngle);
-      var x2 = cx + r * Math.cos(endAngle);
-      var y2 = cy + r * Math.sin(endAngle);
-
-      var pathD;
-      if (pct >= 0.999) {
-        pathD = "M " + (cx - r) + " " + cy +
-                " A " + r + " " + r + " 0 1 1 " + (cx + r) + " " + cy +
-                " A " + r + " " + r + " 0 1 1 " + (cx - r) + " " + cy + " Z";
-      } else {
-        pathD = "M " + cx + " " + cy +
-                " L " + x1 + " " + y1 +
-                " A " + r + " " + r + " 0 " + largeArc + " 1 " + x2 + " " + y2 + " Z";
-      }
-
+      var x1 = cx + r * Math.cos(startAngle), y1 = cy + r * Math.sin(startAngle);
+      var x2 = cx + r * Math.cos(endAngle), y2 = cy + r * Math.sin(endAngle);
+      var pathD = pct >= 0.999
+        ? "M " + (cx-r) + " " + cy + " A " + r + " " + r + " 0 1 1 " + (cx+r) + " " + cy + " A " + r + " " + r + " 0 1 1 " + (cx-r) + " " + cy + " Z"
+        : "M " + cx + " " + cy + " L " + x1 + " " + y1 + " A " + r + " " + r + " 0 " + largeArc + " 1 " + x2 + " " + y2 + " Z";
       var path = document.createElementNS(ns, "path");
-      path.setAttribute("d", pathD);
-      path.setAttribute("fill", DISK_COLORS[i % DISK_COLORS.length]);
-      path.setAttribute("stroke", "#0d1117");
-      path.setAttribute("stroke-width", "2");
+      path.setAttribute("d", pathD); path.setAttribute("fill", DISK_COLORS[i % DISK_COLORS.length]);
+      path.setAttribute("stroke", "#0d1117"); path.setAttribute("stroke-width", "2");
       svg.appendChild(path);
-
       startAngle = endAngle;
     });
-
-    // Pie legend
-    var legendStartY = 255;
-    var colWidth = 170;
+    var ly = 250;
     slices.forEach(function(slice, i) {
-      var col = i % 2;
-      var row = Math.floor(i / 2);
-      var lx = 5 + col * colWidth;
-      var ly = legendStartY + row * 16;
-
+      var col = i % 2, row = Math.floor(i / 2);
+      var lx = 5 + col * 170, yy = ly + row * 16;
       var rect = document.createElementNS(ns, "rect");
-      rect.setAttribute("x", lx);
-      rect.setAttribute("y", ly - 7);
-      rect.setAttribute("width", 8);
-      rect.setAttribute("height", 8);
-      rect.setAttribute("rx", 2);
+      rect.setAttribute("x", lx); rect.setAttribute("y", yy - 7);
+      rect.setAttribute("width", 8); rect.setAttribute("height", 8); rect.setAttribute("rx", 2);
       rect.setAttribute("fill", DISK_COLORS[i % DISK_COLORS.length]);
       svg.appendChild(rect);
-
       var txt = document.createElementNS(ns, "text");
-      txt.setAttribute("x", lx + 12);
-      txt.setAttribute("y", ly);
-      txt.setAttribute("fill", "#8b949e");
-      txt.setAttribute("font-size", "10");
+      txt.setAttribute("x", lx + 12); txt.setAttribute("y", yy);
+      txt.setAttribute("fill", "#8b949e"); txt.setAttribute("font-size", "10");
       txt.setAttribute("font-family", "-apple-system, sans-serif");
-      var pctVal = pieTotalMB > 0 ? (slice.sizeMB / pieTotalMB * 100).toFixed(1) : "0.0";
-      txt.textContent = slice.sizeGB + " GB — " + slice.label;
+      txt.textContent = (slice.sizeMB / 1024).toFixed(2) + " GB \u2014 " + slice.label;
       svg.appendChild(txt);
     });
+    var rows = Math.ceil(slices.length / 2);
+    var h = ly + rows * 16 + 10;
+    if (h > 340) svg.setAttribute("viewBox", "0 0 340 " + h);
+  }
 
-    // Adjust SVG viewBox height if many entries
-    var totalLegendRows = Math.ceil(slices.length / 2);
-    var neededH = legendStartY + totalLegendRows * 16 + 10;
-    if (neededH > 340) svg.setAttribute("viewBox", "0 0 340 " + neededH);
-
-    // Render table
-    slices.forEach(function(slice, i) {
-      var pct = pieTotalMB > 0 ? (slice.sizeMB / pieTotalMB * 100) : 0;
-      var barWidth = maxMB > 0 ? (slice.sizeMB / maxMB * 100) : 0;
+  function renderDiskTable(items) {
+    var tbody = document.getElementById("diskDetailBody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+    var filtered = diskCurrentFilter === "all" ? items : items.filter(function(e) { return e.type === diskCurrentFilter; });
+    // Use total disk capacity as reference for bars and %, NOT the max entry
+    var refMB = diskTotalSizeMB > 0 ? diskTotalSizeMB : 1;
+    if (filtered.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--text-muted);text-align:center;">No items match this filter</td></tr>';
+      return;
+    }
+    filtered.forEach(function(entry, i) {
+      var pct = refMB > 0 ? (entry.size_mb / refMB * 100) : 0;
+      var barW = pct; // bar width = real % of total disk
+      if (barW > 100) barW = 100;
+      var color = DISK_COLORS[i % DISK_COLORS.length];
+      var icon = TYPE_ICONS[entry.type] || TYPE_ICONS.other;
+      var isChecked = diskSelectedPaths[entry.path] ? "checked" : "";
+      var safePath = entry.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+      var nameHtml;
+      if (entry.is_dir || entry.type === "dir") {
+        nameHtml = '<a href="#" onclick="diskDrillInto(\'' + safePath + '\');return false;" style="color:var(--accent);text-decoration:none;font-weight:500;">' + escapeHtml(entry.name) + '</a>';
+      } else {
+        nameHtml = '<span style="color:var(--text-primary);">' + escapeHtml(entry.name) + '</span>';
+      }
       var tr = document.createElement("tr");
       tr.innerHTML =
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--border);">' +
-          '<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + DISK_COLORS[i % DISK_COLORS.length] + ';margin-right:6px;vertical-align:middle;"></span>' +
-          '<span style="color:var(--text-primary);font-weight:500;">' + escapeHtml(slice.label) + '</span>' +
-          '<br><span style="font-size:0.75rem;color:var(--text-muted);">' + escapeHtml(slice.path) + '</span>' +
-        '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--text-primary);font-weight:600;">' + slice.sizeGB.toFixed(2) + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary);">' + Math.round(slice.sizeMB) + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary);">' + pct.toFixed(1) + '%</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--border);">' +
-          '<div style="background:var(--bg-input);border-radius:4px;height:14px;overflow:hidden;">' +
-            '<div style="width:' + barWidth.toFixed(1) + '%;height:100%;background:' + DISK_COLORS[i % DISK_COLORS.length] + ';border-radius:4px;transition:width 0.3s;"></div>' +
-          '</div>' +
-        '</td>';
+        '<td style="padding:4px;border-bottom:1px solid var(--border);text-align:center;"><input type="checkbox" ' + isChecked + ' onchange="diskToggleSelect(\'' + safePath + '\', this.checked)" style="cursor:pointer;"></td>' +
+        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);">' + nameHtml + '<br><span style="font-size:0.7rem;color:var(--text-muted);">' + escapeHtml(entry.path) + '</span></td>' +
+        '<td style="padding:4px;border-bottom:1px solid var(--border);text-align:center;">' + icon + '</td>' +
+        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">' + entry.size_gb.toFixed(2) + '</td>' +
+        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary);">' + Math.round(entry.size_mb) + '</td>' +
+        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary);">' + pct.toFixed(1) + '%</td>' +
+        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);"><div style="background:var(--bg-input);border-radius:4px;height:12px;overflow:hidden;"><div style="width:' + barW.toFixed(1) + '%;height:100%;background:' + color + ';border-radius:4px;"></div></div></td>';
       tbody.appendChild(tr);
     });
+  }
 
-    // Total row
-    var totalGB = Math.round(pieTotalMB / 1024 * 100) / 100;
-    var trTotal = document.createElement("tr");
-    trTotal.innerHTML =
-      '<td style="padding:8px;font-weight:700;color:var(--accent);">Total Scanned</td>' +
-      '<td style="padding:8px;text-align:right;font-weight:700;color:var(--accent);">' + totalGB.toFixed(2) + '</td>' +
-      '<td style="padding:8px;text-align:right;font-weight:700;color:var(--accent);">' + Math.round(pieTotalMB) + '</td>' +
-      '<td style="padding:8px;text-align:right;font-weight:700;color:var(--accent);">100%</td>' +
-      '<td></td>';
-    tbody.appendChild(trTotal);
+  function renderDiskBreadcrumb(path) {
+    var bc = document.getElementById("diskBreadcrumb");
+    if (!bc) return;
+    if (!path) { bc.innerHTML = '<span style="color:var(--accent);font-weight:600;">/ Overview</span>'; return; }
+    var parts = path.split("/").filter(function(p) { return p !== ""; });
+    var html = '<a href="#" onclick="diskGoToOverview();return false;" style="color:var(--accent);text-decoration:none;">Overview</a>';
+    var accumulated = "";
+    parts.forEach(function(part, i) {
+      accumulated += "/" + part;
+      html += ' <span style="color:var(--text-muted);">/</span> ';
+      if (i === parts.length - 1) {
+        html += '<span style="color:var(--text-primary);font-weight:600;">' + escapeHtml(part) + '</span>';
+      } else {
+        var p = accumulated.replace(/'/g, "\\'");
+        html += '<a href="#" onclick="diskDrillInto(\'' + p + '\');return false;" style="color:var(--accent);text-decoration:none;">' + escapeHtml(part) + '</a>';
+      }
+    });
+    bc.innerHTML = html;
+  }
+
+  function showDiskActionBar() {
+    var bar = document.getElementById("diskActionBar");
+    var count = Object.keys(diskSelectedPaths).length;
+    if (bar) {
+      bar.style.display = count > 0 ? "flex" : "none";
+      var countEl = document.getElementById("diskSelectedCount");
+      if (countEl) countEl.textContent = count + " selected";
+    }
+  }
+
+  window.diskFilterBy = function(type) {
+    diskCurrentFilter = type;
+    ["All","Dir","File","Image","Log","Archive"].forEach(function(t) {
+      var btn = document.getElementById("diskFilter" + t);
+      if (btn) {
+        if (t.toLowerCase() === type) {
+          btn.style.background = "var(--accent)"; btn.style.color = "#fff"; btn.style.border = "none";
+        } else {
+          btn.style.background = "var(--bg-input)"; btn.style.color = "var(--text-secondary)"; btn.style.border = "1px solid var(--border)";
+        }
+      }
+    });
+    renderDiskTable(diskCurrentEntries);
+  };
+
+  window.diskDrillInto = async function(path) {
+    var tbody = document.getElementById("diskDetailBody");
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--text-muted);text-align:center;">Loading ' + escapeHtml(path) + ' ...</td></tr>';
+    diskSelectedPaths = {};
+    showDiskActionBar();
+    try {
+      var resp = await apiFetch("/api/system/disk-detail?path=" + encodeURIComponent(path));
+      var items = resp.data || resp || [];
+      diskCurrentPath = path;
+      diskCurrentEntries = items;
+      diskCurrentFilter = "all";
+      renderDiskBreadcrumb(path);
+      renderDiskTable(items);
+      diskFilterBy("all");
+    } catch(err) {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--red);">Error: ' + escapeHtml(err.message) + '</td></tr>';
+    }
+  };
+
+  window.diskGoToOverview = function() {
+    diskSelectedPaths = {};
+    showDiskActionBar();
+    if (sysData && sysData.disk_breakdown) renderDiskBreakdown(sysData);
+  };
+
+  window.diskToggleSelect = function(path, checked) {
+    if (checked) diskSelectedPaths[path] = true;
+    else delete diskSelectedPaths[path];
+    showDiskActionBar();
+  };
+
+  window.diskSelectAll = function() {
+    var filtered = diskCurrentFilter === "all" ? diskCurrentEntries : diskCurrentEntries.filter(function(e) { return e.type === diskCurrentFilter; });
+    filtered.forEach(function(e) { diskSelectedPaths[e.path] = true; });
+    renderDiskTable(diskCurrentEntries);
+    showDiskActionBar();
+  };
+
+  window.diskDeselectAll = function() {
+    diskSelectedPaths = {};
+    renderDiskTable(diskCurrentEntries);
+    showDiskActionBar();
+  };
+
+  window.diskDeleteSelected = async function() {
+    var paths = Object.keys(diskSelectedPaths);
+    if (paths.length === 0) return;
+    if (!confirm("Delete " + paths.length + " item(s)? This cannot be undone.")) return;
+    var btn = document.getElementById("diskDeleteSelectedBtn");
+    if (btn) { btn.disabled = true; btn.textContent = "Deleting..."; }
+    try {
+      var resp = await apiFetch("/api/system/disk-clean", { method: "POST", body: { paths: paths } });
+      var data = resp.data || resp;
+      diskSelectedPaths = {};
+      showToast("Deleted " + (data.deleted || 0) + " item(s)" + (data.failed > 0 ? ", " + data.failed + " failed" : ""), data.failed > 0 ? "warning" : "success");
+      if (diskCurrentPath) { diskDrillInto(diskCurrentPath); } else { loadResources(); }
+    } catch(err) {
+      showToast("Delete failed: " + err.message, "error");
+    }
+    if (btn) { btn.disabled = false; btn.textContent = "Delete Selected"; }
+  };
+
+  async function loadTopFiles() {
+    var topLoading = document.getElementById("topFilesLoading");
+    try {
+      var resp = await apiFetch("/api/system/disk-top-files?path=/&limit=10");
+      if (topLoading) topLoading.style.display = "none";
+      var files = resp.data || resp || [];
+      var tbody = document.getElementById("topFilesBody");
+      if (!tbody) return;
+      tbody.innerHTML = "";
+      if (files.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--text-muted);text-align:center;">No large files found</td></tr>';
+        return;
+      }
+      var refMB = diskTotalSizeMB > 0 ? diskTotalSizeMB : 1;
+      files.forEach(function(f, i) {
+        var pct = refMB > 0 ? (f.size_mb / refMB * 100) : 0;
+        var barW = pct > 100 ? 100 : pct;
+        var color = DISK_COLORS[i % DISK_COLORS.length];
+        var icon = TYPE_ICONS[f.type] || TYPE_ICONS.other;
+        var safePath = f.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        var tr = document.createElement("tr");
+        tr.innerHTML =
+          '<td style="padding:4px;border-bottom:1px solid var(--border);text-align:center;"><input type="checkbox" onchange="diskToggleSelect(\'' + safePath + '\', this.checked)" style="cursor:pointer;"></td>' +
+          '<td style="padding:4px 8px;border-bottom:1px solid var(--border);"><span style="color:var(--text-primary);font-weight:500;">' + escapeHtml(f.name) + '</span><br><span style="font-size:0.7rem;color:var(--text-muted);">' + escapeHtml(f.path) + '</span></td>' +
+          '<td style="padding:4px;border-bottom:1px solid var(--border);text-align:center;">' + icon + '</td>' +
+          '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">' + f.size_gb.toFixed(2) + '</td>' +
+          '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary);">' + f.size_mb.toFixed(1) + '</td>' +
+          '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary);">' + pct.toFixed(1) + '%</td>' +
+          '<td style="padding:4px 8px;border-bottom:1px solid var(--border);"><div style="background:var(--bg-input);border-radius:4px;height:12px;overflow:hidden;"><div style="width:' + barW.toFixed(1) + '%;height:100%;background:' + color + ';border-radius:4px;"></div></div></td>';
+        tbody.appendChild(tr);
+      });
+    } catch(err) {
+      if (topLoading) topLoading.textContent = "(error)";
+    }
   }
 
   function renderServicesTable(d) {

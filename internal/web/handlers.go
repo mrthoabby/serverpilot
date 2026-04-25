@@ -740,6 +740,145 @@ func (s *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: info})
 }
 
+// handleDiskBreakdown returns the (slow) disk usage breakdown separately.
+// This runs du on key directories and is cached for 30s.
+func (s *Server) handleDiskBreakdown(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	entries := sysinfo.CollectDiskBreakdown()
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: entries})
+}
+
+// handleDiskDetail drills into a directory and returns its children with sizes.
+// GET /api/system/disk-detail?path=/usr
+func (s *Server) handleDiskDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	dirPath := r.URL.Query().Get("path")
+	if dirPath == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "missing 'path' query parameter"})
+		return
+	}
+
+	// Sanitize: must be absolute, no traversal.
+	dirPath = filepath.Clean(dirPath)
+	if !filepath.IsAbs(dirPath) || strings.Contains(dirPath, "..") {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid path"})
+		return
+	}
+
+	entries, err := sysinfo.DiskDetailDir(dirPath)
+	if err != nil {
+		log.Printf("Disk detail error for %s: %v", dirPath, err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: entries})
+}
+
+// handleDiskTopFiles finds the N largest files under a given path.
+// GET /api/system/disk-top-files?path=/&limit=5
+func (s *Server) handleDiskTopFiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	root := r.URL.Query().Get("path")
+	if root == "" {
+		root = "/"
+	}
+	root = filepath.Clean(root)
+	if !filepath.IsAbs(root) || strings.Contains(root, "..") {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid path"})
+		return
+	}
+
+	limitStr := r.URL.Query().Get("limit")
+	limit := 10
+	if limitStr != "" {
+		if n, err := strconv.Atoi(limitStr); err == nil && n > 0 && n <= 50 {
+			limit = n
+		}
+	}
+
+	files, err := sysinfo.DiskTopFiles(root, limit)
+	if err != nil {
+		log.Printf("Disk top files error for %s: %v", root, err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: files})
+}
+
+// handleDiskClean deletes selected files/directories to free space.
+// POST /api/system/disk-clean { "paths": ["/var/log/old.log", ...] }
+func (s *Server) handleDiskClean(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	var req struct {
+		Paths []string `json:"paths"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	if len(req.Paths) == 0 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "no paths provided"})
+		return
+	}
+	if len(req.Paths) > 100 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "too many paths (max 100)"})
+		return
+	}
+
+	// Validate all paths before deleting any.
+	for _, p := range req.Paths {
+		clean := filepath.Clean(p)
+		if !filepath.IsAbs(clean) || strings.Contains(p, "..") {
+			writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid path: " + p})
+			return
+		}
+		if containsHTML(p) {
+			writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid input"})
+			return
+		}
+	}
+
+	results := sysinfo.DeletePaths(req.Paths)
+
+	// Count successes and failures.
+	var freed, failed int
+	for _, errMsg := range results {
+		if errMsg == "" {
+			freed++
+		} else {
+			failed++
+		}
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"deleted": freed,
+			"failed":  failed,
+			"details": results,
+		},
+	})
+}
+
 // writeJSON sends a JSON response with the given status code.
 func writeJSON(w http.ResponseWriter, statusCode int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")

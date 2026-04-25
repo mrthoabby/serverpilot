@@ -1,10 +1,10 @@
 module github.com/mrthoabby/serverpilot
 
-go 1.22
+go 1.26
 
 require (
-	github.com/spf13/cobra v1.8.0
-	golang.org/x/crypto v0.21.0
+	github.com/spf13/cobra v1.8.1
+	golang.org/x/crypto v0.31.0
 )
 
 require (
