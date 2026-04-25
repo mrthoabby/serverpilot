@@ -1313,7 +1313,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
                 <tr>
                   <th style="width:30px;padding:6px 4px;border-bottom:1px solid var(--border);"></th>
                   <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">Name</th>
-                  <th style="text-align:left;padding:6px 4px;border-bottom:1px solid var(--border);color:var(--text-secondary);width:50px;">Type</th>
+                  <th style="text-align:center;padding:6px 4px;border-bottom:1px solid var(--border);color:var(--text-secondary);width:30px;"></th>
                   <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">GB</th>
                   <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">MB</th>
                   <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">%</th>
@@ -3788,10 +3788,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
     filtered.forEach(function(entry, i) {
       var pct = refMB > 0 ? (entry.size_mb / refMB * 100) : 0;
-      var barW = pct; // bar width = real % of total disk
-      if (barW > 100) barW = 100;
+      // Bar: use % of total disk, but ensure minimum visible width for small items.
+      var barW = pct > 100 ? 100 : pct;
+      if (entry.size_mb > 0 && barW < 1.5) barW = 1.5; // minimum visible bar
       var color = DISK_COLORS[i % DISK_COLORS.length];
-      var icon = TYPE_ICONS[entry.type] || TYPE_ICONS.other;
       var isChecked = diskSelectedPaths[entry.path] ? "checked" : "";
       var safePath = entry.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
       var nameHtml;
@@ -3800,11 +3800,13 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       } else {
         nameHtml = '<span style="color:var(--text-primary);">' + escapeHtml(entry.name) + '</span>';
       }
+      // Color dot matching the pie chart slice color.
+      var colorDot = '<span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:' + color + ';"></span>';
       var tr = document.createElement("tr");
       tr.innerHTML =
         '<td style="padding:4px;border-bottom:1px solid var(--border);text-align:center;"><input type="checkbox" ' + isChecked + ' onchange="diskToggleSelect(\'' + safePath + '\', this.checked)" style="cursor:pointer;"></td>' +
         '<td style="padding:4px 8px;border-bottom:1px solid var(--border);">' + nameHtml + '<br><span style="font-size:0.7rem;color:var(--text-muted);">' + escapeHtml(entry.path) + '</span></td>' +
-        '<td style="padding:4px;border-bottom:1px solid var(--border);text-align:center;">' + icon + '</td>' +
+        '<td style="padding:4px;border-bottom:1px solid var(--border);text-align:center;">' + colorDot + '</td>' +
         '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">' + entry.size_gb.toFixed(2) + '</td>' +
         '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary);">' + Math.round(entry.size_mb) + '</td>' +
         '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary);">' + pct.toFixed(1) + '%</td>' +
