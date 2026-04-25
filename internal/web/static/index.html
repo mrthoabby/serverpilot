@@ -3365,6 +3365,8 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   // ── Resources ──
   var sysData = null;
 
+  var resourcesFirstLoad = true; // first load shows spinners, subsequent refreshes are silent
+
   async function loadResources() {
     // Fire both requests in parallel — main system data is fast,
     // disk breakdown is slow (runs du on multiple directories).
@@ -3377,18 +3379,28 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     else if (resp && !resp.data) sysData = resp;
     renderResources();
 
-    // When disk breakdown arrives, merge it in and render just that section.
+    // When disk breakdown arrives, merge it in.
     var diskResp = await diskPromise;
     if (diskResp) {
       var breakdown = diskResp.data || diskResp;
       if (sysData) sysData.disk_breakdown = breakdown;
-      // Preserve the directory the user is currently browsing — renderDiskBreakdown
-      // resets diskCurrentPath to null (overview mode), so we save it first and
-      // re-drill into the same path once the overview has refreshed.
-      var browsingPath = diskCurrentPath;
-      renderDiskBreakdown(sysData || { disk_breakdown: breakdown });
-      if (browsingPath) { diskDrillInto(browsingPath); }
+
+      if (diskCurrentPath) {
+        // User is browsing a specific directory — DON'T touch their view.
+        // Silently update the breakdown data so that when they navigate back
+        // to overview, it will show the fresh data.
+        // Also silently re-fetch the directory they're in + top files.
+        diskDrillIntoSilent(diskCurrentPath);
+        loadTopFiles();
+      } else {
+        // User is on the overview — render the breakdown directly.
+        // On first load this is fine (shows initial data). On subsequent
+        // refreshes the DOM swap is near-instant since data is already in memory.
+        renderDiskBreakdown(sysData || { disk_breakdown: breakdown });
+      }
     }
+
+    resourcesFirstLoad = false;
   }
 
   function renderResources() {
@@ -3426,11 +3438,15 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     setText(document.getElementById("resUptime"), d.uptime || "--");
     setText(document.getElementById("resHostname"), d.hostname || "--");
 
-    // Memory Pie Chart — close the breakdown panel first so stale data doesn't
-    // remain visible when the pie re-renders with fresh numbers.
-    var memPanel = document.getElementById("memDetailPanel");
-    if (memPanel) memPanel.style.display = "none";
+    // Memory Pie Chart
     renderMemoryPie(d);
+
+    // If the memory breakdown panel is open, refresh its stats in-place
+    // so they stay in sync with the freshly re-rendered pie chart.
+    var memPanel = document.getElementById("memDetailPanel");
+    if (memPanel && memPanel.style.display !== "none" && d.memory) {
+      updateMemDetailStats(d.memory);
+    }
 
     // CPU Bar Chart
     renderCpuBars(d);
@@ -3769,6 +3785,32 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var panel = document.getElementById("memDetailPanel");
     if (panel) panel.style.display = "none";
   };
+
+  // Update only the stat cards in the memory detail panel (no re-fetch of processes).
+  // Called on auto-refresh to keep stats in sync with the pie chart.
+  function updateMemDetailStats(memData) {
+    var cacheRows = document.getElementById("memCacheRows");
+    if (!cacheRows || !memData) return;
+    var totalMB = memData.total_mb || 0;
+    var availMB = memData.available_mb || 0;
+    var usedMB  = memData.used_mb    || 0;
+    var freeMB  = memData.free_mb    || 0;
+
+    function makeStat(label, value, hint, color) {
+      var div = document.createElement("div");
+      div.style.cssText = "background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:10px 16px;min-width:130px;";
+      div.innerHTML = '<div style="font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">' + label + '</div>' +
+        '<div style="font-size:1.15rem;font-weight:700;color:' + color + ';margin:2px 0;">' + value + ' MB</div>' +
+        '<div style="font-size:0.7rem;color:var(--text-muted);">' + hint + '</div>';
+      return div;
+    }
+
+    cacheRows.innerHTML = "";
+    cacheRows.appendChild(makeStat("MemAvailable", availMB, "real RAM disponible", "#3fb950"));
+    cacheRows.appendChild(makeStat("MemFree", freeMB, "completamente libre", "#58a6ff"));
+    cacheRows.appendChild(makeStat("MemUsed", usedMB, "total ocupada", "#f85149"));
+    cacheRows.appendChild(makeStat("MemTotal", totalMB, "capacidad total", "#8b949e"));
+  }
 
   window.openMemDetail = function(memData) {
     var panel = document.getElementById("memDetailPanel");
@@ -4140,6 +4182,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   };
 
   window.diskDrillInto = async function(path) {
+    // User-initiated navigation: show loading state since they clicked.
     var tbody = document.getElementById("diskDetailBody");
     if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--text-muted);text-align:center;">Loading ' + escapeHtml(path) + ' ...</td></tr>';
     diskSelectedPaths = {};
@@ -4157,6 +4200,22 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--red);">Error: ' + escapeHtml(err.message) + '</td></tr>';
     }
   };
+
+  // Silent variant for auto-refresh: fetches data in background, swaps DOM when ready.
+  // No "Loading..." message, no flicker — the user's view stays intact until new data arrives.
+  async function diskDrillIntoSilent(path) {
+    try {
+      var resp = await apiFetch("/api/system/disk-detail?path=" + encodeURIComponent(path));
+      var items = resp.data || resp || [];
+      // Only update if the user is still on the same directory (they may have navigated away).
+      if (diskCurrentPath === path) {
+        diskCurrentEntries = items;
+        renderDiskTable(items);
+      }
+    } catch(err) {
+      // Silent fail — the user still sees the previous data, no disruption.
+    }
+  }
 
   window.diskGoToOverview = function() {
     diskSelectedPaths = {};
