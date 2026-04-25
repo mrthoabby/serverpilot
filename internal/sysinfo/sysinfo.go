@@ -1,6 +1,7 @@
 package sysinfo
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -191,6 +192,11 @@ func StartHistoryCollector() {
 		defer ticker.Stop()
 		for range ticker.C {
 			takeSnapshot()
+			// Periodic forced memory release every 5 minutes.
+			// This ensures accumulated garbage from exec.Command buffers,
+			// JSON parsing, and /proc reads is returned to the OS even if
+			// the GC hasn't hit the 30% threshold naturally.
+			releaseMemory()
 		}
 	}()
 }
@@ -357,18 +363,24 @@ func readLoadAvg() *LoadAverage {
 }
 
 // readMemInfo reads /proc/meminfo.
+// Uses a scanner to avoid loading the full file into memory.
 // Only parses the 5 fields we need — exits early once all are found.
 func readMemInfo() *MemoryInfo {
-	data, err := os.ReadFile("/proc/meminfo")
+	f, err := os.Open("/proc/meminfo")
 	if err != nil {
 		return nil
 	}
+	defer f.Close()
+
 	mem := &MemoryInfo{}
 	needed := 5
-	for _, line := range strings.Split(string(data), "\n") {
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
 		if needed <= 0 {
-			break // all fields found — stop scanning
+			break
 		}
+		line := scanner.Text()
 		parts := strings.Fields(line)
 		if len(parts) < 2 {
 			continue
@@ -964,6 +976,10 @@ func CollectMemoryDetail() *MemoryDetail {
 
 	procs := make([]rawProc, 0, 256)
 
+	// Reuse a single scanner buffer across all /proc/PID/status reads
+	// instead of allocating a new []byte per os.ReadFile (hundreds of processes).
+	scanBuf := make([]byte, 0, 4096)
+
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
@@ -974,28 +990,48 @@ func CollectMemoryDetail() *MemoryDetail {
 		}
 
 		statusPath := fmt.Sprintf("/proc/%d/status", pid)
-		data, err := os.ReadFile(statusPath)
+		f, err := os.Open(statusPath)
 		if err != nil {
 			continue // process may have exited
 		}
 
 		var name, state string
 		var rssKB int64
+		found := 0
 
-		for _, line := range strings.Split(string(data), "\n") {
-			fields := strings.Fields(line)
-			if len(fields) < 2 {
+		scanner := bufio.NewScanner(f)
+		scanner.Buffer(scanBuf, 4096)
+		for scanner.Scan() {
+			line := scanner.Text()
+			// Fast prefix check before calling Fields (avoids allocation).
+			if len(line) < 5 {
 				continue
 			}
-			switch fields[0] {
-			case "Name:":
-				name = fields[1]
-			case "State:":
-				state = fields[1]
-			case "VmRSS:":
-				rssKB, _ = strconv.ParseInt(fields[1], 10, 64)
+			switch {
+			case strings.HasPrefix(line, "Name:"):
+				fields := strings.Fields(line)
+				if len(fields) >= 2 {
+					name = fields[1]
+					found++
+				}
+			case strings.HasPrefix(line, "State:"):
+				fields := strings.Fields(line)
+				if len(fields) >= 2 {
+					state = fields[1]
+					found++
+				}
+			case strings.HasPrefix(line, "VmRSS:"):
+				fields := strings.Fields(line)
+				if len(fields) >= 2 {
+					rssKB, _ = strconv.ParseInt(fields[1], 10, 64)
+					found++
+				}
+			}
+			if found >= 3 {
+				break // got all fields — stop reading
 			}
 		}
+		f.Close()
 
 		if rssKB <= 0 {
 			continue
@@ -1163,26 +1199,38 @@ func parseMemToMB(usage string) float64 {
 }
 
 // readSelfProcess reads this process's memory from /proc/self/status.
+// Uses a scanner to avoid allocating the full file into a []byte.
 func readSelfProcess() *ProcessInfo {
 	info := &ProcessInfo{
 		PID: os.Getpid(),
 	}
 
-	data, err := os.ReadFile("/proc/self/status")
+	f, err := os.Open("/proc/self/status")
 	if err != nil {
 		return info
 	}
-	for _, line := range strings.Split(string(data), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
+	defer f.Close()
+
+	found := 0
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "VmRSS:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				val, _ := strconv.ParseFloat(fields[1], 64)
+				info.MemMB = val / 1024 // kB -> MB
+				found++
+			}
+		} else if strings.HasPrefix(line, "Threads:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				info.NumThreads, _ = strconv.Atoi(fields[1])
+				found++
+			}
 		}
-		switch fields[0] {
-		case "VmRSS:":
-			val, _ := strconv.ParseFloat(fields[1], 64)
-			info.MemMB = val / 1024 // kB -> MB
-		case "Threads:":
-			info.NumThreads, _ = strconv.Atoi(fields[1])
+		if found >= 2 {
+			break
 		}
 	}
 	return info

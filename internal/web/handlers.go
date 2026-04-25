@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mrthoabby/serverpilot/internal/auth"
 	"github.com/mrthoabby/serverpilot/internal/deps"
@@ -55,6 +56,21 @@ type siteCreateRequest struct {
 	Port         int    `json:"port"`
 }
 
+// indexHTML caches the embedded index.html content at startup so we don't
+// allocate a fresh ~180 KB []byte copy on every GET / request.
+// embed.FS.ReadFile() returns a new slice each time — over thousands of
+// requests this was a major source of gradual memory growth.
+var indexHTML []byte
+
+func init() {
+	data, err := staticFiles.ReadFile("static/index.html")
+	if err != nil {
+		// Will be caught at startup — panic is acceptable for a required embed.
+		panic("failed to read embedded index.html: " + err.Error())
+	}
+	indexHTML = data
+}
+
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
@@ -65,17 +81,9 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Serve the embedded index.html from the static directory.
-	data, err := staticFiles.ReadFile("static/index.html")
-	if err != nil {
-		log.Printf("Error reading embedded index.html: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	w.Write(data)
+	w.Write(indexHTML)
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -1402,20 +1410,30 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
+// httpClientShort is a shared HTTP client with short timeouts for GitHub API calls.
+// Using a shared client reuses TCP connections and avoids per-request allocations.
+// The default http.Get() uses http.DefaultClient which has NO timeout — a slow
+// server can hold the goroutine (and its memory) indefinitely.
+var httpClientShort = &http.Client{Timeout: 15 * time.Second}
+
 // fetchLatestTag gets the most recent tag from GitHub.
 func fetchLatestTag() (string, error) {
-	resp, err := http.Get("https://api.github.com/repos/mrthoabby/serverpilot/tags?per_page=1")
+	resp, err := httpClientShort.Get("https://api.github.com/repos/mrthoabby/serverpilot/tags?per_page=1")
 	if err != nil {
 		return "", fmt.Errorf("HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		// Drain and discard body so the connection can be reused.
+		io.Copy(io.Discard, resp.Body)
 		return "", fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
 	}
 
+	// Limit response body to 256 KB to prevent memory exhaustion from a rogue response.
+	limited := io.LimitReader(resp.Body, 256*1024)
 	var tags []githubTag
-	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil {
+	if err := json.NewDecoder(limited).Decode(&tags); err != nil {
 		return "", fmt.Errorf("failed to parse response: %w", err)
 	}
 
@@ -1425,6 +1443,12 @@ func fetchLatestTag() (string, error) {
 
 	return tags[0].Name, nil
 }
+
+// httpClientDownload is a shared HTTP client with longer timeout for binary downloads.
+var httpClientDownload = &http.Client{Timeout: 2 * time.Minute}
+
+// maxBinarySize caps the download size at 100 MB to prevent memory exhaustion.
+const maxBinarySize = 100 * 1024 * 1024
 
 // downloadAndReplace downloads the new binary and atomically replaces the current one.
 func downloadAndReplace(tagVersion string) error {
@@ -1437,13 +1461,14 @@ func downloadAndReplace(tagVersion string) error {
 		ver, osName, archName,
 	)
 
-	resp, err := http.Get(downloadURL)
+	resp, err := httpClientDownload.Get(downloadURL)
 	if err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		io.Copy(io.Discard, resp.Body) // drain so connection can be reused
 		return fmt.Errorf("download returned status %d", resp.StatusCode)
 	}
 
@@ -1463,7 +1488,9 @@ func downloadAndReplace(tagVersion string) error {
 		return fmt.Errorf("cannot create temp file: %w", err)
 	}
 
-	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+	// Limit download size to prevent unbounded memory/disk consumption.
+	limited := io.LimitReader(resp.Body, maxBinarySize)
+	if _, err := io.Copy(tmpFile, limited); err != nil {
 		tmpFile.Close()
 		os.Remove(tmpPath)
 		return fmt.Errorf("failed to write update: %w", err)

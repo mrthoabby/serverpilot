@@ -756,34 +756,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   color: var(--text-muted);
 }
 
-.refresh-bar-ctrl {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.refresh-label {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.refresh-select {
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-family: var(--font);
-  font-size: 0.75rem;
-  padding: 0.25rem 0.5rem;
-  cursor: pointer;
-  outline: none;
-}
-
-.refresh-select:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-glow);
-}
 
 /* ── Resources Tab ── */
 .res-cards {
@@ -1120,16 +1092,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     <div class="tab-panel active" id="panel-containers">
       <div class="refresh-bar">
         <span class="refresh-bar-ts" id="ts-containers">--</span>
-        <div class="refresh-bar-ctrl">
-          <label class="refresh-label">Auto-refresh:</label>
-          <select class="refresh-select" data-tab="containers" id="refresh-containers">
-            <option value="0">Disabled</option>
-            <option value="5">5s</option>
-            <option value="10">10s</option>
-            <option value="15">15s</option>
-            <option value="30" selected>30s</option>
-          </select>
-        </div>
       </div>
       <div class="card">
         <div class="card-header">
@@ -1145,16 +1107,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     <div class="tab-panel" id="panel-sites">
       <div class="refresh-bar">
         <span class="refresh-bar-ts" id="ts-sites">--</span>
-        <div class="refresh-bar-ctrl">
-          <label class="refresh-label">Auto-refresh:</label>
-          <select class="refresh-select" data-tab="sites" id="refresh-sites">
-            <option value="0">Disabled</option>
-            <option value="5">5s</option>
-            <option value="10">10s</option>
-            <option value="15">15s</option>
-            <option value="30" selected>30s</option>
-          </select>
-        </div>
       </div>
       <div class="card">
         <div class="card-header">
@@ -1170,16 +1122,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     <div class="tab-panel" id="panel-images">
       <div class="refresh-bar">
         <span class="refresh-bar-ts" id="ts-images">--</span>
-        <div class="refresh-bar-ctrl">
-          <label class="refresh-label">Auto-refresh:</label>
-          <select class="refresh-select" data-tab="images" id="refresh-images">
-            <option value="0" selected>Disabled</option>
-            <option value="5">5s</option>
-            <option value="10">10s</option>
-            <option value="15">15s</option>
-            <option value="30">30s</option>
-          </select>
-        </div>
       </div>
       <div class="card">
         <div class="card-header">
@@ -1199,16 +1141,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     <div class="tab-panel" id="panel-mappings">
       <div class="refresh-bar">
         <span class="refresh-bar-ts" id="ts-mappings">--</span>
-        <div class="refresh-bar-ctrl">
-          <label class="refresh-label">Auto-refresh:</label>
-          <select class="refresh-select" data-tab="mappings" id="refresh-mappings">
-            <option value="0">Disabled</option>
-            <option value="5">5s</option>
-            <option value="10">10s</option>
-            <option value="15">15s</option>
-            <option value="30" selected>30s</option>
-          </select>
-        </div>
       </div>
       <div class="card">
         <div class="card-header">
@@ -1224,16 +1156,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     <div class="tab-panel" id="panel-resources">
       <div class="refresh-bar">
         <span class="refresh-bar-ts" id="ts-resources">--</span>
-        <div class="refresh-bar-ctrl">
-          <label class="refresh-label">Auto-refresh:</label>
-          <select class="refresh-select" data-tab="resources" id="refresh-resources">
-            <option value="0">Disabled</option>
-            <option value="5">5s</option>
-            <option value="10" selected>10s</option>
-            <option value="15">15s</option>
-            <option value="30">30s</option>
-          </select>
-        </div>
       </div>
       <!-- System Overview Cards -->
       <div class="res-cards" id="resCards">
@@ -1682,8 +1604,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   var selectedImageIDs = {};
   var activeTab = "containers";
 
-  // Per-tab refresh timers and load functions.
-  var tabTimers = {};
+  // Tab load functions — each loads data for its tab.
   var tabLoaders = {
     containers: function() { return loadContainers(); },
     sites:      function() { return loadSites(); },
@@ -1693,65 +1614,24 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     settings:   function() { return loadSettings(); }
   };
 
-  // ── Cookie-based refresh config (no localStorage) ──
-  function getRefreshConfig() {
-    var cfg = { containers: 30, sites: 30, images: 0, mappings: 30, resources: 10 };
-    var match = document.cookie.match(/(?:^|;\s*)sp_refresh=([^;]*)/);
-    if (match) {
-      try { var parsed = JSON.parse(decodeURIComponent(match[1])); Object.assign(cfg, parsed); } catch(e) {}
-    }
-    return cfg;
-  }
+  // ── Single global auto-refresh: fixed 30s, active tab only ──
+  // No per-tab configurable timers — simpler, less memory pressure,
+  // and prevents aggressive polling that causes gradual RSS growth.
+  var globalRefreshTimer = null;
+  var REFRESH_INTERVAL = 30000; // 30 seconds, fixed
 
-  function saveRefreshConfig(cfg) {
-    var val = encodeURIComponent(JSON.stringify(cfg));
-    document.cookie = "sp_refresh=" + val + ";path=/;max-age=31536000;SameSite=Lax";
-  }
-
-  function applyRefreshConfig() {
-    var cfg = getRefreshConfig();
-    ["containers", "sites", "images", "mappings", "resources"].forEach(function(tab) {
-      var sel = document.getElementById("refresh-" + tab);
-      if (sel) sel.value = String(cfg[tab] || 0);
-    });
-  }
-
-  // ── Per-tab timer management ──
-  function startTabTimer(tab) {
-    stopTabTimer(tab);
-    var cfg = getRefreshConfig();
-    var seconds = cfg[tab] || 0;
-    if (seconds <= 0) return; // Disabled
-    tabTimers[tab] = setInterval(function() {
-      // Only auto-refresh if this tab is the active one.
-      if (activeTab === tab && tabLoaders[tab]) {
-        tabLoaders[tab]();
+  function startGlobalRefresh() {
+    stopGlobalRefresh();
+    globalRefreshTimer = setInterval(function() {
+      if (activeTab && tabLoaders[activeTab]) {
+        tabLoaders[activeTab]();
       }
-    }, seconds * 1000);
+    }, REFRESH_INTERVAL);
   }
 
-  function stopTabTimer(tab) {
-    if (tabTimers[tab]) { clearInterval(tabTimers[tab]); delete tabTimers[tab]; }
+  function stopGlobalRefresh() {
+    if (globalRefreshTimer) { clearInterval(globalRefreshTimer); globalRefreshTimer = null; }
   }
-
-  function stopAllTimers() {
-    Object.keys(tabTimers).forEach(stopTabTimer);
-  }
-
-  function startAllTimers() {
-    ["containers", "sites", "images", "mappings", "resources"].forEach(startTabTimer);
-  }
-
-  // Handle combo box changes.
-  document.querySelectorAll(".refresh-select").forEach(function(sel) {
-    sel.addEventListener("change", function() {
-      var tab = sel.dataset.tab;
-      var cfg = getRefreshConfig();
-      cfg[tab] = parseInt(sel.value, 10);
-      saveRefreshConfig(cfg);
-      startTabTimer(tab);
-    });
-  });
 
   function updateTabTimestamp(tab) {
     var el = document.getElementById("ts-" + tab);
@@ -1768,16 +1648,15 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   function showLogin() {
     loginScreen.style.display = "flex";
     dashboard.style.display = "none";
-    stopAllTimers();
+    stopGlobalRefresh();
   }
 
   function showDashboard() {
     loginScreen.style.display = "none";
     dashboard.style.display = "block";
-    applyRefreshConfig();
-    // Load the active tab immediately.
+    // Load the active tab immediately, then start the 30s refresh cycle.
     if (tabLoaders[activeTab]) tabLoaders[activeTab]();
-    startAllTimers();
+    startGlobalRefresh();
   }
 
   document.getElementById("loginForm").addEventListener("submit", async function(e) {
