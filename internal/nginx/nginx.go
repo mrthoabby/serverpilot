@@ -320,6 +320,35 @@ func WriteConfigContent(name string, content string, validate bool) (string, err
 	return "", nil
 }
 
+// ServerPilotTemplate generates an nginx reverse proxy config for the ServerPilot dashboard.
+// Used by both the CLI setup flow and the web settings handler.
+func ServerPilotTemplate(domain string, port int) string {
+	return fmt.Sprintf(`server {
+    listen 80;
+    server_name %s;
+
+    # Note: X-Frame-Options, X-Content-Type-Options, Referrer-Policy, and
+    # Permissions-Policy are set by the Go SecurityMiddleware to avoid
+    # duplicate headers when behind Cloudflare or other reverse proxies.
+
+    location / {
+        proxy_pass http://127.0.0.1:%d;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300;
+        proxy_connect_timeout 10;
+
+        # SSE streaming support (for progress modals)
+        proxy_buffering off;
+        proxy_cache off;
+    }
+}
+`, domain, port)
+}
+
 var domainRegex = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$`)
 
 // IsValidDomainExported checks that a domain contains only allowed characters.

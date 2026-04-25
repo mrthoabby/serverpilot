@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,18 +43,19 @@ var (
 
 // SystemInfo holds all system resource information.
 type SystemInfo struct {
-	Hostname    string          `json:"hostname"`
-	Uptime      string          `json:"uptime"`
-	GoVersion   string          `json:"go_version"`
-	NumCPU      int             `json:"num_cpu"`
-	LoadAvg     *LoadAverage    `json:"load_avg"`
-	Memory      *MemoryInfo     `json:"memory"`
-	Disk          []DiskInfo        `json:"disk"`
+	Hostname      string               `json:"hostname"`
+	Uptime        string               `json:"uptime"`
+	GoVersion     string               `json:"go_version"`
+	NumCPU        int                  `json:"num_cpu"`
+	LoadAvg       *LoadAverage         `json:"load_avg"`
+	Memory        *MemoryInfo          `json:"memory"`
+	Disk          []DiskInfo           `json:"disk"`
 	DiskBreakdown []DiskBreakdownEntry `json:"disk_breakdown,omitempty"`
-	Containers  []ContainerStat `json:"containers"`
-	SelfProcess *ProcessInfo    `json:"self_process"`
-	Services    []ServiceInfo   `json:"services"`
-	Timestamp   int64           `json:"timestamp"`
+	DockerDisk    []DockerDiskStat     `json:"docker_disk,omitempty"`
+	Containers    []ContainerStat      `json:"containers"`
+	SelfProcess   *ProcessInfo         `json:"self_process"`
+	Services      []ServiceInfo        `json:"services"`
+	Timestamp     int64                `json:"timestamp"`
 }
 
 // LoadAverage from /proc/loadavg.
@@ -86,10 +88,20 @@ type DiskInfo struct {
 
 // DiskBreakdownEntry shows how much space a specific directory uses.
 type DiskBreakdownEntry struct {
-	Path   string  `json:"path"`
-	Label  string  `json:"label"`
-	SizeMB float64 `json:"size_mb"`
-	SizeGB float64 `json:"size_gb"`
+	Path    string  `json:"path"`
+	Label   string  `json:"label"`
+	SizeMB  float64 `json:"size_mb"`
+	SizeGB  float64 `json:"size_gb"`
+	Partial bool    `json:"partial,omitempty"` // true when du timed out or had errors
+}
+
+// DockerDiskStat holds one row from `docker system df`.
+type DockerDiskStat struct {
+	Type      string  `json:"type"`
+	Total     int     `json:"total"`
+	Active    int     `json:"active"`
+	SizeMB    float64 `json:"size_mb"`
+	ReclaimMB float64 `json:"reclaim_mb"`
 }
 
 // DiskDetailEntry represents a child item inside a directory with its size and type.
@@ -252,16 +264,19 @@ func Collect() (*SystemInfo, error) {
 	var disk []DiskInfo
 	var containers []ContainerStat
 	var services []ServiceInfo
+	var dockerDisk []DockerDiskStat
 
-	wg.Add(3)
+	wg.Add(4)
 	go func() { defer wg.Done(); disk = readDiskInfo() }()
 	go func() { defer wg.Done(); containers = readDockerStats() }()
 	go func() { defer wg.Done(); services = readServices() }()
+	go func() { defer wg.Done(); dockerDisk = readDockerDiskInfo() }()
 	wg.Wait()
 
 	info.Disk = disk
 	info.Containers = containers
 	info.Services = services
+	info.DockerDisk = dockerDisk
 
 	// Attach memory history to each service.
 	for i := range info.Services {
@@ -426,10 +441,89 @@ func readDiskInfo() []DiskInfo {
 	return disks
 }
 
+// parseDockerSizeMB converts Docker size strings like "3.5GB", "232kB", "0B" to MB.
+// Docker uses decimal prefixes (1 GB = 1000 MB) in its output.
+func parseDockerSizeMB(s string) float64 {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "0B" {
+		return 0
+	}
+	type unit struct {
+		suffix string
+		factor float64
+	}
+	// Docker uses decimal (SI) prefixes in `docker system df` output.
+	units := []unit{
+		{"TB", 1e6},
+		{"GB", 1e3},
+		{"MB", 1},
+		{"kB", 1e-3},
+		{"B", 1e-6},
+	}
+	for _, u := range units {
+		if strings.HasSuffix(s, u.suffix) {
+			v, err := strconv.ParseFloat(strings.TrimSuffix(s, u.suffix), 64)
+			if err != nil {
+				return 0
+			}
+			return v * u.factor
+		}
+	}
+	return 0
+}
+
+// readDockerDiskInfo runs `docker system df` to get accurate per-category disk usage.
+// This is the ONLY reliable way to measure Docker disk usage — `du /var/lib/docker`
+// overcounts because overlay2 merged/ directories are counted multiple times.
+func readDockerDiskInfo() []DockerDiskStat {
+	// Use tab-separated format so multi-word types ("Local Volumes") parse cleanly.
+	cmd := exec.Command("/usr/bin/docker", "system", "df",
+		"--format", "{{.Type}}\t{{.Size}}\t{{.Reclaimable}}\t{{.Total}}\t{{.Active}}")
+	cmd.Stderr = io.Discard
+	output, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	var stats []DockerDiskStat
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 5 {
+			continue
+		}
+		typeName := parts[0]
+		sizeMB := parseDockerSizeMB(parts[1])
+		// Reclaimable format: "1.2GB (34%)" — extract size before the space.
+		reclaimStr := parts[2]
+		if idx := strings.Index(reclaimStr, " "); idx > 0 {
+			reclaimStr = reclaimStr[:idx]
+		}
+		reclaimMB := parseDockerSizeMB(reclaimStr)
+		total, _ := strconv.Atoi(parts[3])
+		active, _ := strconv.Atoi(parts[4])
+
+		stats = append(stats, DockerDiskStat{
+			Type:      typeName,
+			Total:     total,
+			Active:    active,
+			SizeMB:    math.Round(sizeMB*100) / 100,
+			ReclaimMB: math.Round(reclaimMB*100) / 100,
+		})
+	}
+	return stats
+}
+
 // readDiskBreakdown runs du on key directories to show what occupies disk space.
-// Uses du -sm (NOT -x: we need to count Docker overlays and bind mounts).
-// Timeout is 10s per directory (large dirs like /usr need more time).
+// Uses du -smx (-x = same filesystem only) to avoid traversing Docker overlay
+// mount points, which would cause massive overcounting of Docker layer data.
+// Timeout is 30s per directory (large dirs like /usr can be slow).
 func readDiskBreakdown() []DiskBreakdownEntry {
+	// /var/lib/docker is intentionally EXCLUDED from this list.
+	// du on that path traverses overlay2 merged/ mount points and triple-counts
+	// image layers. Docker disk usage is measured separately via readDockerDiskInfo().
 	dirs := []struct {
 		path  string
 		label string
@@ -454,8 +548,9 @@ func readDiskBreakdown() []DiskBreakdownEntry {
 	}
 
 	type duResult struct {
-		idx    int
-		sizeMB float64
+		idx     int
+		sizeMB  float64
+		partial bool // true when du timed out
 	}
 
 	// Run all du commands in parallel with concurrency limit.
@@ -486,8 +581,11 @@ func readDiskBreakdown() []DiskBreakdownEntry {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			// du -sm: megabytes, summarize. NO -x flag so Docker overlays are counted.
-			cmd := exec.Command("du", "-sm", path)
+			// -s: summarize, -m: megabytes, -x: same filesystem only.
+			// The -x flag is critical: it prevents du from entering Docker overlay2
+			// merged/ directories (which are overlay mount points on a different fs
+			// type), avoiding the 3-4x overcounting that happens without it.
+			cmd := exec.Command("du", "-smx", path)
 			done := make(chan []byte, 1)
 			go func() {
 				out, _ := cmd.Output()
@@ -495,12 +593,20 @@ func readDiskBreakdown() []DiskBreakdownEntry {
 			}()
 
 			var output []byte
+			var timedOut bool
 			select {
 			case output = <-done:
-			case <-time.After(10 * time.Second):
+			case <-time.After(30 * time.Second): // increased from 10s — /usr can be large
 				if cmd.Process != nil {
 					cmd.Process.Kill()
 				}
+				timedOut = true
+			}
+
+			if timedOut {
+				// Record a partial entry so it shows in the UI with a warning
+				// instead of silently inflating "Other / System".
+				resultsCh <- duResult{idx: idx, sizeMB: 0, partial: true}
 				return
 			}
 			if len(output) == 0 {
@@ -523,13 +629,18 @@ func readDiskBreakdown() []DiskBreakdownEntry {
 	close(resultsCh)
 
 	// Collect results, dedup overlapping paths (/var/lib vs /var/lib/docker).
-	sizeByIdx := make(map[int]float64)
+	type idxResult struct {
+		sizeMB  float64
+		partial bool
+	}
+	resultByIdx := make(map[int]idxResult)
 	for r := range resultsCh {
-		sizeByIdx[r.idx] = r.sizeMB
+		resultByIdx[r.idx] = idxResult{sizeMB: r.sizeMB, partial: r.partial}
 	}
 
 	// Subtract child sizes from parent to avoid double-counting.
-	// /var/lib includes /var/lib/docker, /var/lib/mysql, /var/lib/postgresql.
+	// /var/lib includes /var/lib/docker (with -x, this is the actual layer data),
+	// /var/lib/mysql, and /var/lib/postgresql.
 	varLibIdx := -1
 	dockerIdx := -1
 	mysqlIdx := -1
@@ -547,29 +658,35 @@ func readDiskBreakdown() []DiskBreakdownEntry {
 		}
 	}
 	if varLibIdx >= 0 {
-		varLibSize := sizeByIdx[varLibIdx]
-		// Subtract children that are listed separately.
-		for _, childIdx := range []int{dockerIdx, mysqlIdx, pgIdx} {
-			if childIdx >= 0 {
-				varLibSize -= sizeByIdx[childIdx]
+		if parent, ok := resultByIdx[varLibIdx]; ok {
+			parentSize := parent.sizeMB
+			for _, childIdx := range []int{dockerIdx, mysqlIdx, pgIdx} {
+				if childIdx >= 0 {
+					if child, ok := resultByIdx[childIdx]; ok {
+						parentSize -= child.sizeMB
+					}
+				}
 			}
+			if parentSize < 0 {
+				parentSize = 0
+			}
+			resultByIdx[varLibIdx] = idxResult{sizeMB: parentSize, partial: parent.partial}
 		}
-		if varLibSize < 0 {
-			varLibSize = 0
-		}
-		sizeByIdx[varLibIdx] = varLibSize
 	}
 
 	var entries []DiskBreakdownEntry
-	for idx, sizeMB := range sizeByIdx {
-		if sizeMB < 1 {
-			continue // skip tiny
+	for idx, res := range resultByIdx {
+		// Show partial entries (timed-out) even with 0 MB so the UI can warn the user.
+		if res.sizeMB < 1 && !res.partial {
+			continue
 		}
+		sizeMB := res.sizeMB
 		entries = append(entries, DiskBreakdownEntry{
-			Path:   dirs[idx].path,
-			Label:  dirs[idx].label,
-			SizeMB: sizeMB,
-			SizeGB: float64(int(sizeMB/1024*100)) / 100,
+			Path:    dirs[idx].path,
+			Label:   dirs[idx].label,
+			SizeMB:  sizeMB,
+			SizeGB:  math.Round(sizeMB/1024*100) / 100, // fixed: was truncating with int()
+			Partial: res.partial,
 		})
 	}
 
@@ -651,7 +768,8 @@ func DiskDetailDir(dirPath string) ([]DiskDetailEntry, error) {
 			defer func() { <-sem }()
 
 			childPath := filepath.Join(clean, d.Name())
-			cmd := exec.Command("du", "-sm", childPath)
+			// -x: stay on the same filesystem — avoids traversing Docker overlays.
+			cmd := exec.Command("du", "-smx", childPath)
 			// Use Output() (stdout only) — stderr has permission errors that corrupt parsing.
 			done := make(chan []byte, 1)
 			go func() {
@@ -684,7 +802,7 @@ func DiskDetailDir(dirPath string) ([]DiskDetailEntry, error) {
 					Path:   childPath,
 					Name:   d.Name(),
 					SizeMB: sizeMB,
-					SizeGB: float64(int(sizeMB/1024*100)) / 100,
+					SizeGB: math.Round(sizeMB/1024*100) / 100,
 					IsDir:  d.IsDir(),
 					Type:   classifyFileType(d.Name(), d.IsDir()),
 				},
@@ -771,14 +889,144 @@ func DiskTopFiles(root string, limit int) ([]DiskTopFile, error) {
 		files = append(files, DiskTopFile{
 			Path:   fpath,
 			Name:   name,
-			SizeMB: float64(int(sizeMB*100)) / 100,
-			SizeGB: float64(int(sizeMB/1024*100)) / 100,
+			SizeMB: math.Round(sizeMB*100) / 100,
+			SizeGB: math.Round(sizeMB/1024*100) / 100,
 			Type:   classifyFileType(name, false),
 		})
 	}
 
 	releaseMemory()
 	return files, nil
+}
+
+// ProcessMemInfo holds memory usage for a single system process.
+type ProcessMemInfo struct {
+	PID   int     `json:"pid"`
+	Name  string  `json:"name"`
+	RssMB float64 `json:"rss_mb"`
+	State string  `json:"state"`
+}
+
+// MemoryDetail breaks down where RAM is actually going.
+type MemoryDetail struct {
+	TopProcesses []ProcessMemInfo `json:"top_processes"`
+	CachedMB     int64            `json:"cached_mb"`
+	BuffersMB    int64            `json:"buffers_mb"`
+}
+
+var (
+	memDetailMu    sync.Mutex
+	memDetailCache *MemoryDetail
+	memDetailTime  time.Time
+	memDetailTTL   = 5 * time.Second
+)
+
+// CollectMemoryDetail returns cache/buffers sizes and the top 25 processes by RSS.
+// Reads /proc directly — no shell commands.
+func CollectMemoryDetail() *MemoryDetail {
+	memDetailMu.Lock()
+	defer memDetailMu.Unlock()
+
+	if memDetailCache != nil && time.Since(memDetailTime) < memDetailTTL {
+		return memDetailCache
+	}
+
+	detail := &MemoryDetail{}
+
+	// Cache & buffers from /proc/meminfo (already parsed in readMemInfo but
+	// we re-read here so this function is self-contained and independently cached).
+	if mi := readMemInfo(); mi != nil {
+		detail.CachedMB = mi.CachedMB
+		detail.BuffersMB = mi.BuffersMB
+	}
+
+	// Enumerate /proc for numeric PID directories.
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		memDetailCache = detail
+		memDetailTime = time.Now()
+		return detail
+	}
+
+	type rawProc struct {
+		pid   int
+		rssMB float64
+		name  string
+		state string
+	}
+
+	procs := make([]rawProc, 0, 256)
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue // not a PID directory
+		}
+
+		statusPath := fmt.Sprintf("/proc/%d/status", pid)
+		data, err := os.ReadFile(statusPath)
+		if err != nil {
+			continue // process may have exited
+		}
+
+		var name, state string
+		var rssKB int64
+
+		for _, line := range strings.Split(string(data), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+			switch fields[0] {
+			case "Name:":
+				name = fields[1]
+			case "State:":
+				state = fields[1]
+			case "VmRSS:":
+				rssKB, _ = strconv.ParseInt(fields[1], 10, 64)
+			}
+		}
+
+		if rssKB <= 0 {
+			continue
+		}
+
+		procs = append(procs, rawProc{
+			pid:   pid,
+			rssMB: float64(rssKB) / 1024,
+			name:  name,
+			state: state,
+		})
+	}
+
+	// Sort descending by RSS — O(n log n).
+	sort.Slice(procs, func(i, j int) bool {
+		return procs[i].rssMB > procs[j].rssMB
+	})
+
+	// Keep top 25.
+	limit := 25
+	if len(procs) < limit {
+		limit = len(procs)
+	}
+	result := make([]ProcessMemInfo, limit)
+	for i := 0; i < limit; i++ {
+		result[i] = ProcessMemInfo{
+			PID:   procs[i].pid,
+			Name:  procs[i].name,
+			RssMB: math.Round(procs[i].rssMB*10) / 10,
+			State: procs[i].state,
+		}
+	}
+	detail.TopProcesses = result
+
+	memDetailCache = detail
+	memDetailTime = time.Now()
+	releaseMemory()
+	return detail
 }
 
 // DeletePaths deletes the specified file/directory paths.

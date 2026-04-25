@@ -10,6 +10,7 @@ import (
 
 var dockerPaths = []string{"/usr/bin/docker", "/usr/local/bin/docker"}
 var nginxPaths = []string{"/usr/sbin/nginx", "/usr/bin/nginx", "/usr/local/bin/nginx"}
+var certbotPaths = []string{"/usr/bin/certbot", "/usr/local/bin/certbot", "/snap/bin/certbot"}
 
 // findBinary searches for a binary in the given paths and returns the first match.
 func findBinary(paths []string) string {
@@ -85,6 +86,53 @@ func NginxPath() (string, error) {
 		return "", fmt.Errorf("nginx binary not found")
 	}
 	return p, nil
+}
+
+// FindCertbot searches for certbot binary in common locations and PATH.
+func FindCertbot() (string, error) {
+	p := findBinary(certbotPaths)
+	if p != "" {
+		return p, nil
+	}
+	// Try PATH lookup as last resort.
+	if p, err := exec.LookPath("certbot"); err == nil {
+		return p, nil
+	}
+	return "", fmt.Errorf("certbot not found")
+}
+
+// IsCertbotInstalled checks if certbot is available.
+func IsCertbotInstalled() bool {
+	_, err := FindCertbot()
+	return err == nil
+}
+
+// CheckAndInstallCertbot checks if certbot and the nginx plugin are installed.
+// If not, it prompts the user and attempts to install them.
+func CheckAndInstallCertbot() error {
+	if IsCertbotInstalled() {
+		fmt.Println("  Certbot: OK")
+		return nil
+	}
+
+	fmt.Println("  Certbot is not installed.")
+	if !promptInstall("certbot and python3-certbot-nginx") {
+		return fmt.Errorf("certbot is required for SSL but not installed")
+	}
+
+	if err := installPackage("certbot"); err != nil {
+		return fmt.Errorf("failed to install certbot: %w", err)
+	}
+	if err := installPackage("python3-certbot-nginx"); err != nil {
+		return fmt.Errorf("failed to install python3-certbot-nginx: %w", err)
+	}
+	fmt.Println("  Certbot installed successfully.")
+	return nil
+}
+
+// PromptYesNo asks a yes/no question and returns true for y/yes (exported for setup).
+func PromptYesNo(prompt string) bool {
+	return promptInstall(prompt)
 }
 
 func promptInstall(name string) bool {

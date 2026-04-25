@@ -1279,8 +1279,50 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         </div>
       </div>
 
+      <!-- Memory Detail Panel (shown when System / Other is clicked) -->
+      <div id="memDetailPanel" style="display:none;margin-top:1rem;">
+        <div class="card">
+          <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
+            <h2>Memory breakdown — System / Other</h2>
+            <button onclick="closeMemDetail()" style="background:none;border:none;color:var(--text-muted);font-size:1.2rem;cursor:pointer;line-height:1;" title="Close">&#x2715;</button>
+          </div>
+          <div style="padding:1rem;">
+            <!-- Cache sub-section -->
+            <div style="margin-bottom:1rem;">
+              <h3 style="font-size:0.85rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin-bottom:0.5rem;">Linux Kernel Cache (liberatable)</h3>
+              <div id="memCacheRows" style="display:flex;gap:1rem;flex-wrap:wrap;"></div>
+              <p style="font-size:0.78rem;color:var(--text-muted);margin-top:0.5rem;">Linux reusa la RAM libre como caché de disco. Esta memoria se libera automáticamente cuando cualquier proceso la necesita. <strong>MemAvailable</strong> es el número real de memoria disponible.</p>
+            </div>
+            <hr style="border-color:var(--border);margin:0.75rem 0;">
+            <!-- Top processes sub-section -->
+            <div>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;">
+                <h3 style="font-size:0.85rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Top procesos por RAM (RSS)</h3>
+                <span id="memProcLoadingMsg" style="font-size:0.75rem;color:var(--text-muted);"></span>
+              </div>
+              <div style="overflow-x:auto;">
+                <table id="memProcTable" style="width:100%;border-collapse:collapse;font-size:0.82rem;">
+                  <thead>
+                    <tr style="color:var(--text-muted);text-align:left;border-bottom:1px solid var(--border);">
+                      <th style="padding:5px 8px;">PID</th>
+                      <th style="padding:5px 8px;">Nombre</th>
+                      <th style="padding:5px 8px;">RSS (MB)</th>
+                      <th style="padding:5px 8px;">Estado</th>
+                      <th style="padding:5px 8px;">Tipo</th>
+                    </tr>
+                  </thead>
+                  <tbody id="memProcBody"></tbody>
+                </table>
+              </div>
+              <p style="font-size:0.78rem;color:var(--text-muted);margin-top:0.5rem;">RSS = Resident Set Size, la RAM física real que ocupa cada proceso en este momento.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Disk Usage Explorer -->
       <div class="card" style="margin-top:1rem;">
+        <div id="diskDiscrepancy" style="display:none;background:#3b2800;border-left:3px solid #d29922;padding:8px 14px;font-size:0.78rem;color:#d29922;border-radius:0 6px 6px 0;margin:0.75rem 1rem 0;"></div>
         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
           <h2 id="diskBreakdownTitle">Disk Usage Explorer <span style="font-size:0.75rem;color:var(--text-muted);font-weight:400;" id="diskBreakdownLoading">(scanning...)</span></h2>
           <div style="display:flex;gap:0.5rem;align-items:center;">
@@ -3407,7 +3449,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var accounted = spMem + containerMem + nginxMem + dockerMem;
     var usedMem = d.memory ? d.memory.used_mb : 0;
     var otherMem = usedMem - accounted;
-    if (otherMem > 0) slices.push({ label: "System / Other", value: otherMem });
+    if (otherMem > 0) slices.push({ label: "System / Other ▾", value: otherMem, clickable: true, memData: d.memory });
 
     // Free memory
     var freeMem = totalMem - usedMem;
@@ -3459,6 +3501,15 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       path.setAttribute("fill", PIE_COLORS[i % PIE_COLORS.length]);
       path.setAttribute("stroke", "#0d1117");
       path.setAttribute("stroke-width", "2");
+      if (slice.clickable) {
+        path.style.cursor = "pointer";
+        path.setAttribute("opacity", "0.92");
+        (function(s) {
+          path.addEventListener("mouseenter", function() { path.setAttribute("opacity", "1"); path.setAttribute("stroke-width", "3"); });
+          path.addEventListener("mouseleave", function() { path.setAttribute("opacity", "0.92"); path.setAttribute("stroke-width", "2"); });
+          path.addEventListener("click", function() { openMemDetail(s.memData); });
+        })(slice);
+      }
       svg.appendChild(path);
 
       startAngle = endAngle;
@@ -3486,9 +3537,14 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       var txt = document.createElementNS(ns, "text");
       txt.setAttribute("x", lx + 14);
       txt.setAttribute("y", ly);
-      txt.setAttribute("fill", "#8b949e");
+      txt.setAttribute("fill", slice.clickable ? "#58a6ff" : "#8b949e");
       txt.setAttribute("font-size", "11");
       txt.setAttribute("font-family", "-apple-system, sans-serif");
+      if (slice.clickable) {
+        txt.style.cursor = "pointer";
+        txt.style.textDecoration = "underline";
+        (function(s) { txt.addEventListener("click", function() { openMemDetail(s.memData); }); })(slice);
+      }
       var pctVal = (slice.value / total * 100).toFixed(1);
       var mbVal = slice.value.toFixed(0);
       txt.textContent = slice.label + " " + mbVal + "MB (" + pctVal + "%)";
@@ -3653,6 +3709,109 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     return svg;
   }
 
+  // ── Memory Detail Panel ──
+
+  // Known monitored process names (to flag them in the table).
+  var MONITORED_NAMES = { "serverpilot": true, "nginx": true, "docker": true, "dockerd": true, "containerd": true, "postgres": true, "redis-server": true, "node": true };
+
+  window.closeMemDetail = function() {
+    var panel = document.getElementById("memDetailPanel");
+    if (panel) panel.style.display = "none";
+  };
+
+  window.openMemDetail = function(memData) {
+    var panel = document.getElementById("memDetailPanel");
+    if (!panel) return;
+    panel.style.display = "block";
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    // ── Cache rows ──
+    var cacheRows = document.getElementById("memCacheRows");
+    if (cacheRows && memData) {
+      var totalMB = memData.total_mb || 0;
+      var availMB = memData.available_mb || 0;
+      var usedMB  = memData.used_mb    || 0;
+      var freeMB  = memData.free_mb    || 0;
+
+      function makeStat(label, value, hint, color) {
+        var div = document.createElement("div");
+        div.style.cssText = "background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:10px 16px;min-width:130px;";
+        div.innerHTML = '<div style="font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">' + label + '</div>' +
+          '<div style="font-size:1.15rem;font-weight:700;color:' + color + ';margin:2px 0;">' + value + ' MB</div>' +
+          '<div style="font-size:0.7rem;color:var(--text-muted);">' + hint + '</div>';
+        return div;
+      }
+
+      cacheRows.innerHTML = "";
+      cacheRows.appendChild(makeStat("MemAvailable", availMB, "real RAM disponible", "#3fb950"));
+      cacheRows.appendChild(makeStat("MemFree", freeMB, "completamente libre", "#58a6ff"));
+      cacheRows.appendChild(makeStat("MemUsed", usedMB, "total ocupada", "#f85149"));
+      cacheRows.appendChild(makeStat("MemTotal", totalMB, "capacidad total", "#8b949e"));
+    }
+
+    // ── Top processes ──
+    var loadMsg = document.getElementById("memProcLoadingMsg");
+    var tbody   = document.getElementById("memProcBody");
+    if (loadMsg) loadMsg.textContent = "Cargando...";
+    if (tbody)   tbody.innerHTML = "";
+
+    apiFetch("/api/system/memory-detail")
+      .then(function(resp) { return resp.json(); })
+      .then(function(data) {
+        if (loadMsg) loadMsg.textContent = "";
+        if (!data.success || !data.data) return;
+        var detail = data.data;
+
+        // Update cache stats with fresh buffers/cached from backend.
+        if (cacheRows && detail.cached_mb != null && detail.buffers_mb != null) {
+          var cachedDiv = document.createElement("div");
+          cachedDiv.style.cssText = "background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:10px 16px;min-width:130px;";
+          cachedDiv.innerHTML = '<div style="font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Page Cache</div>' +
+            '<div style="font-size:1.15rem;font-weight:700;color:#d29922;margin:2px 0;">' + detail.cached_mb + ' MB</div>' +
+            '<div style="font-size:0.7rem;color:var(--text-muted);">caché de disco liberable</div>';
+          var bufDiv = document.createElement("div");
+          bufDiv.style.cssText = "background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:10px 16px;min-width:130px;";
+          bufDiv.innerHTML = '<div style="font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Buffers</div>' +
+            '<div style="font-size:1.15rem;font-weight:700;color:#db6d28;margin:2px 0;">' + detail.buffers_mb + ' MB</div>' +
+            '<div style="font-size:0.7rem;color:var(--text-muted);">I/O buffers del kernel</div>';
+          cacheRows.appendChild(cachedDiv);
+          cacheRows.appendChild(bufDiv);
+        }
+
+        if (!detail.top_processes || detail.top_processes.length === 0) {
+          if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="padding:10px;color:var(--text-muted);">Sin datos de procesos</td></tr>';
+          return;
+        }
+
+        var rows = "";
+        detail.top_processes.forEach(function(p) {
+          var isMonitored = MONITORED_NAMES[p.name] || false;
+          var typeLabel = isMonitored
+            ? '<span style="background:#1f4822;color:#3fb950;padding:1px 6px;border-radius:3px;font-size:0.7rem;">monitoreado</span>'
+            : '<span style="background:#3b2800;color:#d29922;padding:1px 6px;border-radius:3px;font-size:0.7rem;">no monitoreado</span>';
+          var stateColor = p.state === "S" ? "#3fb950" : p.state === "R" ? "#58a6ff" : "#8b949e";
+          rows += '<tr style="border-bottom:1px solid var(--border);">' +
+            '<td style="padding:5px 8px;color:var(--text-muted);font-family:monospace;">' + p.pid + '</td>' +
+            '<td style="padding:5px 8px;font-weight:500;">' + escapeHtml(p.name) + '</td>' +
+            '<td style="padding:5px 8px;">' +
+              '<div style="display:flex;align-items:center;gap:6px;">' +
+                '<div style="width:80px;height:6px;background:var(--border);border-radius:3px;overflow:hidden;">' +
+                  '<div style="height:100%;background:#f85149;border-radius:3px;width:' + Math.min(100, p.rss_mb / 5) + '%;"></div>' +
+                '</div>' +
+                p.rss_mb.toFixed(1) +
+              '</div>' +
+            '</td>' +
+            '<td style="padding:5px 8px;color:' + stateColor + ';font-family:monospace;">' + escapeHtml(p.state || "?") + '</td>' +
+            '<td style="padding:5px 8px;">' + typeLabel + '</td>' +
+            '</tr>';
+        });
+        if (tbody) tbody.innerHTML = rows;
+      })
+      .catch(function() {
+        if (loadMsg) loadMsg.textContent = "Error al cargar procesos";
+      });
+  };
+
   // ── Disk Breakdown Pie + Table ──
   // ── Disk Usage Explorer ──
   var DISK_COLORS = ["#00b4d8", "#3fb950", "#f85149", "#d29922", "#db6d28", "#8b5cf6", "#ec4899", "#6366f1", "#14b8a6", "#f97316", "#a855f7", "#ef4444"];
@@ -3670,7 +3829,15 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (!entries || entries.length === 0) return;
 
     var items = entries.map(function(e) {
-      return { path: e.path, name: e.label, size_mb: e.size_mb, size_gb: e.size_gb, is_dir: true, type: "dir" };
+      return {
+        path: e.path,
+        name: e.label + (e.partial ? " ⚠ (timeout)" : ""),
+        size_mb: e.size_mb,
+        size_gb: e.size_gb,
+        is_dir: true,
+        type: e.partial ? "other" : "dir",
+        partial: e.partial || false
+      };
     });
 
     var rootDiskAvailMB = 0, rootDiskUsedMB = 0, rootDiskSizeMB = 0;
@@ -3681,22 +3848,60 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
     diskTotalSizeMB = rootDiskSizeMB || (rootDiskUsedMB + rootDiskAvailMB);
 
-    // Calculate "Other / System" — disk space used but not in any scanned directory.
+    // ── Docker disk breakdown from docker system df ──
+    // Shown as a separate group — more accurate than du /var/lib/docker.
+    var dockerTotalMB = 0;
+    if (d.docker_disk && d.docker_disk.length > 0) {
+      d.docker_disk.forEach(function(dk) {
+        dockerTotalMB += dk.size_mb;
+        items.push({
+          path: "(docker:" + dk.type + ")",
+          name: "Docker " + dk.type + " (" + dk.total + " items, " + dk.active + " active)",
+          size_mb: dk.size_mb,
+          size_gb: Math.round(dk.size_mb / 1024 * 100) / 100,
+          is_dir: false,
+          type: "dir",
+          docker: true,
+          reclaimMB: dk.reclaim_mb
+        });
+      });
+    }
+
+    // Calculate scanned total (excluding docker_disk items to avoid double-counting
+    // with the /var/lib/docker du entry, which now uses -x and is much smaller).
     var scannedMB = 0;
-    items.forEach(function(e) { scannedMB += e.size_mb; });
-    var otherMB = rootDiskUsedMB - scannedMB;
-    if (otherMB > 10) {
+    items.forEach(function(e) { if (!e.docker) scannedMB += e.size_mb; });
+
+    // "Other / System" = used space not accounted for by du or docker system df.
+    // This includes: kernel metadata, journal, filesystem overhead, deleted-but-open files.
+    var accountedMB = scannedMB + dockerTotalMB;
+    var otherMB = rootDiskUsedMB - accountedMB;
+
+    // Show discrepancy warning when scanned significantly exceeds df used.
+    // This happens when du counts files that df doesn't (e.g. sparse file holes counted differently).
+    var discrepancyEl = document.getElementById("diskDiscrepancy");
+    if (discrepancyEl) {
+      if (accountedMB > rootDiskUsedMB * 1.05) {
+        var excess = ((accountedMB - rootDiskUsedMB) / 1024).toFixed(2);
+        discrepancyEl.style.display = "block";
+        discrepancyEl.innerHTML = '⚠ El escaneo suma <strong>' + (accountedMB/1024).toFixed(2) + ' GB</strong> pero <code>df</code> reporta solo <strong>' + (rootDiskUsedMB/1024).toFixed(2) + ' GB</strong> usado (diferencia: ' + excess + ' GB). Esto ocurre cuando hay bind mounts o archivos contados en múltiples directorios.';
+      } else {
+        discrepancyEl.style.display = "none";
+      }
+    }
+
+    if (otherMB > 100) {
       items.push({
         path: "(other)",
-        name: "Other / System",
+        name: "No escaneado / Sistema",
         size_mb: otherMB,
-        size_gb: parseFloat((otherMB / 1024).toFixed(2)),
+        size_gb: Math.round(otherMB / 1024 * 100) / 100,
         is_dir: false,
         type: "other"
       });
     }
 
-    // Re-sort by size descending so Other lands in the right position.
+    // Re-sort by size descending.
     items.sort(function(a, b) { return b.size_mb - a.size_mb; });
 
     var diskTitle = document.getElementById("diskBreakdownTitle");
@@ -3704,40 +3909,41 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       var freeGB = (rootDiskAvailMB / 1024).toFixed(2);
       var usedGB = (rootDiskUsedMB / 1024).toFixed(2);
       var totalGB = (diskTotalSizeMB / 1024).toFixed(2);
-      diskTitle.innerHTML = 'Disk Usage Explorer (' + totalGB + ' GB total — ' + usedGB + ' GB used) — <span style="color:var(--green);font-weight:700;">Free: ' + freeGB + ' GB (' + rootDiskAvailMB + ' MB)</span>';
+      diskTitle.innerHTML = 'Disk Usage Explorer (' + totalGB + ' GB total — ' + usedGB + ' GB used) — <span style="color:var(--green);font-weight:700;">Free: ' + freeGB + ' GB</span>';
     }
 
     diskCurrentPath = null;
     diskCurrentEntries = items;
     diskCurrentFilter = "all";
-    renderDiskPie(items, rootDiskAvailMB, rootDiskUsedMB);
+    renderDiskPie(items, rootDiskAvailMB, rootDiskUsedMB, diskTotalSizeMB);
     renderDiskTable(items);
     renderDiskBreadcrumb(null);
     showDiskActionBar();
-
-    // Load top files lazily
     loadTopFiles();
   }
 
-  function renderDiskPie(items, freeMB, usedMB) {
+  function renderDiskPie(items, freeMB, usedMB, totalDiskMB) {
     var svg = document.getElementById("diskPieChart");
     if (!svg) return;
     svg.innerHTML = "";
     var slices = [];
-    var totalScanned = 0;
-    items.forEach(function(e) { totalScanned += e.size_mb; slices.push({ label: e.name, sizeMB: e.size_mb }); });
-    if (usedMB > totalScanned) {
-      var otherMB = usedMB - totalScanned;
-      if (otherMB > 10) slices.push({ label: "Other / System", sizeMB: otherMB });
-    }
+    // items already include "No escaneado / Sistema" and Docker entries —
+    // do NOT add a second "Other" here (that was a bug that caused double-counting).
+    items.forEach(function(e) { slices.push({ label: e.name, sizeMB: e.size_mb }); });
     if (freeMB > 0) slices.push({ label: "Free", sizeMB: freeMB });
-    var pieTotalMB = 0;
-    slices.forEach(function(s) { pieTotalMB += s.sizeMB; });
-    if (pieTotalMB <= 0) return;
+
+    // Normalize: if slices sum > totalDiskMB, scale them down so the pie
+    // represents actual disk proportions and doesn't overflow 360°.
+    var rawTotal = 0;
+    slices.forEach(function(s) { rawTotal += s.sizeMB; });
+    var diskRef = totalDiskMB > 0 ? totalDiskMB : rawTotal;
+    // Use rawTotal as pie denominator (normalizes the visual), but keep actual MB labels.
+    var pieTotalMB = rawTotal > 0 ? rawTotal : 1;
 
     var cx = 140, cy = 130, r = 100, startAngle = -Math.PI / 2;
     var ns = "http://www.w3.org/2000/svg";
     slices.forEach(function(slice, i) {
+      if (slice.sizeMB <= 0) return;
       var pct = slice.sizeMB / pieTotalMB;
       var angle = pct * 2 * Math.PI;
       if (angle < 0.005) return;
@@ -3749,13 +3955,16 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         ? "M " + (cx-r) + " " + cy + " A " + r + " " + r + " 0 1 1 " + (cx+r) + " " + cy + " A " + r + " " + r + " 0 1 1 " + (cx-r) + " " + cy + " Z"
         : "M " + cx + " " + cy + " L " + x1 + " " + y1 + " A " + r + " " + r + " 0 " + largeArc + " 1 " + x2 + " " + y2 + " Z";
       var path = document.createElementNS(ns, "path");
-      path.setAttribute("d", pathD); path.setAttribute("fill", DISK_COLORS[i % DISK_COLORS.length]);
-      path.setAttribute("stroke", "#0d1117"); path.setAttribute("stroke-width", "2");
+      path.setAttribute("d", pathD);
+      path.setAttribute("fill", DISK_COLORS[i % DISK_COLORS.length]);
+      path.setAttribute("stroke", "#0d1117");
+      path.setAttribute("stroke-width", "2");
       svg.appendChild(path);
       startAngle = endAngle;
     });
     var ly = 250;
     slices.forEach(function(slice, i) {
+      if (slice.sizeMB <= 0) return;
       var col = i % 2, row = Math.floor(i / 2);
       var lx = 5 + col * 170, yy = ly + row * 16;
       var rect = document.createElementNS(ns, "rect");
@@ -3767,10 +3976,12 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       txt.setAttribute("x", lx + 12); txt.setAttribute("y", yy);
       txt.setAttribute("fill", "#8b949e"); txt.setAttribute("font-size", "10");
       txt.setAttribute("font-family", "-apple-system, sans-serif");
-      txt.textContent = (slice.sizeMB / 1024).toFixed(2) + " GB \u2014 " + slice.label;
+      // Show actual GB and % of total disk (not % of pie, so user sees real proportions).
+      var realPct = diskRef > 0 ? (slice.sizeMB / diskRef * 100).toFixed(1) : "0";
+      txt.textContent = (slice.sizeMB / 1024).toFixed(2) + " GB (" + realPct + "%) \u2014 " + slice.label;
       svg.appendChild(txt);
     });
-    var rows = Math.ceil(slices.length / 2);
+    var rows = Math.ceil(slices.filter(function(s) { return s.sizeMB > 0; }).length / 2);
     var h = ly + rows * 16 + 10;
     if (h > 340) svg.setAttribute("viewBox", "0 0 340 " + h);
   }

@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/mrthoabby/serverpilot/internal/auth"
+	"github.com/mrthoabby/serverpilot/internal/deps"
 	"github.com/mrthoabby/serverpilot/internal/docker"
 	"github.com/mrthoabby/serverpilot/internal/labels"
 	"github.com/mrthoabby/serverpilot/internal/mapper"
@@ -292,23 +293,13 @@ func (s *Server) handleMappings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: result})
 }
 
-// findCertbot searches for certbot binary in common locations.
+// findCertbot delegates to the deps package for certbot discovery.
 func findCertbot() (string, error) {
-	candidates := []string{
-		"/usr/bin/certbot",
-		"/usr/local/bin/certbot",
-		"/snap/bin/certbot",
+	bin, err := deps.FindCertbot()
+	if err != nil {
+		return "", fmt.Errorf("certbot not found — install it with: sudo apt install certbot python3-certbot-nginx")
 	}
-	for _, c := range candidates {
-		if _, err := os.Stat(c); err == nil {
-			return c, nil
-		}
-	}
-	// Try PATH lookup as last resort.
-	if p, err := exec.LookPath("certbot"); err == nil {
-		return p, nil
-	}
-	return "", fmt.Errorf("certbot not found — install it with: sudo apt install certbot python3-certbot-nginx")
+	return bin, nil
 }
 
 // certbotEnableArgs builds the certbot arguments for obtaining an SSL certificate.
@@ -738,6 +729,18 @@ func (s *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: info})
+}
+
+// handleMemoryDetail returns cache/buffer sizes and top processes by RSS.
+// GET /api/system/memory-detail
+func (s *Server) handleMemoryDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	detail := sysinfo.CollectMemoryDetail()
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: detail})
 }
 
 // handleDiskBreakdown returns the (slow) disk usage breakdown separately.
@@ -1313,32 +1316,9 @@ type settingsDomainRequest struct {
 	Domain string `json:"domain"`
 }
 
-// serverPilotNginxTemplate generates an nginx config for the ServerPilot dashboard itself.
+// serverPilotNginxTemplate delegates to the shared nginx package template.
 func serverPilotNginxTemplate(domain string, port int) string {
-	return fmt.Sprintf(`server {
-    listen 80;
-    server_name %s;
-
-    # Note: X-Frame-Options, X-Content-Type-Options, Referrer-Policy, and
-    # Permissions-Policy are set by the Go SecurityMiddleware to avoid
-    # duplicate headers when behind Cloudflare or other reverse proxies.
-
-    location / {
-        proxy_pass http://127.0.0.1:%d;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300;
-        proxy_connect_timeout 10;
-
-        # SSE streaming support (for progress modals)
-        proxy_buffering off;
-        proxy_cache off;
-    }
-}
-`, domain, port)
+	return nginx.ServerPilotTemplate(domain, port)
 }
 
 // handleSettingsDomain sets the domain for ServerPilot and creates its nginx site.

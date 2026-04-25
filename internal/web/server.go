@@ -57,6 +57,7 @@ func (s *Server) Start() error {
 	mux.Handle("/api/sites/config/save", s.authMiddleware(http.HandlerFunc(s.handleSiteConfigSave)))
 	mux.Handle("/api/sites/delete", s.authMiddleware(http.HandlerFunc(s.handleSiteDelete)))
 	mux.Handle("/api/system", s.authMiddleware(http.HandlerFunc(s.handleSystem)))
+	mux.Handle("/api/system/memory-detail", s.authMiddleware(http.HandlerFunc(s.handleMemoryDetail)))
 	mux.Handle("/api/system/disk-breakdown", s.authMiddleware(http.HandlerFunc(s.handleDiskBreakdown)))
 	mux.Handle("/api/system/disk-detail", s.authMiddleware(http.HandlerFunc(s.handleDiskDetail)))
 	mux.Handle("/api/system/disk-top-files", s.authMiddleware(http.HandlerFunc(s.handleDiskTopFiles)))
