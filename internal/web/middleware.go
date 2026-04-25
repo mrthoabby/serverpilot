@@ -248,6 +248,21 @@ func isLoopback(ip string) bool {
 	return parsed != nil && parsed.IsLoopback()
 }
 
+// maxRequestBodySize is the maximum allowed request body (1 MB).
+// Prevents memory exhaustion from oversized POST payloads.
+const maxRequestBodySize = 1 << 20 // 1 MB
+
+// BodyLimitMiddleware caps the request body to maxRequestBodySize bytes.
+// Only affects requests with bodies (POST, PUT, PATCH).
+func BodyLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil && r.ContentLength != 0 {
+			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // RecoveryMiddleware recovers from panics and returns a 500 error.
 func RecoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

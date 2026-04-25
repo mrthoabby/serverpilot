@@ -86,10 +86,9 @@ func (s *Server) Start() error {
 	initScannerLogger()
 
 	// Wrap everything with security, logging, and recovery middleware.
-	// Order: Recovery (outermost) → Logging → Security → ClientHeader → routes.
-	// ClientHeaderMiddleware sits inside SecurityMiddleware so it only fires for
-	// requests that already passed the SSL / loopback check.
-	handler := RecoveryMiddleware(LoggingMiddleware(s.SecurityMiddleware(s.ClientHeaderMiddleware(mux))))
+	// Order: Recovery (outermost) → Logging → Security → ClientHeader → BodyLimit → routes.
+	// BodyLimit caps POST payloads at 1 MB to prevent memory exhaustion.
+	handler := RecoveryMiddleware(LoggingMiddleware(s.SecurityMiddleware(s.ClientHeaderMiddleware(BodyLimitMiddleware(mux)))))
 
 	// Start the background memory history collector (snapshots every 5 min).
 	sysinfo.StartHistoryCollector()

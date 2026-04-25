@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -28,16 +29,45 @@ type Config struct {
 	InsecureBlocked bool   `json:"insecure_blocked,omitempty"`
 }
 
-// SessionStore manages active sessions in memory.
-type SessionStore struct {
-	mu       sync.RWMutex
-	sessions map[string]string // token -> username
+// sessionEntry holds a session token with its creation time for TTL expiration.
+type sessionEntry struct {
+	username  string
+	createdAt time.Time
 }
 
-// NewSessionStore creates a new in-memory session store.
+// sessionMaxAge is the server-side session lifetime. Matches the cookie MaxAge.
+const sessionMaxAge = 24 * time.Hour
+
+// SessionStore manages active sessions in memory with automatic TTL cleanup.
+type SessionStore struct {
+	mu       sync.RWMutex
+	sessions map[string]sessionEntry // token -> entry
+}
+
+// NewSessionStore creates a new in-memory session store and starts a
+// background goroutine that purges expired sessions every hour.
 func NewSessionStore() *SessionStore {
-	return &SessionStore{
-		sessions: make(map[string]string),
+	s := &SessionStore{
+		sessions: make(map[string]sessionEntry),
+	}
+	go s.cleanupLoop()
+	return s
+}
+
+// cleanupLoop removes expired sessions periodically to prevent unbounded
+// map growth from abandoned sessions.
+func (s *SessionStore) cleanupLoop() {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		s.mu.Lock()
+		now := time.Now()
+		for token, entry := range s.sessions {
+			if now.Sub(entry.createdAt) > sessionMaxAge {
+				delete(s.sessions, token)
+			}
+		}
+		s.mu.Unlock()
 	}
 }
 
@@ -142,19 +172,26 @@ func GenerateSessionToken() (string, error) {
 	return generateRandomHex(32)
 }
 
-// AddSession stores a session token in the session store.
+// AddSession stores a session token in the session store with a creation timestamp.
 func (s *SessionStore) AddSession(token, username string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.sessions[token] = username
+	s.sessions[token] = sessionEntry{username: username, createdAt: time.Now()}
 }
 
-// ValidateSession checks if a session token is valid and returns the username.
+// ValidateSession checks if a session token is valid and not expired.
 func (s *SessionStore) ValidateSession(token string) (string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	username, ok := s.sessions[token]
-	return username, ok
+	entry, ok := s.sessions[token]
+	if !ok {
+		return "", false
+	}
+	// Reject expired sessions even before the cleanup loop runs.
+	if time.Since(entry.createdAt) > sessionMaxAge {
+		return "", false
+	}
+	return entry.username, true
 }
 
 // RemoveSession removes a session token from the store.

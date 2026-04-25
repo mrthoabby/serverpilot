@@ -263,31 +263,12 @@ func (s *Server) handleMappings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mapped, err := mapper.MapContainersToSites()
+	// Single-pass: fetches containers + sites once instead of 4× docker ps + 3× ListSites.
+	result, err := mapper.ComputeAllMappings()
 	if err != nil {
-		log.Printf("Error listing mappings: %v", err)
+		log.Printf("Error computing mappings: %v", err)
 		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to list mappings"})
 		return
-	}
-
-	unmapped, err := mapper.GetUnmappedContainers()
-	if err != nil {
-		log.Printf("Error listing unmapped containers: %v", err)
-		// Non-fatal: continue with empty unmapped list.
-		unmapped = nil
-	}
-
-	orphaned, err := mapper.GetOrphanedSites()
-	if err != nil {
-		log.Printf("Error listing orphaned sites: %v", err)
-		// Non-fatal: continue with empty orphaned list.
-		orphaned = nil
-	}
-
-	result := map[string]interface{}{
-		"mapped":             mapped,
-		"unmappedContainers": unmapped,
-		"orphanedSites":      orphaned,
 	}
 
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: result})

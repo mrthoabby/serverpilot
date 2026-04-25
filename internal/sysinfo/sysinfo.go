@@ -600,6 +600,8 @@ func readDiskBreakdown() []DiskBreakdownEntry {
 				if cmd.Process != nil {
 					cmd.Process.Kill()
 				}
+				// Drain goroutine so it can exit and be GC'd.
+				go func() { <-done }()
 				timedOut = true
 			}
 
@@ -784,6 +786,7 @@ func DiskDetailDir(dirPath string) ([]DiskDetailEntry, error) {
 				if cmd.Process != nil {
 					cmd.Process.Kill()
 				}
+				go func() { <-done }() // drain so goroutine can exit
 				return
 			}
 
@@ -853,6 +856,8 @@ func DiskTopFiles(root string, limit int) ([]DiskTopFile, error) {
 	)
 	cmd := exec.Command("sh", "-c", script)
 
+	// Use a buffered channel so the goroutine can always send and exit,
+	// even if we already returned due to timeout (prevents goroutine leak).
 	done := make(chan []byte, 1)
 	go func() {
 		out, _ := cmd.Output()
@@ -866,6 +871,8 @@ func DiskTopFiles(root string, limit int) ([]DiskTopFile, error) {
 		if cmd.Process != nil {
 			cmd.Process.Kill()
 		}
+		// Drain the goroutine's send so it can exit and be GC'd.
+		go func() { <-done }()
 		return nil, fmt.Errorf("timed out scanning %s", clean)
 	}
 
@@ -1182,38 +1189,45 @@ func readSelfProcess() *ProcessInfo {
 }
 
 // readServices checks the status of key services.
+// Runs all systemctl calls in parallel to reduce latency (6 sequential → 6 concurrent).
 func readServices() []ServiceInfo {
 	serviceNames := []string{"serverpilot", "docker", "nginx"}
-	var services []ServiceInfo
+	services := make([]ServiceInfo, len(serviceNames))
 
-	for _, name := range serviceNames {
-		svc := ServiceInfo{Name: name}
+	var wg sync.WaitGroup
+	for i, name := range serviceNames {
+		wg.Add(1)
+		go func(idx int, svcName string) {
+			defer wg.Done()
+			svc := ServiceInfo{Name: svcName}
 
-		// Check if active.
-		cmd := exec.Command("/usr/bin/systemctl", "is-active", "--quiet", name)
-		svc.Active = cmd.Run() == nil
-		if svc.Active {
-			svc.Status = "running"
-		} else {
-			svc.Status = "stopped"
-		}
+			// Check if active.
+			cmd := exec.Command("/usr/bin/systemctl", "is-active", "--quiet", svcName)
+			svc.Active = cmd.Run() == nil
+			if svc.Active {
+				svc.Status = "running"
+			} else {
+				svc.Status = "stopped"
+			}
 
-		// Get memory usage from systemctl show.
-		cmd = exec.Command("/usr/bin/systemctl", "show", name, "--property=MemoryCurrent", "--no-pager")
-		out, err := cmd.Output()
-		if err == nil {
-			line := strings.TrimSpace(string(out))
-			if strings.HasPrefix(line, "MemoryCurrent=") {
-				val := strings.TrimPrefix(line, "MemoryCurrent=")
-				if val != "[not set]" && val != "" {
-					bytes, _ := strconv.ParseFloat(val, 64)
-					svc.MemMB = bytes / (1024 * 1024)
+			// Get memory usage from systemctl show.
+			cmd = exec.Command("/usr/bin/systemctl", "show", svcName, "--property=MemoryCurrent", "--no-pager")
+			out, err := cmd.Output()
+			if err == nil {
+				line := strings.TrimSpace(string(out))
+				if strings.HasPrefix(line, "MemoryCurrent=") {
+					val := strings.TrimPrefix(line, "MemoryCurrent=")
+					if val != "[not set]" && val != "" {
+						bytes, _ := strconv.ParseFloat(val, 64)
+						svc.MemMB = bytes / (1024 * 1024)
+					}
 				}
 			}
-		}
 
-		services = append(services, svc)
+			services[idx] = svc
+		}(i, name)
 	}
+	wg.Wait()
 
 	return services
 }
