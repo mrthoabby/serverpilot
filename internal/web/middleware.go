@@ -66,6 +66,37 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// SecurityMiddleware adds security headers to all responses.
+// When SSL is enabled, it enforces HSTS, prevents downgrade attacks, and blocks
+// the page from being framed. It also blocks requests that arrive over plain HTTP
+// when the server knows it should be behind HTTPS (defense-in-depth — nginx also
+// handles the redirect, but this catches direct-to-Go requests).
+func (s *Server) SecurityMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Always set baseline security headers.
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+
+		if s.config.SSLEnabled {
+			// HSTS: tell browsers to always use HTTPS for 1 year, include subdomains.
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+
+			// Defense-in-depth: if a request arrives over plain HTTP (X-Forwarded-Proto
+			// set by nginx), redirect to HTTPS. This only triggers if nginx redirect
+			// was somehow bypassed.
+			if r.Header.Get("X-Forwarded-Proto") == "http" {
+				target := "https://" + r.Host + r.URL.RequestURI()
+				http.Redirect(w, r, target, http.StatusMovedPermanently)
+				return
+			}
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 // RecoveryMiddleware recovers from panics and returns a 500 error.
 func RecoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

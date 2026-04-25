@@ -74,8 +74,9 @@ func (s *Server) Start() error {
 	// Static files.
 	mux.Handle("/static/", http.FileServer(http.FS(staticFiles)))
 
-	// Wrap everything with logging and recovery middleware.
-	handler := RecoveryMiddleware(LoggingMiddleware(mux))
+	// Wrap everything with security, logging, and recovery middleware.
+	// Order: Recovery (outermost) → Logging → Security → routes.
+	handler := RecoveryMiddleware(LoggingMiddleware(s.SecurityMiddleware(mux)))
 
 	// Start the background memory history collector (snapshots every 5 min).
 	sysinfo.StartHistoryCollector()

@@ -108,13 +108,19 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	s.sessionStore.AddSession(token, req.Username)
 
+	// When SSL is enabled, cookies travel only over HTTPS with strict SameSite.
+	cookieSecure := s.config.SSLEnabled
+	cookieSameSite := http.SameSiteLaxMode
+	if cookieSecure {
+		cookieSameSite = http.SameSiteStrictMode
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   false, // Set to true in production behind HTTPS
-		SameSite: http.SameSiteLaxMode,
+		Secure:   cookieSecure,
+		SameSite: cookieSameSite,
 		MaxAge:   86400, // 24 hours
 	})
 
@@ -137,6 +143,8 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   s.config.SSLEnabled,
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
 
@@ -1377,13 +1385,45 @@ func (s *Server) handleSettingsSSLEnable(w http.ResponseWriter, r *http.Request)
 		sseWriteLog(w, flusher, "Nginx reloaded successfully.")
 	}
 
-	// Update config.
+	// Update config — mark SSL as enabled.
 	s.config.SSLEnabled = true
 	if err := auth.SaveConfig(*s.config); err != nil {
 		sseWriteLog(w, flusher, "WARNING: could not save config: "+err.Error())
 	}
 
-	sseWriteLog(w, flusher, "[Step 3/3] SSL enabled for ServerPilot at "+domain+"!")
+	// Step 3: Auto-block insecure traffic — add HTTP→HTTPS redirect to the nginx config
+	// so the dashboard is NEVER accessible over plain HTTP after SSL is enabled.
+	sseWriteLog(w, flusher, "[Step 3/3] Blocking insecure HTTP traffic...")
+	if !s.config.InsecureBlocked {
+		configName := domain
+		configContent, readErr := nginx.ReadConfigContent(configName)
+		if readErr != nil {
+			sseWriteLog(w, flusher, "WARNING: could not read nginx config to add redirect: "+readErr.Error())
+		} else if !strings.Contains(configContent, "return 301 https://") {
+			redirectBlock := fmt.Sprintf("\n# HTTP → HTTPS redirect (auto-enabled with SSL)\nserver {\n    listen 80;\n    server_name %s;\n    return 301 https://$host$request_uri;\n}\n", domain)
+			newContent := configContent + "\n" + redirectBlock
+			if _, writeErr := nginx.WriteConfigContent(configName, newContent, true); writeErr != nil {
+				sseWriteLog(w, flusher, "WARNING: could not add HTTPS redirect: "+writeErr.Error())
+			} else {
+				if reloadErr := nginx.ReloadNginx(); reloadErr != nil {
+					sseWriteLog(w, flusher, "WARNING: redirect added but nginx reload failed: "+reloadErr.Error())
+				} else {
+					sseWriteLog(w, flusher, "HTTP→HTTPS redirect enabled. All traffic now goes through SSL.")
+				}
+				s.config.InsecureBlocked = true
+				_ = auth.SaveConfig(*s.config)
+			}
+		} else {
+			sseWriteLog(w, flusher, "HTTP redirect already in place.")
+			s.config.InsecureBlocked = true
+			_ = auth.SaveConfig(*s.config)
+		}
+	} else {
+		sseWriteLog(w, flusher, "HTTP redirect already configured.")
+	}
+
+	sseWriteLog(w, flusher, "")
+	sseWriteLog(w, flusher, "SSL enabled for ServerPilot at "+domain+"! All traffic is now encrypted.")
 	sseWriteEvent(w, flusher, "done", `{"success":true,"message":"SSL enabled for ServerPilot"}`)
 }
 
