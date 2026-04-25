@@ -3426,7 +3426,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     setText(document.getElementById("resUptime"), d.uptime || "--");
     setText(document.getElementById("resHostname"), d.hostname || "--");
 
-    // Memory Pie Chart
+    // Memory Pie Chart — close the breakdown panel first so stale data doesn't
+    // remain visible when the pie re-renders with fresh numbers.
+    var memPanel = document.getElementById("memDetailPanel");
+    if (memPanel) memPanel.style.display = "none";
     renderMemoryPie(d);
 
     // CPU Bar Chart
@@ -3457,8 +3460,15 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var totalMem = d.memory ? d.memory.total_mb : 0;
     if (totalMem <= 0) return;
 
-    // ServerPilot process
-    var spMem = d.self_process ? d.self_process.mem_mb : 0;
+    // ServerPilot memory — prefer systemctl cgroup value (matches Services table),
+    // fall back to self_process VmRSS if the service isn't listed.
+    var spMem = 0;
+    if (d.services) {
+      d.services.forEach(function(s) {
+        if (s.name === "serverpilot" && s.mem_mb > 0) spMem = s.mem_mb;
+      });
+    }
+    if (spMem <= 0 && d.self_process) spMem = d.self_process.mem_mb || 0;
     if (spMem > 0) slices.push({ label: "ServerPilot", value: spMem });
 
     // Docker containers
