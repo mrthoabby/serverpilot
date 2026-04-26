@@ -17,6 +17,7 @@ const (
 	LabelNextJS   Label = "nextjs"
 	LabelFrontend Label = "frontend"
 	LabelGDApp    Label = "gd-app"
+	LabelMinIO    Label = "minio"
 )
 
 // labelsFile stores labels alongside the main serverpilot config.
@@ -31,7 +32,7 @@ var (
 // ValidLabel returns true if the given string is one of the allowed labels.
 func ValidLabel(l string) bool {
 	switch Label(l) {
-	case LabelAPI, LabelNestJS, LabelBack, LabelNextJS, LabelFrontend, LabelGDApp:
+	case LabelAPI, LabelNestJS, LabelBack, LabelNextJS, LabelFrontend, LabelGDApp, LabelMinIO:
 		return true
 	}
 	return false

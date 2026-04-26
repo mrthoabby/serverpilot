@@ -1269,7 +1269,7 @@ func (s *Server) handleLabelSet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !labels.ValidLabel(req.Label) {
-		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid label; use 'api', 'nestjs', or 'back'"})
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid label; use 'api', 'nestjs', 'nextjs', 'frontend', 'minio', 'gd-app', or 'back'"})
 		return
 	}
 
