@@ -624,8 +624,10 @@ func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tmplType := templates.TemplateType(strings.ToLower(req.TemplateType))
-	if tmplType != templates.NestJS && tmplType != templates.API && tmplType != templates.NextJS && tmplType != templates.Frontend {
-		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid template type; use 'nestjs', 'api', 'nextjs', or 'frontend'"})
+	if tmplType != templates.NestJS && tmplType != templates.API &&
+		tmplType != templates.NextJS && tmplType != templates.Frontend &&
+		tmplType != templates.MinIO {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid template type; use 'nestjs', 'api', 'nextjs', 'frontend', or 'minio'"})
 		return
 	}
 

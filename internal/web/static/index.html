@@ -894,6 +894,12 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   color: #8a2be2;
 }
 
+.label-btn.active-minio {
+  background: rgba(239, 83, 80, 0.2);
+  border-color: #ef5350;
+  color: #ef5350;
+}
+
 .label-badge {
   display: inline-flex;
   align-items: center;
@@ -934,6 +940,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 .label-badge-gd-app {
   background: rgba(138, 43, 226, 0.1);
   color: #8a2be2;
+}
+
+.label-badge-minio {
+  background: rgba(239, 83, 80, 0.1);
+  color: #ef5350;
 }
 
 /* ── Update Banner ── */
@@ -1472,6 +1483,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
           <option value="nextjs">Next.js (SSR + ISR + Static)</option>
           <option value="frontend">Frontend / SPA (React, Vue, etc.)</option>
           <option value="api">API (Rate Limiting + Proxy)</option>
+          <option value="minio">MinIO (Object Storage)</option>
         </select>
       </div>
       <div class="form-group">
@@ -1900,7 +1912,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       var labelDiv = document.createElement("div");
       labelDiv.className = "label-selector";
 
-      ["api", "nestjs", "nextjs", "frontend", "gd-app", "back"].forEach(function(lbl) {
+      ["api", "nestjs", "nextjs", "frontend", "minio", "gd-app", "back"].forEach(function(lbl) {
         var btn = document.createElement("button");
         btn.className = "label-btn" + (currentLabel === lbl ? " active-" + lbl : "");
         setText(btn, lbl);
@@ -1983,6 +1995,16 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         setText(frontBtn, "Associate Frontend");
         frontBtn.addEventListener("click", function() { openAssociateModal(c, "frontend"); });
         tdAct.appendChild(frontBtn);
+      } else if (currentLabel === "minio") {
+        // MinIO label → Associate MinIO site
+        var minioBtn = document.createElement("button");
+        minioBtn.className = "btn btn-sm";
+        minioBtn.style.background = "rgba(239,83,80,0.15)";
+        minioBtn.style.color = "#ef5350";
+        minioBtn.style.border = "1px solid rgba(239,83,80,0.3)";
+        setText(minioBtn, "Associate MinIO");
+        minioBtn.addEventListener("click", function() { openAssociateModal(c, "minio"); });
+        tdAct.appendChild(minioBtn);
       } else if (currentLabel === "gd-app") {
         // GD-App label → Activate Site (full flow with SSL)
         var gdBtn = document.createElement("button");
@@ -2617,7 +2639,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   function openAssociateModal(container, templateType) {
     document.getElementById("assocContainerId").value = container.id;
     var label = templateType || "nestjs";
-    var templateNames = { api: "API reverse proxy", nestjs: "NestJS site", nextjs: "Next.js site", frontend: "Frontend/SPA site" };
+    var templateNames = { api: "API reverse proxy", nestjs: "NestJS site", nextjs: "Next.js site", frontend: "Frontend/SPA site", minio: "MinIO object storage" };
     var actionText = "Create " + (templateNames[label] || "an Nginx site");
     setText(document.getElementById("associateModalSub"), actionText + " for \"" + container.name + "\"");
     document.getElementById("assocDomain").value = "";

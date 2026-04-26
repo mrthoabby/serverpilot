@@ -23,6 +23,10 @@ const (
 	NextJS TemplateType = "nextjs"
 	// Frontend is a static file / SPA template (React, Vue, Angular, etc.) served directly by Nginx.
 	Frontend TemplateType = "frontend"
+	// MinIO is an object-storage reverse proxy template.
+	// Disables body-size limits and nginx buffering — both are critical for
+	// large-file uploads and the MinIO SDK chunked-upload protocol.
+	MinIO TemplateType = "minio"
 )
 
 var domainRegex = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$`)
@@ -184,6 +188,50 @@ const frontendTemplate = `server {
 }
 `
 
+// minioTemplate is an nginx reverse-proxy config tuned for MinIO object storage.
+// Key differences from a standard API config:
+//   - client_max_body_size 0  — no upload size cap; MinIO handles multi-GB objects.
+//   - proxy_request_buffering off  — nginx must not buffer the upload body in RAM/disk
+//     before forwarding; without this, PUT/POST uploads to MinIO break or time out.
+//   - proxy_buffering off  — disables response buffering so downloads stream directly.
+//   - proxy_http_version 1.1 + Connection ""  — enables keep-alive; the MinIO SDK
+//     uses persistent connections for chunked uploads (AWS Signature V4 streaming).
+//   - 300s timeouts  — generous for slow uploads and large object transfers.
+//
+// SSL: this is the HTTP-only base config. Run certbot after creating the site
+// to add the SSL block and redirect (same pattern as all other templates).
+const minioTemplate = `server {
+    listen 80;
+    server_name {{.Domain}};
+
+    # No upload-size limit — MinIO handles multi-gigabyte objects.
+    client_max_body_size 0;
+
+    location / {
+        proxy_pass http://127.0.0.1:{{.Port}};
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Critical for MinIO — nginx must not buffer the request body.
+        # Buffering causes PUT/multipart uploads to fail or stall.
+        proxy_request_buffering  off;
+        proxy_buffering          off;
+
+        # HTTP/1.1 keep-alive (required for MinIO SDK chunked / AWS-streaming uploads).
+        proxy_http_version 1.1;
+        proxy_set_header   Connection "";
+
+        # Generous timeouts for slow connections and large object transfers.
+        proxy_connect_timeout 300;
+        proxy_send_timeout    300;
+        proxy_read_timeout    300;
+    }
+}
+`
+
 // GetTemplate returns the rendered nginx config string for the given template type.
 func GetTemplate(templateType TemplateType, domain string, port int) (string, error) {
 	if !isValidDomain(domain) {
@@ -204,6 +252,8 @@ func GetTemplate(templateType TemplateType, domain string, port int) (string, er
 		tmplStr = nextjsTemplate
 	case Frontend:
 		tmplStr = frontendTemplate
+	case MinIO:
+		tmplStr = minioTemplate
 	default:
 		return "", fmt.Errorf("unknown template type: %s", string(templateType))
 	}
