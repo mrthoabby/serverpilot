@@ -1082,6 +1082,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 1.5a5.5 5.5 0 110 11 5.5 5.5 0 010-11zM8 4a.75.75 0 01.75.75v2.5h2.5a.75.75 0 010 1.5h-2.5v2.5a.75.75 0 01-1.5 0v-2.5h-2.5a.75.75 0 010-1.5h2.5v-2.5A.75.75 0 018 4z"/></svg>
         Resources
       </button>
+      <button class="tab-btn" data-tab="apps">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.5A1.5 1.5 0 012.5 1h3A1.5 1.5 0 017 2.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3A1.5 1.5 0 0115 10.5v3A1.5 1.5 0 0113.5 15h-3A1.5 1.5 0 019 13.5v-3z"/></svg>
+        Apps
+      </button>
       <button class="tab-btn" data-tab="settings">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4.754a3.246 3.246 0 100 6.492 3.246 3.246 0 000-6.492zM5.754 8a2.246 2.246 0 114.492 0 2.246 2.246 0 01-4.492 0z"/><path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 01-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 01-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 01.52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 011.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 011.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 01.52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 01-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 01-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 002.693 1.115l.291-.16c.764-.415 1.6.422 1.184 1.185l-.159.292a1.873 1.873 0 001.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 00-1.115 2.693l.16.291c.415.764-.422 1.6-1.185 1.184l-.292-.159a1.873 1.873 0 00-2.692 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 00-2.693-1.115l-.291.16c-.764.415-1.6-.422-1.184-1.185l.159-.292A1.873 1.873 0 001.945 8.93l-.318-.094c-.835-.246-.835-1.428 0-1.674l.319-.094a1.873 1.873 0 001.115-2.693l-.16-.291c-.415-.764.422-1.6 1.185-1.184l.292.159a1.873 1.873 0 002.692-1.116l.094-.318z"/></svg>
         Settings
@@ -1361,6 +1365,39 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       </div>
     </div>
 
+    <!-- Apps Tab -->
+    <div class="tab-panel" id="panel-apps">
+      <div class="card">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+          <h2>Installed Applications</h2>
+          <button class="btn btn-sm btn-outline" onclick="loadApps()">&#x21bb; Refresh</button>
+        </div>
+        <p style="padding:0 1.25rem;color:var(--text-secondary);font-size:0.8125rem;margin-bottom:0.75rem;">
+          Applications detected on this server. <strong style="color:var(--yellow);">Uninstall is permanent and irreversible</strong> — it removes the binary, configuration, cache, and all associated data.
+        </p>
+        <div id="appsContent">
+          <div class="spinner"><div class="spinner-ring"></div>Detecting installed applications...</div>
+        </div>
+      </div>
+
+      <!-- Uninstall confirmation modal -->
+      <div id="appUninstallModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:480px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;">
+            <svg width="24" height="24" viewBox="0 0 16 16" fill="var(--red)"><path d="M8.982 1.566a1.13 1.13 0 00-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 01-1.1 0L7.1 5.995A.905.905 0 018 5zm.002 6a1 1 0 110 2 1 1 0 010-2z"/></svg>
+            <h3 style="margin:0;color:var(--red);">Confirm Uninstall</h3>
+          </div>
+          <p id="appUninstallDesc" style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1.5rem;line-height:1.5;"></p>
+          <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
+            <button class="btn btn-sm btn-outline" onclick="closeAppUninstallModal()">Cancel</button>
+            <button class="btn btn-sm" id="appUninstallConfirmBtn"
+              style="background:var(--red);color:#fff;border:none;"
+              onclick="executeUninstall()">Yes, uninstall completely</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Settings Tab -->
     <div class="tab-panel" id="panel-settings">
       <div class="card" style="max-width: 600px;">
@@ -1612,6 +1649,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     images:     function() { return loadImages(); },
     mappings:   function() { return loadMappings(); },
     resources:  function() { return loadResources(); },
+    apps:       function() { return loadApps(); },
     settings:   function() { return loadSettings(); }
   };
 
@@ -3039,6 +3077,152 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       "Activating GD-App",
       domain + " — full setup with SSL, WebSocket, SSE"
     );
+  });
+
+  // ── Installed Applications ──────────────────────────────────────────────────
+
+  var appsPendingUninstall = null; // { id, name } of app awaiting confirmation
+
+  var APP_ICONS = {
+    docker:  "🐳",
+    nodejs:  "⬡",
+    nginx:   "🌐",
+    certbot: "🔒",
+    pm2:     "⚙️",
+    golang:  "🔵",
+    python3: "🐍",
+  };
+
+  var MANAGER_LABELS = {
+    apt:    { text: "apt",    color: "var(--accent)"  },
+    snap:   { text: "snap",   color: "#f59e0b"        },
+    npm:    { text: "npm",    color: "#3fb950"        },
+    manual: { text: "manual", color: "var(--text-muted)" },
+  };
+
+  async function loadApps() {
+    var el = document.getElementById("appsContent");
+    if (el) el.innerHTML = '<div class="spinner"><div class="spinner-ring"></div>Detecting installed applications...</div>';
+    try {
+      var resp = await apiFetch("/api/apps");
+      var apps = (resp && resp.data) ? resp.data : (resp || []);
+      renderApps(apps);
+    } catch(err) {
+      if (el) el.innerHTML = '<p style="padding:1rem;color:var(--red);">Error: ' + escapeHtml(err.message) + '</p>';
+    }
+  }
+
+  function renderApps(apps) {
+    var el = document.getElementById("appsContent");
+    if (!el) return;
+
+    if (!apps || apps.length === 0) {
+      el.innerHTML = '<p style="padding:1.25rem;color:var(--text-secondary);">No known applications detected on this server.</p>';
+      return;
+    }
+
+    var rows = apps.map(function(app) {
+      var icon     = APP_ICONS[app.id] || "📦";
+      var mgr      = MANAGER_LABELS[app.manager] || { text: app.manager || "?", color: "var(--text-muted)" };
+      var statusDot= app.running
+        ? '<span title="Running" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:4px;"></span>Running'
+        : '<span title="Stopped" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--text-muted);margin-right:4px;"></span>Stopped';
+      var sizeStr  = app.size_mb > 0 ? (app.size_mb < 1024
+          ? app.size_mb.toFixed(0) + ' MB'
+          : (app.size_mb/1024).toFixed(2) + ' GB') : '—';
+
+      return '<tr style="border-bottom:1px solid var(--border);">' +
+        '<td style="padding:0.75rem 1rem;font-size:1.25rem;width:2rem;">' + icon + '</td>' +
+        '<td style="padding:0.75rem 1rem;">' +
+          '<div style="font-weight:600;color:var(--text-primary);">' + escapeHtml(app.name) + '</div>' +
+          '<div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px;">' + escapeHtml(app.description || '') + '</div>' +
+        '</td>' +
+        '<td style="padding:0.75rem 1rem;font-family:monospace;font-size:0.8125rem;color:var(--text-secondary);">' + escapeHtml(app.version || '—') + '</td>' +
+        '<td style="padding:0.75rem 1rem;">' +
+          '<span style="font-size:0.75rem;padding:2px 8px;border-radius:999px;background:var(--bg-secondary);color:' + mgr.color + ';font-weight:600;">' + escapeHtml(mgr.text) + '</span>' +
+        '</td>' +
+        '<td style="padding:0.75rem 1rem;font-size:0.8125rem;color:var(--text-secondary);">' + sizeStr + '</td>' +
+        '<td style="padding:0.75rem 1rem;font-size:0.8125rem;">' + statusDot + '</td>' +
+        '<td style="padding:0.75rem 1rem;text-align:right;">' +
+          (app.removable
+            ? '<button class="btn btn-sm" style="background:var(--red);color:#fff;border:none;" ' +
+              'onclick="openAppUninstallModal(' + JSON.stringify(app.id) + ',' + JSON.stringify(app.name) + ')">Uninstall</button>'
+            : '<span style="color:var(--text-muted);font-size:0.75rem;">protected</span>') +
+        '</td>' +
+        '</tr>';
+    }).join('');
+
+    el.innerHTML =
+      '<table style="width:100%;border-collapse:collapse;">' +
+        '<thead>' +
+          '<tr style="border-bottom:2px solid var(--border);">' +
+            '<th style="padding:0.5rem 1rem;text-align:left;font-size:0.75rem;color:var(--text-muted);font-weight:600;"></th>' +
+            '<th style="padding:0.5rem 1rem;text-align:left;font-size:0.75rem;color:var(--text-muted);font-weight:600;">Application</th>' +
+            '<th style="padding:0.5rem 1rem;text-align:left;font-size:0.75rem;color:var(--text-muted);font-weight:600;">Version</th>' +
+            '<th style="padding:0.5rem 1rem;text-align:left;font-size:0.75rem;color:var(--text-muted);font-weight:600;">Manager</th>' +
+            '<th style="padding:0.5rem 1rem;text-align:left;font-size:0.75rem;color:var(--text-muted);font-weight:600;">Size</th>' +
+            '<th style="padding:0.5rem 1rem;text-align:left;font-size:0.75rem;color:var(--text-muted);font-weight:600;">Status</th>' +
+            '<th style="padding:0.5rem 1rem;text-align:right;font-size:0.75rem;color:var(--text-muted);font-weight:600;">Action</th>' +
+          '</tr>' +
+        '</thead>' +
+        '<tbody>' + rows + '</tbody>' +
+      '</table>';
+  }
+
+  function openAppUninstallModal(appId, appName) {
+    appsPendingUninstall = { id: appId, name: appName };
+    var desc = document.getElementById("appUninstallDesc");
+    if (desc) {
+      desc.innerHTML =
+        'You are about to <strong>completely remove ' + escapeHtml(appName) + '</strong> from this server.<br><br>' +
+        'This will stop any running processes, run the package manager uninstall, ' +
+        'and delete all related configuration files and cache directories. ' +
+        '<strong style="color:var(--red);">This action cannot be undone.</strong>';
+    }
+    var modal = document.getElementById("appUninstallModal");
+    if (modal) modal.style.display = "flex";
+  }
+
+  function closeAppUninstallModal() {
+    appsPendingUninstall = null;
+    var modal = document.getElementById("appUninstallModal");
+    if (modal) modal.style.display = "none";
+  }
+
+  async function executeUninstall() {
+    if (!appsPendingUninstall) return;
+    var btn = document.getElementById("appUninstallConfirmBtn");
+    if (btn) { btn.disabled = true; btn.textContent = "Uninstalling…"; }
+
+    try {
+      var resp = await apiFetch("/api/apps/uninstall", {
+        method: "POST",
+        body: { app_id: appsPendingUninstall.id }
+      });
+      var data = (resp && resp.data) ? resp.data : resp;
+      closeAppUninstallModal();
+      var msg = escapeHtml(data.app_name || appsPendingUninstall.name) + ' removed — ' +
+        data.steps_done + ' step(s) completed';
+      if (data.removed_paths && data.removed_paths.length > 0) {
+        msg += ', paths deleted: ' + data.removed_paths.map(escapeHtml).join(', ');
+      }
+      if (data.warnings && data.warnings.length > 0) {
+        msg += '. Warnings: ' + data.warnings.map(escapeHtml).join('; ');
+        showToast(msg, "warning");
+      } else {
+        showToast(msg, "success");
+      }
+      loadApps(); // Refresh the list
+    } catch(err) {
+      showToast("Uninstall failed: " + escapeHtml(err.message), "error");
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = "Yes, uninstall completely"; }
+    }
+  }
+
+  // Close modal when clicking the backdrop.
+  document.getElementById("appUninstallModal").addEventListener("click", function(e) {
+    if (e.target === this) closeAppUninstallModal();
   });
 
   // ── Settings ──

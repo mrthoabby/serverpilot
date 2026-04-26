@@ -80,6 +80,10 @@ func (s *Server) Start() error {
 	mux.Handle("/api/gdapp/activate", s.authMiddleware(http.HandlerFunc(s.handleGDAppActivate)))
 	mux.Handle("/api/gdapp/deactivate", s.authMiddleware(http.HandlerFunc(s.handleGDAppDeactivate)))
 
+	// Installed applications.
+	mux.Handle("/api/apps", s.authMiddleware(http.HandlerFunc(s.handleApps)))
+	mux.Handle("/api/apps/uninstall", s.authMiddleware(http.HandlerFunc(s.handleAppUninstall)))
+
 	// Static files.
 	mux.Handle("/static/", http.FileServer(http.FS(staticFiles)))
 

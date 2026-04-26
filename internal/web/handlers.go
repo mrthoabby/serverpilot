@@ -2396,3 +2396,58 @@ func (s *Server) handleKillProcess(w http.ResponseWriter, r *http.Request) {
 		"message": fmt.Sprintf("SIGTERM sent to %s (PID %d)", procName, req.PID),
 	}})
 }
+
+// ── Installed Applications ──────────────────────────────────────────────────
+
+// handleApps returns the list of detected installed applications.
+func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+	apps := sysinfo.DetectApps()
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: apps})
+}
+
+// appUninstallRequest carries the app identifier submitted by the client.
+type appUninstallRequest struct {
+	AppID string `json:"app_id"`
+}
+
+// handleAppUninstall runs the hardcoded uninstall sequence for a given app.
+//
+// SECURITY: AppID is validated against the static allowlist inside
+// sysinfo.UninstallApp — it is never interpolated into any command or path.
+// Any app_id that is not in the allowlist results in a 400 error.
+func (s *Server) handleAppUninstall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	var req appUninstallRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	// Reject empty or suspiciously long app_id before passing to the allowlist.
+	if req.AppID == "" || len(req.AppID) > 64 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid app_id"})
+		return
+	}
+
+	log.Printf("app-uninstall: requested removal of %q", req.AppID)
+
+	result, err := sysinfo.UninstallApp(req.AppID)
+	if err != nil {
+		// Generic message to avoid leaking internals; details go to server log only.
+		log.Printf("app-uninstall: error for %q: %v", req.AppID, err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+
+	log.Printf("app-uninstall: completed %q — steps=%d paths=%v warnings=%d",
+		req.AppID, result.StepsDone, result.RemovedPaths, len(result.Warnings))
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: result})
+}
