@@ -19,11 +19,25 @@ import (
 )
 
 func init() {
-	// Aggressive GC: collect when heap grows 30% (default 100%).
-	// This keeps RSS low for a long-running daemon.
-	debug.SetGCPercent(30)
-	// Limit total memory to 64 MB soft target.
-	debug.SetMemoryLimit(64 * 1024 * 1024)
+	// Collect when heap grows by 20% instead of the default 100%.
+	// For a long-running server process this keeps steady-state RSS lower
+	// without causing GC thrashing.
+	debug.SetGCPercent(20)
+
+	// Soft heap limit: 256 MB.
+	//
+	// Previous value was 64 MB — that was too low. When the live heap
+	// (objects that cannot be freed) itself exceeds the limit, Go enters a
+	// continuous GC loop ("GC thrashing") which paradoxically increases RSS
+	// because the GC bookkeeping competes with the application for the same
+	// pages. 256 MB gives the runtime enough headroom for normal operation
+	// (Go runtime itself, HTTP connection buffers, embed.FS, exec.Command
+	// pipe buffers) while still enforcing a meaningful cap.
+	//
+	// This limit applies only to the GC-managed heap. Child process memory,
+	// goroutine stacks, and OS-level mmap'd regions are NOT included — but
+	// those are bounded by code structure, not this setting.
+	debug.SetMemoryLimit(256 * 1024 * 1024)
 }
 
 // releaseMemory forces a GC cycle and returns pages to the OS.
@@ -1236,6 +1250,29 @@ func readSelfProcess() *ProcessInfo {
 	return info
 }
 
+// readSelfRSSMB returns the current process's resident set size in MB by
+// reading /proc/self/status. This reports only the Go process's own pages —
+// not child processes — making it the correct metric to display in the UI.
+func readSelfRSSMB() float64 {
+	f, err := os.Open("/proc/self/status")
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "VmRSS:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				val, _ := strconv.ParseFloat(fields[1], 64)
+				return val / 1024 // kB → MB
+			}
+		}
+	}
+	return 0
+}
+
 // readServices checks the status of key services.
 // Runs all systemctl calls in parallel to reduce latency (6 sequential → 6 concurrent).
 func readServices() []ServiceInfo {
@@ -1258,16 +1295,30 @@ func readServices() []ServiceInfo {
 				svc.Status = "stopped"
 			}
 
-			// Get memory usage from systemctl show.
-			cmd = exec.Command("/usr/bin/systemctl", "show", svcName, "--property=MemoryCurrent", "--no-pager")
-			out, err := cmd.Output()
-			if err == nil {
-				line := strings.TrimSpace(string(out))
-				if strings.HasPrefix(line, "MemoryCurrent=") {
-					val := strings.TrimPrefix(line, "MemoryCurrent=")
-					if val != "[not set]" && val != "" {
-						bytes, _ := strconv.ParseFloat(val, 64)
-						svc.MemMB = bytes / (1024 * 1024)
+			// Get memory usage.
+			//
+			// For serverpilot itself we read /proc/self/status VmRSS directly.
+			// systemctl MemoryCurrent reports cgroup-level usage which includes
+			// every child process we spawn (du, find, docker stats, systemctl…).
+			// Those subprocesses scan filesystems and use 100s of MB each, making
+			// our own RSS appear to be 2 GB when the Go process is really ~50 MB.
+			//
+			// For all other services, systemctl MemoryCurrent is the right value
+			// because we have no way to read their /proc/<pid>/status directly.
+			if svcName == "serverpilot" {
+				svc.MemMB = readSelfRSSMB()
+			} else {
+				cmd = exec.Command("/usr/bin/systemctl", "show", svcName,
+					"--property=MemoryCurrent", "--no-pager")
+				out, err := cmd.Output()
+				if err == nil {
+					line := strings.TrimSpace(string(out))
+					if strings.HasPrefix(line, "MemoryCurrent=") {
+						val := strings.TrimPrefix(line, "MemoryCurrent=")
+						if val != "[not set]" && val != "" {
+							bytes, _ := strconv.ParseFloat(val, 64)
+							svc.MemMB = bytes / (1024 * 1024)
+						}
 					}
 				}
 			}
