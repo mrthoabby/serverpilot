@@ -24,6 +24,7 @@ import (
 	"github.com/mrthoabby/serverpilot/internal/docker"
 	"github.com/mrthoabby/serverpilot/internal/labels"
 	"github.com/mrthoabby/serverpilot/internal/mapper"
+	"github.com/mrthoabby/serverpilot/internal/portalloc"
 	"github.com/mrthoabby/serverpilot/internal/nginx"
 	"github.com/mrthoabby/serverpilot/internal/sysinfo"
 	"github.com/mrthoabby/serverpilot/internal/templates"
@@ -2452,4 +2453,48 @@ func (s *Server) handleAppUninstall(w http.ResponseWriter, r *http.Request) {
 	log.Printf("app-uninstall: completed %q — steps=%d paths=%v warnings=%d",
 		req.AppID, result.StepsDone, result.RemovedPaths, len(result.Warnings))
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: result})
+}
+
+// handlePortAllocate finds the next available port and reserves it for 1 minute.
+// GET  /api/system/port           → allocate from default range 3000-3999
+// GET  /api/system/port?min=4000&max=4999  → custom range
+// GET  /api/system/port?list=true → list active reservations
+func (s *Server) handlePortAllocate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+
+	// List mode.
+	if r.URL.Query().Get("list") == "true" {
+		writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: portalloc.ListReservations()})
+		return
+	}
+
+	// Parse optional range overrides.
+	minPort := portalloc.DefaultMinPort
+	maxPort := portalloc.DefaultMaxPort
+
+	if v := r.URL.Query().Get("min"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			minPort = parsed
+		}
+	}
+	if v := r.URL.Query().Get("max"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			maxPort = parsed
+		}
+	}
+
+	port, err := portalloc.Allocate(minPort, maxPort)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, apiResponse{Error: err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]interface{}{
+		"port":       port,
+		"locked_for": "60s",
+		"range":      fmt.Sprintf("%d-%d", minPort, maxPort),
+	}})
 }
