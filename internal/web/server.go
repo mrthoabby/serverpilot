@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/mrthoabby/serverpilot/internal/auth"
 	"github.com/mrthoabby/serverpilot/internal/sysinfo"
@@ -121,9 +122,10 @@ func (s *Server) Start() error {
 	initScannerLogger()
 
 	// Wrap everything with security, logging, and recovery middleware.
-	// Order: Recovery (outermost) → Logging → Security → ClientHeader → BodyLimit → routes.
-	// BodyLimit caps POST payloads at 1 MB to prevent memory exhaustion.
-	handler := RecoveryMiddleware(LoggingMiddleware(s.SecurityMiddleware(s.ClientHeaderMiddleware(BodyLimitMiddleware(mux)))))
+	// Order: Recovery (outermost) → Logging → Security → CSRF → ClientHeader → BodyLimit → routes.
+	// CSRFMiddleware enforces an Origin/Referer check on state-changing requests
+	// (CWE-352); BodyLimit caps POST payloads at 1 MB to prevent memory exhaustion.
+	handler := RecoveryMiddleware(LoggingMiddleware(s.SecurityMiddleware(s.CSRFMiddleware(s.ClientHeaderMiddleware(BodyLimitMiddleware(mux))))))
 
 	// Start the background memory history collector (snapshots every 5 min).
 	sysinfo.StartHistoryCollector()
@@ -139,5 +141,26 @@ func (s *Server) Start() error {
 		addr = fmt.Sprintf(":%d", s.port)
 		log.Printf("Starting server on %s (all interfaces)", addr)
 	}
-	return http.ListenAndServe(addr, handler)
+
+	// Configure explicit server-side timeouts. The zero-value http.Server has
+	// no timeouts at all, which makes it trivially vulnerable to Slowloris
+	// (CWE-400 — slow-header / slow-body resource exhaustion). Concrete values:
+	//   ReadHeaderTimeout — Slowloris cap; must be small.
+	//   ReadTimeout       — full request read.
+	//   WriteTimeout      — generous because some endpoints stream SSE output
+	//                       from long-running shell commands (apt install,
+	//                       certbot, etc.). 10 minutes is conservative.
+	//   IdleTimeout       — keep-alive idle cap.
+	//   MaxHeaderBytes    — 16 KB; absolute cap on header section size.
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      10 * time.Minute,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 14,
+		ErrorLog:          log.Default(),
+	}
+	return srv.ListenAndServe()
 }

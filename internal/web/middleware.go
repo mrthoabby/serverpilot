@@ -5,11 +5,105 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"time"
 )
+
+// ── Login rate limiter (CWE-307 — brute force) ──────────────────────────
+//
+// /api/login is gated behind a sliding-window rate limit per remote IP.
+// After loginMaxFailures within loginWindow, that IP is locked out for
+// loginLockoutDuration. The lockout map is cleaned by a background goroutine
+// (see init below).
+//
+// The window-and-lockout pattern is preferred over a strict global lockout:
+//   - It does not enable an attacker to lock out a legitimate operator just
+//     by spamming login attempts from a different IP.
+//   - It rate-limits the password-guessing channel without making the dashboard
+//     unusable after a typo storm.
+//
+// For internet-exposed deployments, prefer running behind a WAF or fail2ban
+// in addition to this control.
+
+const (
+	loginMaxFailures     = 5
+	loginWindow          = 15 * time.Minute
+	loginLockoutDuration = 30 * time.Minute
+)
+
+type loginAttemptState struct {
+	failures   int
+	first      time.Time
+	lockedUntil time.Time
+}
+
+var (
+	loginAttemptsMu sync.Mutex
+	loginAttempts   = make(map[string]*loginAttemptState)
+)
+
+// loginAttemptCheck returns (allowed, retryAfter). When allowed is false the
+// caller must reject the request (with 429 / 401) and surface retryAfter.
+func loginAttemptCheck(ip string) (bool, time.Duration) {
+	loginAttemptsMu.Lock()
+	defer loginAttemptsMu.Unlock()
+	now := time.Now()
+	st, ok := loginAttempts[ip]
+	if !ok {
+		return true, 0
+	}
+	if now.Before(st.lockedUntil) {
+		return false, st.lockedUntil.Sub(now)
+	}
+	// Reset window if expired.
+	if now.Sub(st.first) > loginWindow {
+		delete(loginAttempts, ip)
+	}
+	return true, 0
+}
+
+// loginAttemptRecord records a failure against an IP. Once the threshold is
+// crossed the IP is locked for loginLockoutDuration.
+func loginAttemptRecord(ip string, success bool) {
+	loginAttemptsMu.Lock()
+	defer loginAttemptsMu.Unlock()
+	if success {
+		delete(loginAttempts, ip)
+		return
+	}
+	now := time.Now()
+	st, ok := loginAttempts[ip]
+	if !ok || now.Sub(st.first) > loginWindow {
+		loginAttempts[ip] = &loginAttemptState{failures: 1, first: now}
+		return
+	}
+	st.failures++
+	if st.failures >= loginMaxFailures {
+		st.lockedUntil = now.Add(loginLockoutDuration)
+		log.Printf("login: lockout %s for %s after %d failures", ip, loginLockoutDuration, st.failures)
+	}
+}
+
+func init() {
+	// Background sweeper for expired login attempt entries.
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			loginAttemptsMu.Lock()
+			now := time.Now()
+			for ip, st := range loginAttempts {
+				if now.After(st.lockedUntil) && now.Sub(st.first) > loginWindow {
+					delete(loginAttempts, ip)
+				}
+			}
+			loginAttemptsMu.Unlock()
+		}
+	}()
+}
 
 // ── Scanner / bot detection logger ──────────────────────────────────────────
 //
@@ -175,6 +269,78 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		next.ServeHTTP(w, r)
+	})
+}
+
+// CSRFMiddleware enforces an Origin / Referer same-origin check on every
+// state-changing request to /api/ (CWE-352).
+//
+// Rationale: cookies are sent automatically on every cross-site request the
+// browser issues. Without an Origin/Referer check, a victim already logged
+// into the dashboard who visits an attacker page can have arbitrary
+// state-mutating API calls executed (create site, install dependency, open
+// firewall, etc.).
+//
+// Algorithm:
+//   - GET / HEAD / OPTIONS are not gated (must remain safe per RFC 9110).
+//   - For every other method to /api/, look at Origin first, then Referer.
+//   - Compare the host (incl. scheme+port) against the request's own Host.
+//   - When SSL is configured, also accept exactly the configured SSL domain.
+//   - Reject mismatches with 403.
+//
+// This is enforced in addition to SameSite cookies, because pre-Chrome-100
+// browsers and some embedded UAs treat SameSite inconsistently.
+func (s *Server) CSRFMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/api/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions:
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Build the set of acceptable origins.
+		expected := map[string]struct{}{}
+		// Self host (use what the proxy advertised if present).
+		host := r.Host
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			expected["https://"+host] = struct{}{}
+		} else {
+			expected["http://"+host] = struct{}{}
+		}
+		if s.config.SSLEnabled && s.config.Domain != "" {
+			expected["https://"+s.config.Domain] = struct{}{}
+		}
+
+		// Origin first.
+		if origin := r.Header.Get("Origin"); origin != "" {
+			if _, ok := expected[origin]; ok {
+				next.ServeHTTP(w, r)
+				return
+			}
+			writeJSON(w, http.StatusForbidden, apiResponse{Error: "cross-origin request refused"})
+			return
+		}
+		// Fallback to Referer.
+		if referer := r.Header.Get("Referer"); referer != "" {
+			if u, err := url.Parse(referer); err == nil {
+				ref := u.Scheme + "://" + u.Host
+				if _, ok := expected[ref]; ok {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			writeJSON(w, http.StatusForbidden, apiResponse{Error: "cross-origin request refused"})
+			return
+		}
+
+		// Neither header present. Modern browsers send Origin on all CORS-relevant
+		// methods; absence of both Origin and Referer on a state-changing request
+		// is highly suspicious — refuse closed.
+		writeJSON(w, http.StatusForbidden, apiResponse{Error: "missing Origin/Referer on state-changing request"})
 	})
 }
 

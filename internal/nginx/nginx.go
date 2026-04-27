@@ -137,16 +137,31 @@ func EnableSite(domain string) error {
 	}
 
 	if _, err := os.Stat(availablePath); os.IsNotExist(err) {
-		return fmt.Errorf("site config not found: %s", domain)
+		return fmt.Errorf("site config not found")
 	}
 
-	// Remove existing symlink if present.
-	os.Remove(enabledPath)
-
-	if err := os.Symlink(availablePath, enabledPath); err != nil {
-		return fmt.Errorf("failed to enable site: %w", err)
+	// Hardening (CWE-362 / CWE-22): the prior os.Remove + os.Symlink sequence
+	// has a TOCTOU window where a local attacker could swap the path between
+	// the two calls. We close that window by symlinking to a temp name and
+	// then atomically renaming over the target. Also refuse to remove a
+	// non-symlink (which would erase a real config file).
+	if info, err := os.Lstat(enabledPath); err == nil {
+		if info.Mode()&os.ModeSymlink == 0 {
+			return fmt.Errorf("refusing to overwrite non-symlink at sites-enabled path")
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("lstat failed")
 	}
 
+	tmpLink := enabledPath + ".sp-tmp-link"
+	_ = os.Remove(tmpLink)
+	if err := os.Symlink(availablePath, tmpLink); err != nil {
+		return fmt.Errorf("failed to enable site")
+	}
+	if err := os.Rename(tmpLink, enabledPath); err != nil {
+		_ = os.Remove(tmpLink)
+		return fmt.Errorf("failed to enable site")
+	}
 	return nil
 }
 
@@ -207,18 +222,48 @@ func TestConfig() error {
 }
 
 // isWithinNginxDir validates that a path is within /etc/nginx/.
+//
+// Hardening (CWE-22): the previous version only resolved symlinks on the
+// directory portion of the path, which left a hole — the LEAF could be a
+// symlink pointing anywhere on disk and pass the check. We now also resolve
+// the leaf if it exists. We additionally use filepath.Rel for the prefix
+// check, which is robust against trailing-slash and "/etc/nginxFOO" tricks
+// that strings.HasPrefix would have allowed.
 func isWithinNginxDir(path string) bool {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return false
 	}
-	// Resolve symlinks for the check.
-	resolved, err := filepath.EvalSymlinks(filepath.Dir(absPath))
-	if err != nil {
-		// If the directory doesn't exist yet, fall back to the raw absolute path.
-		return strings.HasPrefix(absPath, nginxBaseDir+"/") || absPath == nginxBaseDir
+	clean := filepath.Clean(absPath)
+
+	// If the leaf exists and is a symlink, resolve it. If the leaf doesn't
+	// exist yet, only resolve the parent (it must already exist).
+	resolved := clean
+	if info, err := os.Lstat(clean); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			if r, err := filepath.EvalSymlinks(clean); err == nil {
+				resolved = r
+			} else {
+				return false
+			}
+		}
+	} else {
+		if r, err := filepath.EvalSymlinks(filepath.Dir(clean)); err == nil {
+			resolved = filepath.Join(r, filepath.Base(clean))
+		}
 	}
-	return strings.HasPrefix(resolved, nginxBaseDir)
+
+	rel, err := filepath.Rel(nginxBaseDir, resolved)
+	if err != nil {
+		return false
+	}
+	if rel == "." {
+		return true
+	}
+	if strings.HasPrefix(rel, "..") {
+		return false
+	}
+	return true
 }
 
 // isValidConfigName checks that a config file name is safe (no path traversal, no slashes).
@@ -349,7 +394,12 @@ func ServerPilotTemplate(domain string, port int) string {
 `, domain, port)
 }
 
-var domainRegex = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$`)
+// domainRegex enforces a strict FQDN structure: each label is 1-63 alnum/-,
+// labels never start or end with -, at least one dot, no consecutive dots,
+// no trailing dot, TLD must be letters-only (2-63). Tightens the previously
+// over-permissive `^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$` pattern that
+// accepted "a..b", "a-", and other malformed inputs (CWE-20).
+var domainRegex = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$`)
 
 // IsValidDomainExported checks that a domain contains only allowed characters.
 // Exported for use by other packages.
@@ -357,9 +407,13 @@ func IsValidDomainExported(domain string) bool {
 	return isValidDomain(domain)
 }
 
-// isValidDomain checks that a domain contains only allowed characters.
+// isValidDomain checks that a domain contains only allowed characters AND
+// follows valid FQDN structure.
 func isValidDomain(domain string) bool {
 	if len(domain) == 0 || len(domain) > 253 {
+		return false
+	}
+	if strings.Contains(domain, "..") {
 		return false
 	}
 	return domainRegex.MatchString(domain)

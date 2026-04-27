@@ -1,13 +1,13 @@
 package cmd
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/mrthoabby/serverpilot/internal/auth"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var resetPassword bool
@@ -47,25 +47,17 @@ Examples:
 		fmt.Println("--- Reset Password ---")
 		fmt.Println()
 
-		reader := bufio.NewReader(os.Stdin)
-
-		fmt.Print("Enter new password (min 8 characters): ")
-		newPassword, err := reader.ReadString('\n')
+		// Hardening (CWE-549 — terminal echo): use term.ReadPassword so the
+		// new password is NEVER displayed on screen, captured in scrollback,
+		// or recorded by terminal session loggers (auditd/tlog/Teleport).
+		newPassword, err := readPasswordPrompt("Enter new password (min 12 characters, mixed classes): ")
 		if err != nil {
-			return fmt.Errorf("failed to read password: %w", err)
+			return err
 		}
-		newPassword = strings.TrimSpace(newPassword)
-		if len(newPassword) < 8 {
-			return fmt.Errorf("password must be at least 8 characters")
-		}
-
-		fmt.Print("Confirm new password: ")
-		confirmPassword, err := reader.ReadString('\n')
+		confirmPassword, err := readPasswordPrompt("Confirm new password: ")
 		if err != nil {
-			return fmt.Errorf("failed to read confirmation: %w", err)
+			return err
 		}
-		confirmPassword = strings.TrimSpace(confirmPassword)
-
 		if newPassword != confirmPassword {
 			return fmt.Errorf("passwords do not match")
 		}
@@ -87,6 +79,23 @@ Examples:
 
 		return nil
 	},
+}
+
+// readPasswordPrompt reads a password from the terminal with echo disabled.
+// Refuses to read when stdin is not a terminal (which would otherwise expose
+// the password on the command line via shell history when piped).
+func readPasswordPrompt(prompt string) (string, error) {
+	fmt.Print(prompt)
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		return "", fmt.Errorf("refusing to read password: stdin is not a terminal")
+	}
+	pw, err := term.ReadPassword(fd)
+	fmt.Println()
+	if err != nil {
+		return "", fmt.Errorf("failed to read password")
+	}
+	return strings.TrimSpace(string(pw)), nil
 }
 
 func init() {

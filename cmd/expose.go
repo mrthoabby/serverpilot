@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/mrthoabby/serverpilot/internal/deps"
 	"github.com/mrthoabby/serverpilot/internal/nginx"
@@ -47,6 +49,21 @@ Example:
 		fmt.Printf("  Domain:         %s\n", exposeDomain)
 		fmt.Printf("  Dashboard port: %d\n", exposePort)
 		fmt.Println()
+
+		// Hardening (CWE-22 — silent overwrite): refuse to clobber an
+		// existing nginx vhost. A typo or running expose with a domain
+		// that already serves a production app would otherwise replace
+		// that app's config with the dashboard reverse proxy and hijack
+		// its traffic immediately on the next nginx reload.
+		candidate := filepath.Join("/etc/nginx/sites-available", exposeDomain)
+		if info, err := os.Lstat(candidate); err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("refusing to overwrite symlink at %s", candidate)
+			}
+			return fmt.Errorf("nginx config already exists for %s — remove %s first or pick a different domain", exposeDomain, candidate)
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to check existing nginx config")
+		}
 
 		// Use the API template (standard reverse proxy) pointing to the dashboard.
 		if err := templates.ApplyTemplate(templates.API, exposeDomain, exposePort); err != nil {

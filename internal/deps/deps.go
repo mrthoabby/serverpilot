@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -79,6 +80,21 @@ func fixDockerAptSources() {
 		}
 
 		path := filepath.Join(dir, name)
+		// Hardening (CWE-22): canonicalise and refuse to follow a symlink at
+		// the leaf. /etc/apt/sources.list.d is root-owned, but defense-in-depth
+		// against any future change in directory ownership.
+		info, err := os.Lstat(path)
+		if err != nil {
+			continue
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			fmt.Printf("[setup] WARNING: refusing to rewrite symlink %s\n", path)
+			continue
+		}
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil || filepath.Dir(resolved) != dir {
+			continue
+		}
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -235,15 +251,33 @@ func promptInstall(name string) bool {
 	return input == "y" || input == "yes"
 }
 
+// pkgNameRegex restricts apt package names to the characters Debian/Ubuntu
+// itself allows. Refuses any leading "-" (which apt would parse as a flag,
+// CWE-78 argument injection) or shell metacharacters.
+var pkgNameRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9.+_-]*$`)
+
 func installPackage(pkg string) error {
+	if !pkgNameRegex.MatchString(pkg) {
+		return fmt.Errorf("invalid package name")
+	}
+
+	// DEBIAN_FRONTEND=noninteractive prevents apt from spawning interactive
+	// dialogs (debconf/postfix) that would block the daemon installer.
+	env := append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
+
 	updateCmd := exec.Command("/usr/bin/apt-get", "update", "-y")
+	updateCmd.Env = env
 	updateCmd.Stdout = os.Stdout
 	updateCmd.Stderr = os.Stderr
 	if err := updateCmd.Run(); err != nil {
 		return fmt.Errorf("apt-get update failed: %w", err)
 	}
 
-	installCmd := exec.Command("/usr/bin/apt-get", "install", "-y", pkg)
+	// "--" stops option processing so a package name beginning with "-"
+	// would still be impossible to inject (we already reject it via regex,
+	// but defense-in-depth is cheap here).
+	installCmd := exec.Command("/usr/bin/apt-get", "install", "-y", "--", pkg)
+	installCmd.Env = env
 	installCmd.Stdout = os.Stdout
 	installCmd.Stderr = os.Stderr
 	if err := installCmd.Run(); err != nil {

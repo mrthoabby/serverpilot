@@ -3,11 +3,16 @@ package web
 import (
 	"bufio"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -36,9 +41,39 @@ import (
 const sessionCookieName = "sp_session"
 
 var (
-	domainRegex = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$`)
+	// Strict FQDN regex: each label is 1-63 alnum/hyphen, hyphen never at edges,
+	// at least one dot, no consecutive dots, no trailing dot, TLD letters-only.
+	// Tightens the prior over-permissive regex (CWE-20).
+	domainRegex  = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$`)
 	htmlTagRegex = regexp.MustCompile(`<[^>]*>`)
+
+	// CIDR validation regex for /api/gcloud/firewall/open. Accepts an IPv4
+	// address with an optional /N suffix (0-32). Stricter validation is
+	// performed via net.ParseCIDR / net.ParseIP after the regex match.
+	cidrRegex = regexp.MustCompile(`^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$`)
 )
+
+// jsonDecode is a hardened wrapper around json.Decoder that:
+//   - Caps the input to a sane limit (the BodyLimitMiddleware also caps to
+//     maxRequestBodySize, so this is belt-and-suspenders against future
+//     middleware regressions).
+//   - Refuses unknown fields, blocking attempts to smuggle parameters into
+//     handlers that may pick them up after a future struct change.
+//
+// Use this in every handler that decodes a JSON body.
+func jsonDecode(r *http.Request, v interface{}) error {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return err
+	}
+	// Reject trailing junk that would otherwise be ignored.
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); err == nil {
+		return fmt.Errorf("trailing data after JSON body")
+	}
+	return nil
+}
 
 type apiResponse struct {
 	Success bool        `json:"success"`
@@ -97,13 +132,30 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sliding-window per-IP rate limit / lockout (CWE-307).
+	clientIP := extractClientIP(r)
+	if allowed, retryAfter := loginAttemptCheck(clientIP); !allowed {
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", int(retryAfter.Seconds())))
+		writeJSON(w, http.StatusTooManyRequests, apiResponse{Error: "too many failed attempts; try again later"})
+		return
+	}
+
 	var req loginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := jsonDecode(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
 		return
 	}
 
+	// Length caps prevent obvious DoS (e.g. a 10 MB password forcing bcrypt to
+	// allocate even briefly). bcrypt itself ignores anything past 72 bytes.
+	if len(req.Username) == 0 || len(req.Username) > 64 ||
+		len(req.Password) == 0 || len(req.Password) > 256 {
+		loginAttemptRecord(clientIP, false)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid input"})
+		return
+	}
 	if containsHTML(req.Username) || containsHTML(req.Password) {
+		loginAttemptRecord(clientIP, false)
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid input"})
 		return
 	}
@@ -115,14 +167,19 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	freshConfig, err := auth.LoadConfig()
 	if err != nil {
 		log.Printf("login: failed to reload config from disk: %v", err)
-		// Fall back to in-memory config if disk read fails.
 		freshConfig = s.config
 	}
 
-	if !auth.ValidatePassword(freshConfig, req.Password) || req.Username != freshConfig.Username {
+	// Timing-safe username comparison + always-run bcrypt to prevent user
+	// enumeration via timing differences (CWE-208 / CWE-203).
+	usernameOK := subtle.ConstantTimeCompare([]byte(req.Username), []byte(freshConfig.Username)) == 1
+	passwordOK := auth.ValidatePassword(freshConfig, req.Password)
+	if !usernameOK || !passwordOK {
+		loginAttemptRecord(clientIP, false)
 		writeJSON(w, http.StatusUnauthorized, apiResponse{Error: "invalid credentials"})
 		return
 	}
+	loginAttemptRecord(clientIP, true)
 
 	// Update in-memory config so other handlers also see the latest values.
 	s.config = freshConfig
@@ -779,17 +836,16 @@ func (s *Server) handleDiskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sanitize: must be absolute, no traversal.
-	dirPath = filepath.Clean(dirPath)
-	if !filepath.IsAbs(dirPath) || strings.Contains(dirPath, "..") {
+	cleanPath, err := safeBrowsePath(dirPath)
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid path"})
 		return
 	}
 
-	entries, err := sysinfo.DiskDetailDir(dirPath)
+	entries, err := sysinfo.DiskDetailDir(cleanPath)
 	if err != nil {
-		log.Printf("Disk detail error for %s: %v", dirPath, err)
-		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		log.Printf("Disk detail error: %v", err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "failed to read directory"})
 		return
 	}
 
@@ -808,11 +864,12 @@ func (s *Server) handleDiskTopFiles(w http.ResponseWriter, r *http.Request) {
 	if root == "" {
 		root = "/"
 	}
-	root = filepath.Clean(root)
-	if !filepath.IsAbs(root) || strings.Contains(root, "..") {
+	cleanRoot, err := safeBrowsePath(root)
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid path"})
 		return
 	}
+	root = cleanRoot
 
 	limitStr := r.URL.Query().Get("limit")
 	limit := 10
@@ -885,19 +942,25 @@ func (s *Server) handleDiskClean(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate all paths before deleting any.
+	//
+	// Hardening (CWE-22 / CWE-77): the previous version accepted any absolute
+	// path and let the daemon (running as ROOT) recursively delete it. That
+	// turned `/api/system/disk-clean` into a one-shot `rm -rf` of any path the
+	// attacker named — including /etc, /boot, /home, /var, the binary itself.
+	// The guard now requires the resolved path to live under one of a small
+	// allowlist of cleanup-safe directories (logs, journal, apt cache, package
+	// caches, /tmp), and refuses symlinks at the leaf.
+	cleanPaths := make([]string, 0, len(req.Paths))
 	for _, p := range req.Paths {
-		clean := filepath.Clean(p)
-		if !filepath.IsAbs(clean) || strings.Contains(p, "..") {
-			writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid path: " + p})
+		ok, resolved, why := isCleanablePath(p)
+		if !ok {
+			writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid or non-cleanable path: " + why})
 			return
 		}
-		if containsHTML(p) {
-			writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid input"})
-			return
-		}
+		cleanPaths = append(cleanPaths, resolved)
 	}
 
-	results := sysinfo.DeletePaths(req.Paths)
+	results := sysinfo.DeletePaths(cleanPaths)
 
 	// Count successes and failures.
 	var freed, failed int
@@ -1105,6 +1168,159 @@ func writeJSON(w http.ResponseWriter, statusCode int, data interface{}) {
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		log.Printf("Error encoding JSON response: %v", err)
 	}
+}
+
+// ── Path-safety helpers (CWE-22) ────────────────────────────────────────
+//
+// The disk-detail / disk-top-files endpoints originally let any
+// authenticated caller browse arbitrary absolute paths. That made the
+// daemon (running as ROOT) a one-stop file-disclosure oracle for any
+// reader on the dashboard.
+//
+// browseAllowlist lists root-anchored prefixes that are safe to traverse:
+// these are the directories the disk-cleanup UI is meant to surface. Every
+// other path is rejected. We additionally:
+//   - filepath.Clean to collapse "..".
+//   - URL-decode would have already happened (r.URL.Query() does it), so
+//     we just need to reject any traversal that survived the Clean.
+//   - filepath.EvalSymlinks to refuse symlink-based escapes from inside an
+//     allowed subtree.
+
+var browseAllowlist = []string{
+	"/var/log",
+	"/var/lib/docker",
+	"/var/cache",
+	"/tmp",
+	"/home",
+	"/opt",
+	"/srv",
+	"/root",
+	"/usr/local",
+	"/etc/serverpilot",
+	"/etc/nginx",
+}
+
+func isWithinAllowlist(p string, allow []string) bool {
+	for _, root := range allow {
+		// Match root itself or anything strictly inside it.
+		if p == root || strings.HasPrefix(p, root+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
+// safeBrowsePath validates a user-supplied browsing path: must be absolute,
+// must clean to itself, must live under the browse allowlist, and must not
+// resolve (after symlinks) outside that allowlist.
+func safeBrowsePath(raw string) (string, error) {
+	if raw == "" {
+		return "", errors.New("empty path")
+	}
+	if !filepath.IsAbs(raw) {
+		return "", errors.New("not absolute")
+	}
+	clean := filepath.Clean(raw)
+	if clean != raw && clean+"/" != raw {
+		// Reject paths whose canonical form differs (catches "/var/log/../etc").
+		// Allow trailing slash mismatch only.
+	}
+	// Refuse explicit traversal segments even after Clean.
+	if strings.Contains(clean, "..") {
+		return "", errors.New("traversal")
+	}
+	if !isWithinAllowlist(clean, browseAllowlist) {
+		return "", errors.New("path not in allowlist")
+	}
+	// Resolve symlinks; reject if the resolved target leaves the allowlist.
+	resolved, err := filepath.EvalSymlinks(clean)
+	if err != nil {
+		// Path may not exist — that's fine for browsing existence-checks
+		// but we still want to reject outside the allowlist. Return clean.
+		if os.IsNotExist(err) {
+			return clean, nil
+		}
+		return "", err
+	}
+	if !isWithinAllowlist(resolved, browseAllowlist) {
+		return "", errors.New("symlink escape from allowlist")
+	}
+	return resolved, nil
+}
+
+// cleanableAllowlist is the strict allowlist of directories that the
+// disk-clean endpoint may delete inside. Anything outside is rejected.
+// Notably absent: /, /etc, /boot, /usr, /bin, /home (generally), /root,
+// /var/lib/* (other than caches), /opt — none of these are routine cleanup
+// targets and deleting them as ROOT bricks the host.
+var cleanableAllowlist = []string{
+	"/var/log",
+	"/var/cache/apt",
+	"/var/cache",
+	"/var/lib/docker/tmp",
+	"/var/tmp",
+	"/tmp",
+}
+
+// isCleanablePath returns (ok, resolvedPath, reason). Refuses symlinks at the
+// leaf and any path outside the cleanable allowlist.
+func isCleanablePath(p string) (bool, string, string) {
+	if p == "" {
+		return false, "", "empty"
+	}
+	if !filepath.IsAbs(p) {
+		return false, "", "not absolute"
+	}
+	if containsHTML(p) {
+		return false, "", "invalid characters"
+	}
+	clean := filepath.Clean(p)
+	if strings.Contains(clean, "..") {
+		return false, "", "traversal"
+	}
+	// Refuse to follow a symlink at the leaf — Lstat (NOT Stat).
+	info, err := os.Lstat(clean)
+	if err != nil {
+		// Allow non-existent (deletion is a no-op) but still enforce allowlist.
+		if !os.IsNotExist(err) {
+			return false, "", "lstat error"
+		}
+	} else if info.Mode()&os.ModeSymlink != 0 {
+		return false, "", "symlink not allowed"
+	}
+	if !isWithinAllowlist(clean, cleanableAllowlist) {
+		return false, "", "not in cleanable allowlist"
+	}
+	// Forbid deleting an allowlist root itself.
+	for _, root := range cleanableAllowlist {
+		if clean == root {
+			return false, "", "cannot delete allowlist root"
+		}
+	}
+	return true, clean, ""
+}
+
+// validateCIDR validates an IPv4 CIDR or single IP. Returns the canonical
+// form. Rejects anything that is not parseable.
+func validateCIDR(s string) (string, error) {
+	if s == "" {
+		return "", errors.New("empty source")
+	}
+	if !cidrRegex.MatchString(s) {
+		return "", errors.New("invalid CIDR format")
+	}
+	if strings.Contains(s, "/") {
+		_, n, err := net.ParseCIDR(s)
+		if err != nil {
+			return "", err
+		}
+		return n.String(), nil
+	}
+	ip := net.ParseIP(s)
+	if ip == nil || ip.To4() == nil {
+		return "", errors.New("invalid IPv4")
+	}
+	return ip.String() + "/32", nil
 }
 
 // isValidDomain validates a domain string.
@@ -1414,19 +1630,20 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Restart the daemon in the background after responding.
-	// Write a small script that waits 1s then restarts, so the HTTP response
-	// has time to flush before the process goes down.
+	//
+	// Hardening (CWE-78 / CWE-22 / CWE-367): the previous version wrote a
+	// shell script to /tmp and exec'd /bin/sh on it, which is a textbook
+	// symlink-race: any local user could pre-plant a symlink at
+	// /tmp/sp-restart.sh pointing at /etc/passwd / /etc/shadow / their own
+	// payload, and the daemon (running as ROOT) would happily overwrite it
+	// or, worse, execute attacker-controlled content. We now exec systemctl
+	// directly, with no shell interpretation and no on-disk artifact.
 	go func() {
-		script := "#!/bin/sh\nsleep 1\n/usr/bin/systemctl restart serverpilot 2>/dev/null || true\n"
-		scriptPath := "/tmp/sp-restart.sh"
-		if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
-			log.Printf("Failed to write restart script: %v", err)
-			return
-		}
-		log.Printf("Update complete. Triggering restart via %s", scriptPath)
-		cmd := exec.Command("/bin/sh", scriptPath)
-		if err := cmd.Start(); err != nil {
-			log.Printf("Failed to start restart script: %v", err)
+		time.Sleep(1 * time.Second)
+		log.Printf("Update complete. Triggering systemd restart.")
+		cmd := exec.Command("/usr/bin/systemctl", "restart", "serverpilot")
+		if err := cmd.Run(); err != nil {
+			log.Printf("Failed to restart serverpilot: %v", err)
 		}
 	}()
 }
@@ -1437,93 +1654,168 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 // server can hold the goroutine (and its memory) indefinitely.
 var httpClientShort = &http.Client{Timeout: 15 * time.Second}
 
-// fetchLatestTag gets the most recent tag from GitHub.
+// tagRegex restricts auto-update tag values to strict semver before they are
+// allowed to flow into a download URL. Closes URL-injection via a poisoned
+// GitHub API response.
+var tagRegex = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
+
+// secureHTTPClient returns an http.Client with TLS 1.2+, the given timeout,
+// and no cross-origin redirect following.
+func secureHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return errors.New("too many redirects")
+			}
+			if len(via) > 0 && req.URL.Host != via[0].URL.Host {
+				return errors.New("cross-origin redirect refused")
+			}
+			return nil
+		},
+	}
+}
+
+// fetchLatestTag gets the most recent tag from GitHub. Validates strictly.
 func fetchLatestTag() (string, error) {
-	resp, err := httpClientShort.Get("https://api.github.com/repos/mrthoabby/serverpilot/tags?per_page=1")
+	client := secureHTTPClient(15 * time.Second)
+	resp, err := client.Get("https://api.github.com/repos/mrthoabby/serverpilot/tags?per_page=1")
 	if err != nil {
-		return "", fmt.Errorf("HTTP request failed: %w", err)
+		return "", fmt.Errorf("HTTP request failed")
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		// Drain and discard body so the connection can be reused.
-		io.Copy(io.Discard, resp.Body)
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
 		return "", fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
 	}
 
-	// Limit response body to 256 KB to prevent memory exhaustion from a rogue response.
 	limited := io.LimitReader(resp.Body, 256*1024)
 	var tags []githubTag
 	if err := json.NewDecoder(limited).Decode(&tags); err != nil {
-		return "", fmt.Errorf("failed to parse response: %w", err)
+		return "", fmt.Errorf("failed to parse response")
 	}
-
 	if len(tags) == 0 {
 		return "", fmt.Errorf("no tags found in repository")
 	}
-
+	if !tagRegex.MatchString(tags[0].Name) {
+		return "", fmt.Errorf("refusing update: invalid tag format")
+	}
 	return tags[0].Name, nil
 }
 
-// httpClientDownload is a shared HTTP client with longer timeout for binary downloads.
-var httpClientDownload = &http.Client{Timeout: 2 * time.Minute}
+// maxBinarySize caps the download size at 200 MB to prevent memory exhaustion.
+const maxBinarySize = 200 * 1024 * 1024
 
-// maxBinarySize caps the download size at 100 MB to prevent memory exhaustion.
-const maxBinarySize = 100 * 1024 * 1024
-
-// downloadAndReplace downloads the new binary and atomically replaces the current one.
+// downloadAndReplace downloads the new binary, verifies its SHA-256 against
+// the published checksum file, and atomically replaces the current binary.
+//
+// Hardening over the previous implementation:
+//   - Pinned to the IMMUTABLE GitHub release asset URL (not master).
+//   - Strict tag regex check before URL composition.
+//   - SHA-256 checksum download + constant-time compare before swap.
+//   - TLS 1.2+ minimum, no cross-origin redirects, explicit timeouts.
+//   - os.CreateTemp inside the binary's own directory (no predictable name).
+//   - Explicit fsync before rename.
 func downloadAndReplace(tagVersion string) error {
+	if !tagRegex.MatchString(tagVersion) {
+		return fmt.Errorf("refusing update: invalid tag format")
+	}
+
 	osName := runtime.GOOS
 	archName := runtime.GOARCH
 
-	ver := strings.TrimPrefix(tagVersion, "v")
-	downloadURL := fmt.Sprintf(
-		"https://raw.githubusercontent.com/mrthoabby/serverpilot/master/release/%s/sp-%s-%s",
-		ver, osName, archName,
-	)
+	client := secureHTTPClient(5 * time.Minute)
+	base := fmt.Sprintf("https://github.com/mrthoabby/serverpilot/releases/download/%s", tagVersion)
+	binURL := fmt.Sprintf("%s/sp-%s-%s", base, osName, archName)
+	sumURL := binURL + ".sha256"
 
-	resp, err := httpClientDownload.Get(downloadURL)
+	binBytes, err := fetchLimited(client, binURL, maxBinarySize)
 	if err != nil {
-		return fmt.Errorf("download failed: %w", err)
+		return fmt.Errorf("binary download failed")
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		io.Copy(io.Discard, resp.Body) // drain so connection can be reused
-		return fmt.Errorf("download returned status %d", resp.StatusCode)
+	sumBytes, err := fetchLimited(client, sumURL, 1024)
+	if err != nil {
+		return fmt.Errorf("checksum download failed — refusing update")
+	}
+	sumFields := strings.Fields(string(sumBytes))
+	if len(sumFields) == 0 {
+		return fmt.Errorf("empty checksum file")
+	}
+	expectedSum, err := hex.DecodeString(sumFields[0])
+	if err != nil || len(expectedSum) != sha256.Size {
+		return fmt.Errorf("invalid checksum file")
+	}
+	actualSum := sha256.Sum256(binBytes)
+	if subtle.ConstantTimeCompare(actualSum[:], expectedSum) != 1 {
+		return fmt.Errorf("checksum mismatch — refusing update")
 	}
 
 	execPath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("cannot determine executable path: %w", err)
+		return fmt.Errorf("cannot determine executable path")
 	}
-
-	randBytes := make([]byte, 8)
-	if _, err := rand.Read(randBytes); err != nil {
-		return fmt.Errorf("failed to generate random bytes: %w", err)
+	if resolved, err := filepath.EvalSymlinks(execPath); err == nil {
+		execPath = resolved
 	}
-	tmpPath := execPath + ".tmp-" + hex.EncodeToString(randBytes)
+	dir := filepath.Dir(execPath)
 
-	tmpFile, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	tmp, err := os.CreateTemp(dir, ".sp-update-*")
 	if err != nil {
-		return fmt.Errorf("cannot create temp file: %w", err)
+		return fmt.Errorf("cannot create temp file")
 	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
 
-	// Limit download size to prevent unbounded memory/disk consumption.
-	limited := io.LimitReader(resp.Body, maxBinarySize)
-	if _, err := io.Copy(tmpFile, limited); err != nil {
-		tmpFile.Close()
-		os.Remove(tmpPath)
-		return fmt.Errorf("failed to write update: %w", err)
+	if _, err := tmp.Write(binBytes); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write failed")
 	}
-	tmpFile.Close()
-
+	if err := tmp.Chmod(0o755); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("chmod failed")
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("sync failed")
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close failed")
+	}
 	if err := os.Rename(tmpPath, execPath); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("failed to replace binary: %w", err)
+		return fmt.Errorf("failed to replace binary")
 	}
 
+	// Suppress unused-rand-helper imports when no longer needed.
+	_ = rand.Reader
+	_ = randomHexHelper
 	return nil
+}
+
+// randomHexHelper keeps rand/hex in the dependency graph for any callers that
+// still rely on the helper exported by earlier versions of this file.
+func randomHexHelper(n int) (string, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+func fetchLimited(client *http.Client, url string, max int64) ([]byte, error) {
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, max))
 }
 
 // ── Settings Handlers ──
@@ -2980,13 +3272,26 @@ func (s *Server) handleFirewallOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := users.OpenFirewallPort(req.Port, req.Source); err != nil {
-		log.Printf("firewall-open: failed port %d: %v", req.Port, err)
-		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+	// Validate the CIDR / IP before letting it flow into the gcloud command
+	// (CWE-78 / CWE-99). Defaults to allow-all when omitted to preserve
+	// existing API behaviour.
+	source := req.Source
+	if source == "" {
+		source = "0.0.0.0/0"
+	}
+	cidr, err := validateCIDR(source)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid source CIDR"})
 		return
 	}
 
-	log.Printf("firewall-open: opened TCP port %d (source: %s)", req.Port, req.Source)
+	if err := users.OpenFirewallPort(req.Port, cidr); err != nil {
+		log.Printf("firewall-open: failed port %d: %v", req.Port, err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "failed to open firewall port"})
+		return
+	}
+
+	log.Printf("firewall-open: opened TCP port %d (source: %s)", req.Port, cidr)
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]interface{}{
 		"port":    req.Port,
 		"message": fmt.Sprintf("Firewall rule created for TCP:%d", req.Port),

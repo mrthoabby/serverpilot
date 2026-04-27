@@ -3,9 +3,11 @@ package cmd
 import (
 	"bufio"
 	"fmt"
+	"net/mail"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -91,16 +93,13 @@ func setupSSL() error {
 
 	// --- Collect email ---
 	fmt.Print("  Enter your email (for Let's Encrypt notifications): ")
-	email, err := reader.ReadString('\n')
+	emailRaw, err := reader.ReadString('\n')
 	if err != nil {
 		return fmt.Errorf("failed to read email: %w", err)
 	}
-	email = strings.TrimSpace(email)
-	if email == "" || !strings.Contains(email, "@") || !strings.Contains(email, ".") {
-		return fmt.Errorf("invalid email format")
-	}
-	if len(email) > 254 {
-		return fmt.Errorf("email too long")
+	email, err := validateSetupEmail(emailRaw)
+	if err != nil {
+		return err
 	}
 
 	// --- Collect port (default 8090) ---
@@ -137,12 +136,40 @@ func setupSSL() error {
 	configPath := filepath.Join("/etc/nginx/sites-available", domain)
 
 	absPath, err := filepath.Abs(configPath)
-	if err != nil || !strings.HasPrefix(absPath, "/etc/nginx/") {
+	if err != nil {
+		return fmt.Errorf("invalid nginx config path")
+	}
+	// Strict containment using filepath.Rel — robust against trailing-slash
+	// and "/etc/nginxFOO" tricks that strings.HasPrefix would have allowed.
+	const sitesAvailable = "/etc/nginx/sites-available"
+	rel, err := filepath.Rel(sitesAvailable, absPath)
+	if err != nil || strings.HasPrefix(rel, "..") || strings.ContainsRune(rel, filepath.Separator) {
 		return fmt.Errorf("invalid nginx config path")
 	}
 
-	if err := os.WriteFile(absPath, []byte(nginxConfig), 0644); err != nil {
-		return fmt.Errorf("failed to write nginx config: %w", err)
+	// Refuse to overwrite an existing config — protect production vhosts (CWE-22).
+	if info, err := os.Lstat(absPath); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing to overwrite symlink at %s", absPath)
+		}
+		return fmt.Errorf("refusing to overwrite existing nginx config: %s — remove it manually first or pick a different domain", absPath)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to stat nginx config path")
+	}
+
+	// O_EXCL closes the TOCTOU window between Lstat and write.
+	f, err := os.OpenFile(absPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return fmt.Errorf("failed to write nginx config")
+	}
+	if _, err := f.WriteString(nginxConfig); err != nil {
+		_ = f.Close()
+		_ = os.Remove(absPath)
+		return fmt.Errorf("failed to write nginx config")
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(absPath)
+		return fmt.Errorf("failed to close nginx config")
 	}
 	fmt.Printf("  ✓ Config written: %s\n", absPath)
 
@@ -226,3 +253,34 @@ func buildCertbotArgs(certbotBin, domain, email string) []string {
 	}
 	return args
 }
+
+// validateSetupEmail enforces a strict allowlist over the operator-supplied
+// email value (CWE-78 / CWE-20). Reject any control character, leading "-"
+// (which downstream tools could parse as a flag), or anything that does not
+// match a conservative RFC-5321-friendly regex AND parse as a valid address.
+func validateSetupEmail(raw string) (string, error) {
+	cleaned := strings.TrimSpace(raw)
+	if cleaned == "" {
+		return "", fmt.Errorf("email cannot be empty")
+	}
+	if len(cleaned) > 254 {
+		return "", fmt.Errorf("email too long")
+	}
+	if strings.HasPrefix(cleaned, "-") {
+		return "", fmt.Errorf("email cannot start with '-'")
+	}
+	for _, r := range cleaned {
+		if r < 0x20 || r == 0x7f {
+			return "", fmt.Errorf("email contains invalid characters")
+		}
+	}
+	if !setupEmailRegex.MatchString(cleaned) {
+		return "", fmt.Errorf("invalid email format")
+	}
+	if _, err := mail.ParseAddress(cleaned); err != nil {
+		return "", fmt.Errorf("invalid email format")
+	}
+	return cleaned, nil
+}
+
+var setupEmailRegex = regexp.MustCompile(`^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$`)

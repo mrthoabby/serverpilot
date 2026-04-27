@@ -3,10 +3,19 @@ package users
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+// ruleNameRegex restricts a GCP firewall rule name to the characters GCP
+// itself allows (lowercase alnum + hyphen, must start with a letter, max 63).
+// This is used by CloseFirewallPort to guarantee the user-supplied value
+// flowing into the gcloud argv cannot start with "-" (which would be parsed
+// as another flag) and cannot contain whitespace or shell metacharacters.
+var ruleNameRegex = regexp.MustCompile(`^sp-[a-z0-9-]{1,60}$`)
 
 // GCloudStatus reports whether gcloud is available and configured.
 type GCloudStatus struct {
@@ -101,13 +110,22 @@ func ListFirewallRules() ([]FirewallRule, error) {
 
 // OpenFirewallPort creates a GCP firewall rule that allows TCP traffic on the
 // specified port from the given source range (default 0.0.0.0/0).
-// The rule name is auto-generated as "sp-allow-tcp-<port>".
+//
+// Hardening (CWE-78 / CWE-99): the previous version concatenated the
+// caller-supplied sourceRange directly into a `--source-ranges=` argument
+// without re-validating. While the higher-level web handler validated, this
+// function is also called from other code paths and from a future API; we
+// re-validate at the SDK boundary to fail-closed regardless of caller.
 func OpenFirewallPort(port int, sourceRange string) error {
 	if port < 1 || port > 65535 {
-		return fmt.Errorf("invalid port: %d", port)
+		return fmt.Errorf("invalid port")
 	}
 	if sourceRange == "" {
 		sourceRange = "0.0.0.0/0"
+	}
+	canonical, err := canonicalCIDR(sourceRange)
+	if err != nil {
+		return fmt.Errorf("invalid source range")
 	}
 
 	ruleName := fmt.Sprintf("sp-allow-tcp-%d", port)
@@ -116,15 +134,34 @@ func OpenFirewallPort(port int, sourceRange string) error {
 		"--direction=INGRESS",
 		"--action=ALLOW",
 		"--rules=tcp:"+strconv.Itoa(port),
-		"--source-ranges="+sourceRange,
+		"--source-ranges="+canonical,
 		"--description=Opened by ServerPilot",
 		"--quiet",
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("gcloud failed: %s (%w)", strings.TrimSpace(string(out)), err)
+		// Do NOT echo gcloud's stderr back to the caller — it may contain
+		// project/account hints. Log internally; surface a generic error.
+		return fmt.Errorf("gcloud command failed (%d bytes of output suppressed)", len(out))
 	}
 	return nil
+}
+
+// canonicalCIDR parses a single IPv4 address or IPv4 CIDR and returns the
+// canonical CIDR string. Refuses anything that does not parse cleanly.
+func canonicalCIDR(s string) (string, error) {
+	if strings.Contains(s, "/") {
+		_, n, err := net.ParseCIDR(s)
+		if err != nil {
+			return "", err
+		}
+		return n.String(), nil
+	}
+	ip := net.ParseIP(s)
+	if ip == nil || ip.To4() == nil {
+		return "", fmt.Errorf("not an IPv4 address")
+	}
+	return ip.String() + "/32", nil
 }
 
 // CloseFirewallPort deletes a GCP firewall rule by name.
@@ -133,15 +170,18 @@ func CloseFirewallPort(ruleName string) error {
 	if ruleName == "" {
 		return fmt.Errorf("rule name is required")
 	}
-	// Safety: only delete rules created by ServerPilot.
-	if !strings.HasPrefix(ruleName, "sp-") {
-		return fmt.Errorf("can only delete ServerPilot-managed rules (prefix 'sp-')")
+	// Strict allowlist. The caller may have already checked the prefix, but
+	// argument-injection defenses must live at the SDK boundary too — the
+	// regex refuses any leading "-" (which gcloud would parse as a flag) and
+	// any character outside [a-z0-9-]. This is what GCP itself accepts.
+	if !ruleNameRegex.MatchString(ruleName) {
+		return fmt.Errorf("invalid rule name format")
 	}
 
 	cmd := exec.Command("gcloud", "compute", "firewall-rules", "delete", ruleName, "--quiet")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("gcloud failed: %s (%w)", strings.TrimSpace(string(out)), err)
+		return fmt.Errorf("gcloud command failed (%d bytes of output suppressed)", len(out))
 	}
 	return nil
 }

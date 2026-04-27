@@ -1,15 +1,23 @@
 package cmd
 
 import (
-	"crypto/rand"
+	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -18,11 +26,67 @@ type githubTag struct {
 	Name string `json:"name"`
 }
 
+// ── Hardening ────────────────────────────────────────────────────────────
+//
+// Auto-update is the highest-impact attack surface for any root daemon.
+// The defenses applied here are layered:
+//   1. Pin downloads to immutable GitHub release asset URLs (NOT raw/master).
+//   2. Validate the tag string against a strict semver regex BEFORE letting
+//      it flow into a download URL — closes the URL-injection channel via
+//      a malicious / poisoned GitHub API response.
+//   3. Cap response sizes via io.LimitReader to prevent memory-exhaustion DoS.
+//   4. Set explicit context-bound timeouts and TLS 1.2+ minimum.
+//   5. Refuse cross-origin redirects.
+//   6. Verify a SHA-256 checksum file alongside the binary before swapping.
+//   7. Smoke-test the new binary before triggering systemd; roll back on
+//      failure (kept as <exec>.old).
+//
+// NOTE on signature verification: ideally the artifact is also signed with
+// Ed25519 / cosign and the public key is embedded at build time. The current
+// project does not yet ship a key, so checksum-over-HTTPS-from-the-same-tag
+// is the strongest control we can apply without changing the release process.
+// Adding signature verification later is a one-line drop-in (see verifySig).
+//
+// ── End hardening notes ──────────────────────────────────────────────────
+
+const (
+	httpUpdateTimeout  = 30 * time.Second
+	httpDownloadTimeout = 5 * time.Minute
+	maxBinarySize       = 200 * 1024 * 1024 // 200 MB
+	maxJSONResponseSize = 256 * 1024        // 256 KB
+	maxChecksumSize     = 1024              // 1 KB
+)
+
+var tagRegex = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
+
+func newSecureHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
+		},
+		// Disable cross-origin redirects.
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return errors.New("too many redirects")
+			}
+			if len(via) > 0 && req.URL.Host != via[0].URL.Host {
+				return errors.New("cross-origin redirect refused")
+			}
+			return nil
+		},
+	}
+}
+
 var updateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Self-update ServerPilot to the latest version",
 	Long:  "Fetches the latest release from GitHub and replaces the current binary.",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if os.Geteuid() != 0 {
+			return fmt.Errorf("update must be run as root (try: sudo sp update)")
+		}
+
 		fmt.Println("Checking for updates...")
 
 		latestVersion, err := fetchLatestTag()
@@ -42,13 +106,12 @@ var updateCmd = &cobra.Command{
 		fmt.Printf("Latest version:  v%s\n", latest)
 		fmt.Println("Downloading update...")
 
-		if err := downloadAndReplace(latestVersion); err != nil {
+		if err := updateBinaryWithRollback(latestVersion); err != nil {
 			return fmt.Errorf("failed to update: %w", err)
 		}
 
 		fmt.Printf("Successfully updated to v%s.\n", latest)
 
-		// If the daemon is running, restart it so it picks up the new binary.
 		if IsRunningAsDaemon() {
 			fmt.Println()
 			if err := RestartDaemon(); err != nil {
@@ -56,7 +119,6 @@ var updateCmd = &cobra.Command{
 				fmt.Fprintln(os.Stderr, "You can restart it manually with: sp stop && sp start -d")
 			}
 		}
-
 		return nil
 	},
 }
@@ -66,79 +128,177 @@ func init() {
 }
 
 func fetchLatestTag() (string, error) {
-	resp, err := http.Get("https://api.github.com/repos/mrthoabby/serverpilot/tags?per_page=1")
+	ctx, cancel := context.WithTimeout(context.Background(), httpUpdateTimeout)
+	defer cancel()
+
+	client := newSecureHTTPClient(httpUpdateTimeout)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://api.github.com/repos/mrthoabby/serverpilot/tags?per_page=1", nil)
 	if err != nil {
-		return "", fmt.Errorf("HTTP request failed: %w", err)
+		return "", fmt.Errorf("failed to build update request")
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("update check failed")
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+		return "", fmt.Errorf("update check failed (HTTP %d)", resp.StatusCode)
 	}
 
+	limited := io.LimitReader(resp.Body, maxJSONResponseSize)
 	var tags []githubTag
-	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil {
-		return "", fmt.Errorf("failed to parse response: %w", err)
+	if err := json.NewDecoder(limited).Decode(&tags); err != nil {
+		return "", fmt.Errorf("invalid update response")
 	}
-
 	if len(tags) == 0 {
-		return "", fmt.Errorf("no tags found in repository")
+		return "", fmt.Errorf("no releases found")
 	}
 
+	// Validate the tag BEFORE returning it — closes URL injection channel.
+	if !tagRegex.MatchString(tags[0].Name) {
+		return "", fmt.Errorf("refusing update: invalid tag format")
+	}
 	return tags[0].Name, nil
 }
 
+func fetchLimitedBytes(client *http.Client, url string, max int64) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), httpDownloadTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, max))
+}
+
+// downloadAndReplace downloads + verifies the binary and atomically replaces
+// the running executable. It is intentionally conservative — every step that
+// can fail does so loudly, with no fallback.
 func downloadAndReplace(tagVersion string) error {
+	if !tagRegex.MatchString(tagVersion) {
+		return fmt.Errorf("refusing to update: invalid tag format")
+	}
+
 	osName := runtime.GOOS
 	archName := runtime.GOARCH
 
-	// Strip the leading "v" from the tag for the release directory path.
-	ver := strings.TrimPrefix(tagVersion, "v")
-	downloadURL := fmt.Sprintf(
-		"https://raw.githubusercontent.com/mrthoabby/serverpilot/master/release/%s/sp-%s-%s",
-		ver, osName, archName,
-	)
+	client := newSecureHTTPClient(httpDownloadTimeout)
 
-	resp, err := http.Get(downloadURL)
+	// Pin to the immutable tag asset URL — NOT raw.githubusercontent.com/master.
+	base := fmt.Sprintf("https://github.com/mrthoabby/serverpilot/releases/download/%s", tagVersion)
+	binURL := fmt.Sprintf("%s/sp-%s-%s", base, osName, archName)
+	sumURL := binURL + ".sha256"
+
+	binBytes, err := fetchLimitedBytes(client, binURL, maxBinarySize)
 	if err != nil {
-		return fmt.Errorf("download failed: %w", err)
+		return fmt.Errorf("binary download failed")
 	}
-	defer resp.Body.Close()
+	sumBytes, err := fetchLimitedBytes(client, sumURL, maxChecksumSize)
+	if err != nil {
+		return fmt.Errorf("checksum download failed — refusing update")
+	}
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download returned status %d", resp.StatusCode)
+	// Parse "<hex>  <filename>" or just "<hex>".
+	sumFields := strings.Fields(string(sumBytes))
+	if len(sumFields) == 0 {
+		return fmt.Errorf("empty checksum file — refusing update")
+	}
+	expectedSum, err := hex.DecodeString(sumFields[0])
+	if err != nil || len(expectedSum) != sha256.Size {
+		return fmt.Errorf("invalid checksum file — refusing update")
+	}
+
+	actualSum := sha256.Sum256(binBytes)
+	if subtle.ConstantTimeCompare(actualSum[:], expectedSum) != 1 {
+		return fmt.Errorf("checksum mismatch — refusing update")
 	}
 
 	execPath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("cannot determine executable path: %w", err)
+		return fmt.Errorf("cannot determine executable path")
 	}
-
-	// Generate a random suffix for the temp file using crypto/rand.
-	randBytes := make([]byte, 8)
-	if _, err := rand.Read(randBytes); err != nil {
-		return fmt.Errorf("failed to generate random bytes: %w", err)
+	if resolved, err := filepath.EvalSymlinks(execPath); err == nil {
+		execPath = resolved
 	}
-	randSuffix := hex.EncodeToString(randBytes)
-	tmpPath := execPath + ".tmp-" + randSuffix
+	dir := filepath.Dir(execPath)
 
-	tmpFile, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	tmp, err := os.CreateTemp(dir, ".sp-update-*")
 	if err != nil {
-		return fmt.Errorf("cannot create temp file: %w", err)
+		return fmt.Errorf("cannot create temp file")
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+
+	if _, err := tmp.Write(binBytes); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write failed")
+	}
+	if err := tmp.Chmod(0o755); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("chmod failed")
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("sync failed")
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close failed")
 	}
 
-	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
-		tmpFile.Close()
-		os.Remove(tmpPath)
-		return fmt.Errorf("failed to write update: %w", err)
-	}
-	tmpFile.Close()
-
-	// Atomic replace: rename the temp file over the current binary.
 	if err := os.Rename(tmpPath, execPath); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("failed to replace binary: %w", err)
+		return fmt.Errorf("failed to replace binary")
+	}
+	return nil
+}
+
+// updateBinaryWithRollback wraps downloadAndReplace with a smoke-test +
+// automatic rollback on failure. Converts a one-shot bricking event into a
+// recoverable failure.
+func updateBinaryWithRollback(latestVersion string) error {
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("cannot determine executable path")
+	}
+	if resolved, err := filepath.EvalSymlinks(execPath); err == nil {
+		execPath = resolved
 	}
 
+	backupPath := execPath + ".old"
+	// Best-effort backup of current binary before swap.
+	if data, rerr := os.ReadFile(execPath); rerr == nil {
+		_ = os.WriteFile(backupPath, data, 0o755)
+	}
+
+	if err := downloadAndReplace(latestVersion); err != nil {
+		return err
+	}
+
+	// Smoke-test the new binary before asking systemd to swap.
+	smokeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	smoke := exec.CommandContext(smokeCtx, execPath, "--version")
+	smoke.Stdout = io.Discard
+	smoke.Stderr = io.Discard
+	if err := smoke.Run(); err != nil {
+		// Roll back.
+		if _, serr := os.Stat(backupPath); serr == nil {
+			_ = os.Rename(backupPath, execPath)
+		}
+		return fmt.Errorf("new binary failed smoke test, rolled back")
+	}
 	return nil
 }

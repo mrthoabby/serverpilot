@@ -73,19 +73,39 @@ var mu sync.Mutex
 // On every server restart a new key is generated, which means any cached
 // encrypted blobs from a previous session are automatically invalidated.
 
-var transportKey []byte
+var (
+	transportKey   []byte
+	transportKeyMu sync.Mutex
+)
 
-func init() {
-	transportKey = make([]byte, 32) // AES-256
-	if _, err := io.ReadFull(rand.Reader, transportKey); err != nil {
-		panic("failed to generate transport encryption key: " + err.Error())
+// getTransportKey returns the per-process AES-256 transport key, generating
+// it lazily on first use. Lazy generation lets the process start even if the
+// kernel CSPRNG is briefly unavailable at boot — the previous version called
+// init() and panicked on rand.Reader failure, which converted a transient
+// /dev/urandom hiccup into a hard daemon crash and a denial-of-service for
+// every other endpoint that did not need crypto.
+func getTransportKey() ([]byte, error) {
+	transportKeyMu.Lock()
+	defer transportKeyMu.Unlock()
+	if transportKey != nil {
+		return transportKey, nil
 	}
+	k := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, k); err != nil {
+		return nil, fmt.Errorf("CSPRNG unavailable")
+	}
+	transportKey = k
+	return transportKey, nil
 }
 
 // encryptContent encrypts plaintext with AES-256-GCM and returns a
 // base64-encoded string (nonce || ciphertext).
 func encryptContent(plaintext []byte) (string, error) {
-	block, err := aes.NewCipher(transportKey)
+	key, err := getTransportKey()
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", fmt.Errorf("aes.NewCipher: %w", err)
 	}
@@ -107,7 +127,11 @@ func decryptContent(encoded string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("base64 decode: %w", err)
 	}
-	block, err := aes.NewCipher(transportKey)
+	key, err := getTransportKey()
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("aes.NewCipher: %w", err)
 	}

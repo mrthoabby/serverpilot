@@ -38,6 +38,12 @@ Examples:
   sp start -d           # daemon mode via systemd
   sp start -d -p 9090   # daemon on port 9090`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// CWE-20 — same range check applied by `sp expose`. Validating
+		// here gives a clean error instead of a deep net.Listen failure
+		// and prevents writing a malformed systemd unit (CWE-732).
+		if startPort < 1 || startPort > 65535 {
+			return fmt.Errorf("invalid --port: must be between 1 and 65535")
+		}
 		if startDaemon {
 			return startAsDaemon()
 		}
@@ -110,9 +116,32 @@ func startAsDaemon() error {
 	// Generate the systemd unit file.
 	unitContent := generateServiceUnit(execPath, startPort)
 
-	// Write the service file (requires root).
-	if err := os.WriteFile(serviceFile, []byte(unitContent), 0644); err != nil {
-		return fmt.Errorf("failed to write systemd service file (are you running as root?): %w", err)
+	// Atomic write (CWE-732 / CWE-367): write to a temp file in the same
+	// directory then rename, so systemd never sees a partially written unit.
+	dir := filepath.Dir(serviceFile)
+	tmp, err := os.CreateTemp(dir, ".serverpilot.service.*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp service file (are you running as root?): %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if _, err := tmp.WriteString(unitContent); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("failed to write systemd service file: %w", err)
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("failed to chmod service file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("failed to sync service file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("failed to close service file: %w", err)
+	}
+	if err := os.Rename(tmpPath, serviceFile); err != nil {
+		return fmt.Errorf("failed to install service file: %w", err)
 	}
 	fmt.Printf("  ✓ Service file created: %s\n", serviceFile)
 

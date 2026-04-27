@@ -611,7 +611,7 @@ func readDiskBreakdown() []DiskBreakdownEntry {
 			// The -x flag is critical: it prevents du from entering Docker overlay2
 			// merged/ directories (which are overlay mount points on a different fs
 			// type), avoiding the 3-4x overcounting that happens without it.
-			cmd := exec.Command("du", "-smx", path)
+			cmd := exec.Command("/usr/bin/du", "-smx", "--", path)
 			done := make(chan []byte, 1)
 			go func() {
 				out, _ := cmd.Output()
@@ -797,7 +797,7 @@ func DiskDetailDir(dirPath string) ([]DiskDetailEntry, error) {
 
 			childPath := filepath.Join(clean, d.Name())
 			// -x: stay on the same filesystem — avoids traversing Docker overlays.
-			cmd := exec.Command("du", "-smx", childPath)
+			cmd := exec.Command("/usr/bin/du", "-smx", "--", childPath)
 			// Use Output() (stdout only) — stderr has permission errors that corrupt parsing.
 			done := make(chan []byte, 1)
 			go func() {
@@ -861,29 +861,43 @@ func DiskDetailDir(dirPath string) ([]DiskDetailEntry, error) {
 }
 
 // DiskTopFiles finds the N largest files under a given root path.
-// Uses find + sort, limited by timeout.
+// Uses find + a Go-side sort, limited by timeout.
+//
+// Hardening (CWE-78 — command injection): the previous version interpolated
+// the user-supplied path into a `sh -c` script via fmt.Sprintf. Even though
+// callers were supposed to validate, an attacker who could pass ".../$(rm -rf
+// /)" — or any quoted path containing a metacharacter — could achieve RCE as
+// root. The new implementation:
+//   - Drops the shell entirely; calls /usr/bin/find directly with separate
+//     argv entries so no token is ever re-interpreted by a shell.
+//   - Sorts and head-limits in Go.
+//   - Pins the absolute path to /usr/bin/find to neutralise PATH games.
 func DiskTopFiles(root string, limit int) ([]DiskTopFile, error) {
 	if !strings.HasPrefix(root, "/") {
 		return nil, fmt.Errorf("path must be absolute")
 	}
 	clean := filepath.Clean(root)
+	if strings.Contains(clean, "..") {
+		return nil, fmt.Errorf("invalid path")
+	}
 	if _, err := os.Stat(clean); err != nil {
-		return nil, fmt.Errorf("path not found: %s", clean)
+		return nil, fmt.Errorf("path not found")
 	}
 	if limit <= 0 || limit > 50 {
 		limit = 10
 	}
 
-	// find <root> -type f -printf '%s %p\n' | sort -rn | head -N
-	// %s = size in bytes, %p = path
-	script := fmt.Sprintf(
-		`find %s -xdev -type f -printf '%%s %%p\n' 2>/dev/null | sort -rn | head -%d`,
-		clean, limit,
+	// /usr/bin/find -- <path> -xdev -type f -printf '%s %p\n'
+	// "--" stops option processing so a path that starts with "-" is treated
+	// as a positional argument, not a flag.
+	cmd := exec.Command("/usr/bin/find",
+		"--", clean,
+		"-xdev",
+		"-type", "f",
+		"-printf", "%s %p\n",
 	)
-	cmd := exec.Command("sh", "-c", script)
+	cmd.Stderr = io.Discard
 
-	// Use a buffered channel so the goroutine can always send and exit,
-	// even if we already returned due to timeout (prevents goroutine leak).
 	done := make(chan []byte, 1)
 	go func() {
 		out, _ := cmd.Output()
@@ -895,14 +909,17 @@ func DiskTopFiles(root string, limit int) ([]DiskTopFile, error) {
 	case output = <-done:
 	case <-time.After(15 * time.Second):
 		if cmd.Process != nil {
-			cmd.Process.Kill()
+			_ = cmd.Process.Kill()
 		}
-		// Drain the goroutine's send so it can exit and be GC'd.
 		go func() { <-done }()
-		return nil, fmt.Errorf("timed out scanning %s", clean)
+		return nil, fmt.Errorf("scan timed out")
 	}
 
-	var files []DiskTopFile
+	type sized struct {
+		size float64
+		path string
+	}
+	var all []sized
 	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
 		if line == "" {
 			continue
@@ -915,12 +932,20 @@ func DiskTopFiles(root string, limit int) ([]DiskTopFile, error) {
 		if err != nil {
 			continue
 		}
-		fpath := parts[1]
-		sizeMB := sizeBytes / (1024 * 1024)
-		name := filepath.Base(fpath)
+		all = append(all, sized{size: sizeBytes, path: parts[1]})
+	}
+	// Largest first.
+	sort.Slice(all, func(i, j int) bool { return all[i].size > all[j].size })
+	if len(all) > limit {
+		all = all[:limit]
+	}
 
+	files := make([]DiskTopFile, 0, len(all))
+	for _, s := range all {
+		sizeMB := s.size / (1024 * 1024)
+		name := filepath.Base(s.path)
 		files = append(files, DiskTopFile{
-			Path:   fpath,
+			Path:   s.path,
 			Name:   name,
 			SizeMB: math.Round(sizeMB*100) / 100,
 			SizeGB: math.Round(sizeMB/1024*100) / 100,
@@ -1088,16 +1113,44 @@ func CollectMemoryDetail() *MemoryDetail {
 
 // DeletePaths deletes the specified file/directory paths.
 // Returns a map of path → error message (empty string on success).
-// Only allows paths under safe root directories.
+//
+// Hardening (CWE-22 / CWE-77): the previous implementation only checked exact
+// equality against a small block-list of root paths (e.g. "/", "/etc", "/var").
+// That left many destructive deletions reachable, including arbitrary
+// /etc/<file>, /usr/local, /home/<user>, and following symlinks into protected
+// roots. The hardened version:
+//   - Refuses any prefix-match against the protected-root list (anything
+//     under /etc, /usr, /var, /boot, etc. is rejected).
+//   - Refuses to follow symlinks at the leaf — uses Lstat and rejects if the
+//     target is a symlink (otherwise os.Remove on a symlink-to-/etc would
+//     happily delete /etc).
+//   - Refuses paths whose canonical (Cleaned) form differs from the input.
+//
+// The web-handler layer additionally enforces a strict allowlist; this is
+// the defence-in-depth lower layer.
 func DeletePaths(paths []string) map[string]string {
 	results := make(map[string]string, len(paths))
 
-	// Safety: never allow deleting these roots — O(1) lookup via map.
-	blocked := map[string]bool{
-		"/": true, "/bin": true, "/sbin": true, "/boot": true,
-		"/dev": true, "/proc": true, "/sys": true, "/run": true,
-		"/usr": true, "/usr/bin": true, "/usr/sbin": true, "/usr/lib": true,
-		"/etc": true, "/etc/serverpilot": true, "/var": true, "/lib": true,
+	// Protected roots — refuse the root itself AND anything under it.
+	protectedRoots := []string{
+		"/", "/bin", "/sbin", "/boot", "/dev", "/proc", "/sys", "/run",
+		"/usr", "/lib", "/lib32", "/lib64", "/etc", "/root",
+		"/var/lib/dpkg", "/var/lib/apt/lists",
+	}
+
+	isProtected := func(p string) bool {
+		if p == "/" {
+			return true
+		}
+		for _, root := range protectedRoots {
+			if p == root {
+				return true
+			}
+			if strings.HasPrefix(p, root+"/") {
+				return true
+			}
+		}
+		return false
 	}
 
 	for _, p := range paths {
@@ -1106,16 +1159,30 @@ func DeletePaths(paths []string) map[string]string {
 			results[p] = "path must be absolute"
 			continue
 		}
-
-		if blocked[clean] {
+		if strings.Contains(clean, "..") {
+			results[p] = "traversal not allowed"
+			continue
+		}
+		if isProtected(clean) {
 			results[p] = "cannot delete protected system path"
 			continue
 		}
 
-		// Verify the path exists.
 		fi, err := os.Lstat(clean)
 		if err != nil {
 			results[p] = "not found"
+			continue
+		}
+		// Refuse to follow symlinks — otherwise a symlink at /tmp/foo →
+		// /etc/passwd would delete /etc/passwd, or RemoveAll on a symlinked
+		// directory would delete its target.
+		if fi.Mode()&os.ModeSymlink != 0 {
+			// Just unlink the symlink itself.
+			if err := os.Remove(clean); err != nil {
+				results[p] = "remove symlink failed"
+			} else {
+				results[p] = ""
+			}
 			continue
 		}
 
@@ -1125,7 +1192,7 @@ func DeletePaths(paths []string) map[string]string {
 			err = os.Remove(clean)
 		}
 		if err != nil {
-			results[p] = err.Error()
+			results[p] = "delete failed"
 		} else {
 			results[p] = ""
 		}

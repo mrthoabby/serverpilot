@@ -153,9 +153,14 @@ func ValidatePassword(config *Config, password string) bool {
 }
 
 // ResetPassword updates the password hash for an existing config and saves it.
+//
+// Hardening (CWE-521 — weak password policy): the previous version only
+// required 8 characters. We now also require a minimum length of 12 and at
+// least three character classes. We additionally reject the username as the
+// password, and reject a small block-list of trivially common passwords.
 func ResetPassword(config *Config, newPassword string) error {
-	if len(newPassword) < 8 {
-		return fmt.Errorf("password must be at least 8 characters")
+	if err := validatePasswordStrength(config.Username, newPassword); err != nil {
+		return err
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
@@ -165,6 +170,58 @@ func ResetPassword(config *Config, newPassword string) error {
 
 	config.PasswordHash = string(hash)
 	return saveConfig(*config)
+}
+
+// validatePasswordStrength enforces a baseline policy. It is intentionally
+// modest — for an internet-exposed admin dashboard, also enable the per-IP
+// login lockout (see internal/web/middleware.go) and ideally a 2FA layer.
+func validatePasswordStrength(username, pw string) error {
+	if len(pw) < 12 {
+		return fmt.Errorf("password must be at least 12 characters")
+	}
+	if len(pw) > 256 {
+		return fmt.Errorf("password too long")
+	}
+	if username != "" && strings.EqualFold(pw, username) {
+		return fmt.Errorf("password cannot equal the username")
+	}
+	var hasLower, hasUpper, hasDigit, hasSymbol bool
+	for _, r := range pw {
+		switch {
+		case r >= 'a' && r <= 'z':
+			hasLower = true
+		case r >= 'A' && r <= 'Z':
+			hasUpper = true
+		case r >= '0' && r <= '9':
+			hasDigit = true
+		case r >= 33 && r <= 126:
+			hasSymbol = true
+		}
+	}
+	classes := 0
+	for _, b := range []bool{hasLower, hasUpper, hasDigit, hasSymbol} {
+		if b {
+			classes++
+		}
+	}
+	if classes < 3 {
+		return fmt.Errorf("password must include at least three of: lowercase, uppercase, digits, symbols")
+	}
+	// A tiny, illustrative blocklist. Operators should integrate a HIBP-style
+	// breach-list check in a future iteration.
+	common := map[string]bool{
+		"password":     true,
+		"password123":  true,
+		"admin":        true,
+		"administrator":true,
+		"changeme":     true,
+		"letmein":      true,
+		"qwerty123456": true,
+	}
+	if common[strings.ToLower(pw)] {
+		return fmt.Errorf("password is too common")
+	}
+	return nil
 }
 
 // GenerateSessionToken creates a cryptographically secure random token.
@@ -207,7 +264,7 @@ func SaveConfig(config Config) error {
 }
 
 func saveConfig(config Config) error {
-	if err := os.MkdirAll(configDir, 0700); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
@@ -216,10 +273,33 @@ func saveConfig(config Config) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(configFile, data, 0600); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
+	// Atomic write: create the temp file in the SAME directory so the rename
+	// is on the same filesystem (and thus genuinely atomic). Use os.CreateTemp
+	// to avoid a predictable temp filename that an attacker could pre-create.
+	tmp, err := os.CreateTemp(configDir, ".config-*.json")
+	if err != nil {
+		return fmt.Errorf("failed to create temp config file")
 	}
-
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("failed to chmod temp config")
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("failed to write temp config")
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("failed to sync temp config")
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("failed to close temp config")
+	}
+	if err := os.Rename(tmpPath, configFile); err != nil {
+		return fmt.Errorf("failed to install config file")
+	}
 	return nil
 }
 
