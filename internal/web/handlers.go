@@ -107,10 +107,24 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !auth.ValidatePassword(s.config, req.Password) || req.Username != s.config.Username {
+	// Always re-read the config from disk so that password resets via
+	// `sp credentials --reset` take effect immediately, even without
+	// a full daemon restart.  This avoids the stale-hash-in-memory bug
+	// where s.config still holds the old bcrypt hash.
+	freshConfig, err := auth.LoadConfig()
+	if err != nil {
+		log.Printf("login: failed to reload config from disk: %v", err)
+		// Fall back to in-memory config if disk read fails.
+		freshConfig = s.config
+	}
+
+	if !auth.ValidatePassword(freshConfig, req.Password) || req.Username != freshConfig.Username {
 		writeJSON(w, http.StatusUnauthorized, apiResponse{Error: "invalid credentials"})
 		return
 	}
+
+	// Update in-memory config so other handlers also see the latest values.
+	s.config = freshConfig
 
 	token, err := auth.GenerateSessionToken()
 	if err != nil {
