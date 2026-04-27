@@ -1091,7 +1091,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     <h1>Server<span>Pilot</span></h1>
     <p class="login-subtitle">Server administration dashboard</p>
     <div class="login-error" id="loginError"></div>
-    <form id="loginForm" autocomplete="on" method="POST" action="javascript:void(0)">
+    <form id="loginForm" autocomplete="on" onsubmit="return false;">
       <div class="form-group">
         <label for="username">Username</label>
         <input type="text" id="username" name="username" required autocomplete="username" placeholder="Enter username">
@@ -5737,8 +5737,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   document.getElementById('caseDeleteModal').addEventListener('click', function(e) {
     if (e.target === this) closeCaseDeleteModal();
   });
-})();
-
 })();
 </script>
 </body>
