@@ -2074,7 +2074,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     images:     function() { return loadImages(); },
     mappings:   function() { return loadMappings(); },
     resources:  function() { return loadResources(); },
-    apps:       function() { loadManagedApps(); return loadApps(); },
+    apps:       function() { loadManagedApps(); return loadApps(); },  // no auto-refresh for apps
     users:      function() { return loadDeployUsers(); },
     cases:      function() { return loadCases(); },
     settings:   function() { return loadSettings(); }
@@ -2089,7 +2089,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   function startGlobalRefresh() {
     stopGlobalRefresh();
     globalRefreshTimer = setInterval(function() {
-      if (activeTab && tabLoaders[activeTab]) {
+      // Skip auto-refresh for tabs that only need manual refresh.
+      var noAutoRefresh = { apps: true, cases: true };
+      if (activeTab && tabLoaders[activeTab] && !noAutoRefresh[activeTab]) {
         tabLoaders[activeTab]();
       }
     }, REFRESH_INTERVAL);
@@ -3684,8 +3686,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     el.innerHTML = '<div class="spinner"><div class="spinner-ring"></div>Loading managed applications...</div>';
     try {
       var resp = await apiFetch("/api/managed-apps");
-      var apps = (resp && resp.data) ? resp.data : (resp || []);
-      renderManagedApps(apps);
+      var appsList = (resp && resp.data) ? resp.data : [];
+      if (!Array.isArray(appsList)) appsList = [];
+      renderManagedApps(appsList);
     } catch(err) {
       el.innerHTML = '<p style="padding:1rem;color:var(--red);">Error: ' + escapeHtml(err.message) + '</p>';
     }
@@ -3694,8 +3697,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   function renderManagedApps(apps) {
     var el = document.getElementById("managedAppsContent");
     if (!el) return;
+    if (!Array.isArray(apps)) apps = [];
 
-    if (!apps || apps.length === 0) {
+    if (apps.length === 0) {
       el.innerHTML = '<p style="padding:1.25rem;color:var(--text-secondary);">No managed applications yet. Click <strong>Create Application</strong> to get started.</p>';
       return;
     }
@@ -3894,6 +3898,22 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var m = document.getElementById(id);
     if (m) m.addEventListener("click", function(e) { if (e.target === this) this.style.display = "none"; });
   });
+
+  // Expose managed app functions to global scope (required for onclick handlers in HTML).
+  window.loadManagedApps      = loadManagedApps;
+  window.openCreateAppModal   = openCreateAppModal;
+  window.closeCreateAppModal  = closeCreateAppModal;
+  window.submitCreateApp      = submitCreateApp;
+  window.openCreateEnvFileModal = openCreateEnvFileModal;
+  window.closeCreateEnvModal  = closeCreateEnvModal;
+  window.submitCreateEnvFile  = submitCreateEnvFile;
+  window.openEditEnvFile      = openEditEnvFile;
+  window.closeEditEnvModal    = closeEditEnvModal;
+  window.submitSaveEnvFile    = submitSaveEnvFile;
+  window.deleteEnvFile        = deleteEnvFile;
+  window.openDeleteAppModal   = openDeleteAppModal;
+  window.closeDeleteAppModal  = closeDeleteAppModal;
+  window.submitDeleteApp      = submitDeleteApp;
 
   // ── Deploy Users ──
 
