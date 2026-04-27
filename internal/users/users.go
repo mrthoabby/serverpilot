@@ -31,6 +31,7 @@ var validUsername = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 // DeployUser represents a managed deploy user.
 type DeployUser struct {
 	Username  string    `json:"username"`
+	SSHOnly   bool      `json:"ssh_only"`             // true = no password, SSH key auth only
 	CreatedAt time.Time `json:"created_at"`
 	CreatedBy string    `json:"created_by,omitempty"` // admin who created it
 }
@@ -182,6 +183,127 @@ func DeleteUser(username string) error {
 	return nil
 }
 
+// CreateSSHUser creates a Linux user with no password (locked), SSH key auth only.
+// The public key is written to /home/<username>/.ssh/authorized_keys with strict
+// permissions (0700 .ssh dir, 0600 authorized_keys, owned by the new user).
+func CreateSSHUser(username, publicKey string) error {
+	if !validUsername.MatchString(username) {
+		return fmt.Errorf("invalid username: must be 1-32 chars, lowercase alphanumeric/hyphen/underscore, start with a letter")
+	}
+	publicKey = strings.TrimSpace(publicKey)
+	if publicKey == "" {
+		return fmt.Errorf("SSH public key is required")
+	}
+	if !isValidSSHPubKey(publicKey) {
+		return fmt.Errorf("invalid SSH public key format (expected ssh-rsa, ssh-ed25519, ecdsa-sha2-*, or sk-* key)")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if userExists(username) {
+		return fmt.Errorf("user '%s' already exists", username)
+	}
+
+	if err := ensureGroup(deployGroup); err != nil {
+		return fmt.Errorf("failed to create deploy group: %w", err)
+	}
+
+	// Create the user with home directory, deploy group, and bash shell.
+	cmd := exec.Command("/usr/sbin/useradd",
+		"--create-home",
+		"--gid", deployGroup,
+		"--shell", defaultShell,
+		"--comment", "ServerPilot deploy user (SSH-only)",
+		username,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("useradd failed: %s (%w)", strings.TrimSpace(string(out)), err)
+	}
+
+	// Lock the password so nobody can log in with a password.
+	// passwd -l prepends '!' to the hash in /etc/shadow.
+	if out, err := exec.Command("/usr/bin/passwd", "-l", username).CombinedOutput(); err != nil {
+		_ = exec.Command("/usr/sbin/userdel", "--remove", username).Run()
+		return fmt.Errorf("failed to lock password: %s (%w)", strings.TrimSpace(string(out)), err)
+	}
+
+	// Write the SSH public key.
+	if err := writeAuthorizedKeys(username, publicKey); err != nil {
+		_ = exec.Command("/usr/sbin/userdel", "--remove", username).Run()
+		return fmt.Errorf("failed to set up SSH key: %w", err)
+	}
+
+	// Register in tracking file.
+	reg := loadRegistry()
+	reg.Users = append(reg.Users, DeployUser{
+		Username:  username,
+		SSHOnly:   true,
+		CreatedAt: time.Now(),
+	})
+	if err := saveRegistry(reg); err != nil {
+		return fmt.Errorf("user created but failed to save registry: %w", err)
+	}
+
+	return nil
+}
+
+// AddSSHKey appends an SSH public key to an existing managed user's authorized_keys.
+func AddSSHKey(username, publicKey string) error {
+	if !validUsername.MatchString(username) {
+		return fmt.Errorf("invalid username")
+	}
+	publicKey = strings.TrimSpace(publicKey)
+	if publicKey == "" {
+		return fmt.Errorf("SSH public key is required")
+	}
+	if !isValidSSHPubKey(publicKey) {
+		return fmt.Errorf("invalid SSH public key format")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if !isManaged(username) {
+		return fmt.Errorf("user '%s' is not a ServerPilot-managed deploy user", username)
+	}
+
+	return appendAuthorizedKey(username, publicKey)
+}
+
+// GetSSHKeys reads the authorized_keys file for a managed user.
+func GetSSHKeys(username string) ([]string, error) {
+	if !validUsername.MatchString(username) {
+		return nil, fmt.Errorf("invalid username")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if !isManaged(username) {
+		return nil, fmt.Errorf("user '%s' is not a ServerPilot-managed deploy user", username)
+	}
+
+	homeDir := filepath.Join("/home", username)
+	akPath := filepath.Join(homeDir, ".ssh", "authorized_keys")
+	data, err := os.ReadFile(akPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+
+	var keys []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "#") {
+			keys = append(keys, line)
+		}
+	}
+	return keys, nil
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 // userExists checks if a Linux user exists via /etc/passwd lookup (no shell).
@@ -213,6 +335,87 @@ func setPassword(username, password string) error {
 		return fmt.Errorf("chpasswd failed: %s (%w)", strings.TrimSpace(string(out)), err)
 	}
 	return nil
+}
+
+// writeAuthorizedKeys creates /home/<user>/.ssh/authorized_keys with the given key.
+// Sets strict ownership and permissions (required by sshd StrictModes).
+func writeAuthorizedKeys(username, pubKey string) error {
+	homeDir := filepath.Join("/home", username)
+	sshDir := filepath.Join(homeDir, ".ssh")
+	akPath := filepath.Join(sshDir, "authorized_keys")
+
+	// Create .ssh directory with 0700.
+	if err := os.MkdirAll(sshDir, 0700); err != nil {
+		return fmt.Errorf("failed to create .ssh dir: %w", err)
+	}
+
+	// Write authorized_keys with 0600.
+	if err := os.WriteFile(akPath, []byte(pubKey+"\n"), 0600); err != nil {
+		return fmt.Errorf("failed to write authorized_keys: %w", err)
+	}
+
+	// chown -R user:deploy /home/user/.ssh
+	// Must be owned by the user, otherwise sshd rejects the key.
+	cmd := exec.Command("/bin/chown", "-R", username+":"+deployGroup, sshDir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("chown failed: %s (%w)", strings.TrimSpace(string(out)), err)
+	}
+
+	return nil
+}
+
+// appendAuthorizedKey adds a key to an existing authorized_keys file.
+func appendAuthorizedKey(username, pubKey string) error {
+	homeDir := filepath.Join("/home", username)
+	sshDir := filepath.Join(homeDir, ".ssh")
+	akPath := filepath.Join(sshDir, "authorized_keys")
+
+	// Ensure .ssh exists.
+	if err := os.MkdirAll(sshDir, 0700); err != nil {
+		return err
+	}
+
+	// Read existing keys to avoid duplicates.
+	existing, _ := os.ReadFile(akPath)
+	if strings.Contains(string(existing), pubKey) {
+		return fmt.Errorf("key already exists for this user")
+	}
+
+	f, err := os.OpenFile(akPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := f.WriteString(pubKey + "\n"); err != nil {
+		return err
+	}
+
+	// Fix ownership.
+	cmd := exec.Command("/bin/chown", "-R", username+":"+deployGroup, sshDir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("chown failed: %s (%w)", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+// isValidSSHPubKey checks that the key starts with a recognized SSH key type prefix.
+// This prevents injecting arbitrary content into authorized_keys.
+func isValidSSHPubKey(key string) bool {
+	validPrefixes := []string{
+		"ssh-rsa ",
+		"ssh-ed25519 ",
+		"ecdsa-sha2-nistp256 ",
+		"ecdsa-sha2-nistp384 ",
+		"ecdsa-sha2-nistp521 ",
+		"sk-ssh-ed25519@openssh.com ",
+		"sk-ecdsa-sha2-nistp256@openssh.com ",
+	}
+	for _, prefix := range validPrefixes {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // isManaged returns true if the username is in the ServerPilot registry.

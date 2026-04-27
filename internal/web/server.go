@@ -86,6 +86,8 @@ func (s *Server) Start() error {
 	mux.Handle("/api/users/create", s.authMiddleware(http.HandlerFunc(s.handleDeployUserCreate)))
 	mux.Handle("/api/users/reset-password", s.authMiddleware(http.HandlerFunc(s.handleDeployUserResetPassword)))
 	mux.Handle("/api/users/delete", s.authMiddleware(http.HandlerFunc(s.handleDeployUserDelete)))
+	mux.Handle("/api/users/ssh-keys", s.authMiddleware(http.HandlerFunc(s.handleDeployUserSSHKeys)))
+	mux.Handle("/api/users/ssh-keys/add", s.authMiddleware(http.HandlerFunc(s.handleDeployUserAddSSHKey)))
 
 	// Google Cloud Firewall (conditional — only works if gcloud is installed).
 	mux.Handle("/api/gcloud/status", s.authMiddleware(http.HandlerFunc(s.handleGCloudStatus)))
@@ -96,6 +98,12 @@ func (s *Server) Start() error {
 	// Installed applications.
 	mux.Handle("/api/apps", s.authMiddleware(http.HandlerFunc(s.handleApps)))
 	mux.Handle("/api/apps/uninstall", s.authMiddleware(http.HandlerFunc(s.handleAppUninstall)))
+
+	// Cases — operator notes/scenarios (public or private).
+	mux.Handle("/api/cases", s.authMiddleware(http.HandlerFunc(s.handleCasesList)))
+	mux.Handle("/api/cases/create", s.authMiddleware(http.HandlerFunc(s.handleCasesCreate)))
+	mux.Handle("/api/cases/update", s.authMiddleware(http.HandlerFunc(s.handleCasesUpdate)))
+	mux.Handle("/api/cases/delete", s.authMiddleware(http.HandlerFunc(s.handleCasesDelete)))
 
 	// Static files.
 	mux.Handle("/static/", http.FileServer(http.FS(staticFiles)))

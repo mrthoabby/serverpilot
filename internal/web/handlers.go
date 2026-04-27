@@ -20,15 +20,16 @@ import (
 	"time"
 
 	"github.com/mrthoabby/serverpilot/internal/auth"
+	"github.com/mrthoabby/serverpilot/internal/cases"
 	"github.com/mrthoabby/serverpilot/internal/deps"
 	"github.com/mrthoabby/serverpilot/internal/docker"
 	"github.com/mrthoabby/serverpilot/internal/labels"
 	"github.com/mrthoabby/serverpilot/internal/mapper"
 	"github.com/mrthoabby/serverpilot/internal/nginx"
 	"github.com/mrthoabby/serverpilot/internal/portalloc"
-	"github.com/mrthoabby/serverpilot/internal/users"
 	"github.com/mrthoabby/serverpilot/internal/sysinfo"
 	"github.com/mrthoabby/serverpilot/internal/templates"
+	"github.com/mrthoabby/serverpilot/internal/users"
 )
 
 const sessionCookieName = "sp_session"
@@ -2517,7 +2518,9 @@ func (s *Server) handleDeployUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleDeployUserCreate creates a new Linux deploy user.
-// POST body: {"username": "ci-deploy", "password": "securepass123"}
+// Two modes:
+//   Password mode: {"username": "ci-deploy", "password": "securepass123"}
+//   SSH-only mode: {"username": "ci-deploy", "ssh_only": true, "ssh_key": "ssh-ed25519 AAAA..."}
 func (s *Server) handleDeployUserCreate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
@@ -2527,6 +2530,8 @@ func (s *Server) handleDeployUserCreate(w http.ResponseWriter, r *http.Request) 
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		SSHOnly  bool   `json:"ssh_only"`
+		SSHKey   string `json:"ssh_key"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
@@ -2534,22 +2539,42 @@ func (s *Server) handleDeployUserCreate(w http.ResponseWriter, r *http.Request) 
 	}
 
 	req.Username = strings.TrimSpace(req.Username)
-	if req.Username == "" || req.Password == "" {
-		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "username and password are required"})
+	if req.Username == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "username is required"})
 		return
 	}
 
-	if err := users.CreateUser(req.Username, req.Password); err != nil {
-		log.Printf("deploy-user-create: failed for %q: %v", req.Username, err)
-		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
-		return
+	if req.SSHOnly {
+		// SSH key-only user (no password).
+		if err := users.CreateSSHUser(req.Username, req.SSHKey); err != nil {
+			log.Printf("deploy-user-create: SSH-only failed for %q: %v", req.Username, err)
+			writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+			return
+		}
+		log.Printf("deploy-user-create: created SSH-only user %q", req.Username)
+		writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
+			"username": req.Username,
+			"mode":     "ssh-only",
+			"message":  fmt.Sprintf("SSH-only user '%s' created successfully", req.Username),
+		}})
+	} else {
+		// Password-based user.
+		if req.Password == "" {
+			writeJSON(w, http.StatusBadRequest, apiResponse{Error: "password is required (or enable SSH-only mode)"})
+			return
+		}
+		if err := users.CreateUser(req.Username, req.Password); err != nil {
+			log.Printf("deploy-user-create: failed for %q: %v", req.Username, err)
+			writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+			return
+		}
+		log.Printf("deploy-user-create: created user %q", req.Username)
+		writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
+			"username": req.Username,
+			"mode":     "password",
+			"message":  fmt.Sprintf("User '%s' created successfully", req.Username),
+		}})
 	}
-
-	log.Printf("deploy-user-create: created user %q", req.Username)
-	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
-		"username": req.Username,
-		"message":  fmt.Sprintf("User '%s' created successfully", req.Username),
-	}})
 }
 
 // handleDeployUserResetPassword resets the password for a managed deploy user.
@@ -2620,6 +2645,58 @@ func (s *Server) handleDeployUserDelete(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
 		"username": req.Username,
 		"message":  fmt.Sprintf("User '%s' deleted", req.Username),
+	}})
+}
+
+// handleDeployUserSSHKeys returns the SSH keys for a managed user.
+// GET /api/users/ssh-keys?username=ci-deploy
+func (s *Server) handleDeployUserSSHKeys(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	username := strings.TrimSpace(r.URL.Query().Get("username"))
+	if username == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "username is required"})
+		return
+	}
+	keys, err := users.GetSSHKeys(username)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: keys})
+}
+
+// handleDeployUserAddSSHKey adds an SSH public key to an existing managed user.
+// POST body: {"username": "ci-deploy", "ssh_key": "ssh-ed25519 AAAA..."}
+func (s *Server) handleDeployUserAddSSHKey(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	var req struct {
+		Username string `json:"username"`
+		SSHKey   string `json:"ssh_key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	req.Username = strings.TrimSpace(req.Username)
+	if req.Username == "" || strings.TrimSpace(req.SSHKey) == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "username and ssh_key are required"})
+		return
+	}
+	if err := users.AddSSHKey(req.Username, req.SSHKey); err != nil {
+		log.Printf("deploy-user-add-key: failed for %q: %v", req.Username, err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+	log.Printf("deploy-user-add-key: added SSH key for %q", req.Username)
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
+		"username": req.Username,
+		"message":  fmt.Sprintf("SSH key added for '%s'", req.Username),
 	}})
 }
 
@@ -2706,4 +2783,111 @@ func (s *Server) handleFirewallClose(w http.ResponseWriter, r *http.Request) {
 		"name":    req.Name,
 		"message": fmt.Sprintf("Firewall rule '%s' deleted", req.Name),
 	}})
+}
+
+// ── Cases ────────────────────────────────────────────────────────────────────
+//
+// Cases are operator notes / configuration scenarios tagged as "public" or
+// "private". They are stored in /etc/serverpilot/cases.json and are only
+// accessible to authenticated users.
+
+// handleCasesList returns all cases, optionally filtered by visibility.
+// GET /api/cases               → all cases
+// GET /api/cases?v=public      → public only
+// GET /api/cases?v=private     → private only
+func (s *Server) handleCasesList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	filter := r.URL.Query().Get("v")
+	if filter != "" && filter != "public" && filter != "private" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid filter; use 'public' or 'private'"})
+		return
+	}
+	list, err := cases.List(filter)
+	if err != nil {
+		log.Printf("cases-list: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to load cases"})
+		return
+	}
+	if list == nil {
+		list = []*cases.Case{}
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: list})
+}
+
+// handleCasesCreate creates a new case.
+// POST /api/cases/create  body: {"title":"...","description":"...","visibility":"public|private","tags":["..."]}
+func (s *Server) handleCasesCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	var req cases.CreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	c, err := cases.Create(req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+	log.Printf("cases-create: created %q (%s) id=%s", c.Title, c.Visibility, c.ID)
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: c})
+}
+
+// handleCasesUpdate updates an existing case by ID.
+// POST /api/cases/update  body: {"id":"...","title":"...","description":"...","visibility":"...","tags":[...]}
+func (s *Server) handleCasesUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	var req struct {
+		ID string `json:"id"`
+		cases.UpdateRequest
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	if req.ID == "" || len(req.ID) > 64 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid id"})
+		return
+	}
+	c, err := cases.Update(req.ID, req.UpdateRequest)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+	log.Printf("cases-update: updated %q (%s) id=%s", c.Title, c.Visibility, c.ID)
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: c})
+}
+
+// handleCasesDelete removes a case by ID.
+// POST /api/cases/delete  body: {"id":"..."}
+func (s *Server) handleCasesDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	if req.ID == "" || len(req.ID) > 64 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid id"})
+		return
+	}
+	if err := cases.Delete(req.ID); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+	log.Printf("cases-delete: deleted id=%s", req.ID)
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{"id": req.ID}})
 }

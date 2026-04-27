@@ -947,6 +947,66 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   color: #ef5350;
 }
 
+/* ── Cases ── */
+.case-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 0.75rem;
+  cursor: pointer;
+  transition: border-color 0.18s, box-shadow 0.18s;
+  position: relative;
+}
+.case-card:hover { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.case-card-header { display:flex;align-items:center;gap:0.6rem;margin-bottom:0.4rem; }
+.case-card-title { font-weight:600;font-size:0.9375rem;flex:1;color:var(--text-primary); }
+.case-card-desc {
+  font-size:0.8125rem;
+  color:var(--text-secondary);
+  line-height:1.5;
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+.case-card-footer { display:flex;align-items:center;gap:0.5rem;margin-top:0.6rem;flex-wrap:wrap; }
+.case-tag {
+  display:inline-block;
+  font-size:0.7rem;
+  padding:2px 8px;
+  border-radius:12px;
+  background:rgba(139,148,158,0.12);
+  color:var(--text-secondary);
+  font-weight:500;
+}
+.case-badge-public {
+  display:inline-flex;align-items:center;gap:4px;font-size:0.72rem;font-weight:600;
+  padding:2px 9px;border-radius:12px;
+  background:rgba(0,180,216,0.12);color:var(--accent);
+}
+.case-badge-private {
+  display:inline-flex;align-items:center;gap:4px;font-size:0.72rem;font-weight:600;
+  padding:2px 9px;border-radius:12px;
+  background:rgba(210,153,34,0.12);color:var(--yellow);
+}
+.case-card-actions {
+  position:absolute;top:0.75rem;right:0.9rem;
+  display:flex;gap:0.35rem;opacity:0;transition:opacity 0.18s;
+}
+.case-card:hover .case-card-actions { opacity:1; }
+.case-action-btn {
+  background:var(--bg-secondary);border:1px solid var(--border);
+  border-radius:5px;padding:3px 7px;cursor:pointer;
+  font-size:0.72rem;color:var(--text-secondary);
+  transition:border-color 0.15s,color 0.15s;
+}
+.case-action-btn:hover { border-color:var(--accent);color:var(--accent); }
+.case-action-btn.del:hover { border-color:var(--red);color:var(--red); }
+.cases-empty {
+  text-align:center;padding:3rem 1rem;color:var(--text-muted);font-size:0.9rem;
+}
+
 /* ── Update Banner ── */
 .update-banner {
   display: none;
@@ -1100,6 +1160,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       <button class="tab-btn" data-tab="users">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M10.5 5a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0zm.061 3.073a4 4 0 10-5.123 0 6.004 6.004 0 00-3.431 5.142.75.75 0 001.498.07 4.5 4.5 0 018.99 0 .75.75 0 101.498-.07 6.004 6.004 0 00-3.432-5.142z"/></svg>
         Users
+      </button>
+      <button class="tab-btn" data-tab="cases">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M5 3a2 2 0 012-2h2a2 2 0 012 2v1h2.5A1.5 1.5 0 0115 5.5v8a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 13.5v-8A1.5 1.5 0 012.5 4H5V3zm2 0v1h2V3a.5.5 0 00-.5-.5h-1A.5.5 0 007 3zm-4.5 3a.5.5 0 000 1h11a.5.5 0 000-1h-11zM8 9a1 1 0 100 2 1 1 0 000-2zm-3 1a1 1 0 100 2 1 1 0 000-2zm6 0a1 1 0 100 2 1 1 0 000-2z"/></svg>
+        Cases <span class="tab-count" id="caseCount">0</span>
       </button>
       <button class="tab-btn" data-tab="settings">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4.754a3.246 3.246 0 100 6.492 3.246 3.246 0 000-6.492zM5.754 8a2.246 2.246 0 114.492 0 2.246 2.246 0 01-4.492 0z"/><path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 01-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 01-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 01.52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 011.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 011.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 01.52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 01-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 01-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 002.693 1.115l.291-.16c.764-.415 1.6.422 1.184 1.185l-.159.292a1.873 1.873 0 001.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 00-1.115 2.693l.16.291c.415.764-.422 1.6-1.185 1.184l-.292-.159a1.873 1.873 0 00-2.692 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 00-2.693-1.115l-.291.16c-.764.415-1.6-.422-1.184-1.185l.159-.292A1.873 1.873 0 001.945 8.93l-.318-.094c-.835-.246-.835-1.428 0-1.674l.319-.094a1.873 1.873 0 001.115-2.693l-.16-.291c-.415-.764.422-1.6 1.185-1.184l.292.159a1.873 1.873 0 002.692-1.116l.094-.318z"/></svg>
@@ -1432,16 +1496,38 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
                 pattern="[a-z][a-z0-9_-]*">
               <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px;">Lowercase letters, numbers, hyphens, underscores. Must start with a letter.</div>
             </div>
+
+            <!-- Auth mode toggle -->
             <div>
+              <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:6px;">Authentication Mode</label>
+              <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;width:fit-content;">
+                <button id="authModePass" onclick="setAuthMode('password')" class="btn" style="padding:6px 16px;font-size:0.78rem;border:none;border-radius:0;background:var(--accent);color:#fff;">Password</button>
+                <button id="authModeSSH" onclick="setAuthMode('ssh')" class="btn" style="padding:6px 16px;font-size:0.78rem;border:none;border-radius:0;background:var(--bg-input);color:var(--text-muted);">SSH Key Only</button>
+              </div>
+            </div>
+
+            <!-- Password fields (shown by default) -->
+            <div id="passFields">
               <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">Password</label>
               <div style="display:flex;gap:0.5rem;">
                 <input type="password" id="newUserPass" placeholder="Min 8 characters"
                   style="flex:1;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.85rem;">
                 <button onclick="togglePasswordVis('newUserPass', this)" class="btn btn-secondary" style="padding:6px 10px;font-size:0.78rem;" title="Show/hide">
-                  <svg id="eyeIconCreate" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3.5C4.136 3.5 1.04 6.008.152 7.59a.796.796 0 000 .82C1.04 9.992 4.136 12.5 8 12.5s6.96-2.508 7.848-4.09a.796.796 0 000-.82C14.96 6.008 11.864 3.5 8 3.5zM8 11a3 3 0 110-6 3 3 0 010 6z"/><circle cx="8" cy="8" r="1.5"/></svg>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3.5C4.136 3.5 1.04 6.008.152 7.59a.796.796 0 000 .82C1.04 9.992 4.136 12.5 8 12.5s6.96-2.508 7.848-4.09a.796.796 0 000-.82C14.96 6.008 11.864 3.5 8 3.5zM8 11a3 3 0 110-6 3 3 0 010 6z"/><circle cx="8" cy="8" r="1.5"/></svg>
                 </button>
               </div>
             </div>
+
+            <!-- SSH Key fields (hidden by default) -->
+            <div id="sshFields" style="display:none;">
+              <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">SSH Public Key</label>
+              <textarea id="newUserSSHKey" rows="3" placeholder="ssh-ed25519 AAAA... user@machine"
+                style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:monospace;font-size:0.78rem;resize:vertical;"></textarea>
+              <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px;">
+                Paste the public key (ssh-rsa, ssh-ed25519, ecdsa-sha2-*). No password will be set — login only via SSH key.
+              </div>
+            </div>
+
             <div style="display:flex;gap:0.5rem;align-items:center;">
               <button onclick="createDeployUser()" class="btn btn-primary" id="btnCreateUser" style="padding:8px 20px;">Create User</button>
               <span id="createUserMsg" style="font-size:0.8rem;"></span>
@@ -1516,6 +1602,122 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
             <button onclick="submitResetPassword()" class="btn btn-primary" id="btnResetPass" style="padding:6px 16px;">Reset</button>
           </div>
           <span id="resetPassMsg" style="font-size:0.8rem;display:block;margin-top:0.5rem;"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cases Tab -->
+    <div class="tab-panel" id="panel-cases">
+      <!-- Header + toggle + new button -->
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;margin-bottom:1rem;">
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <div style="display:flex;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+            <button id="casesFilterAll" onclick="setCasesFilter('')"
+              style="padding:6px 14px;font-size:0.8rem;font-weight:600;border:none;cursor:pointer;transition:background 0.2s,color 0.2s;background:var(--accent);color:#fff;">
+              All
+            </button>
+            <button id="casesFilterPublic" onclick="setCasesFilter('public')"
+              style="padding:6px 14px;font-size:0.8rem;font-weight:600;border:none;cursor:pointer;transition:background 0.2s,color 0.2s;background:none;color:var(--text-secondary);">
+              🌐 Public
+            </button>
+            <button id="casesFilterPrivate" onclick="setCasesFilter('private')"
+              style="padding:6px 14px;font-size:0.8rem;font-weight:600;border:none;cursor:pointer;transition:background 0.2s,color 0.2s;background:none;color:var(--text-secondary);">
+              🔒 Private
+            </button>
+          </div>
+          <span id="casesFilterLabel" style="font-size:0.78rem;color:var(--text-muted);"></span>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="openCaseModal(null)" style="gap:0.4rem;">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z"/></svg>
+          New Case
+        </button>
+      </div>
+
+      <!-- Cases list -->
+      <div id="casesContent">
+        <div class="spinner"><div class="spinner-ring"></div>Loading cases...</div>
+      </div>
+
+      <!-- Case modal (create / edit / view) -->
+      <div id="caseModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:580px;width:92%;max-height:90vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;">
+            <h3 id="caseModalTitle" style="margin:0;font-size:1.05rem;">New Case</h3>
+            <button onclick="closeCaseModal()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.25rem;line-height:1;">&#x2715;</button>
+          </div>
+
+          <input type="hidden" id="caseEditId" value="">
+
+          <!-- View mode -->
+          <div id="caseViewMode" style="display:none;">
+            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;">
+              <span id="caseViewVisibilityBadge"></span>
+              <span id="caseViewTags" style="display:flex;gap:0.35rem;flex-wrap:wrap;"></span>
+            </div>
+            <h4 id="caseViewTitleEl" style="margin:0 0 0.75rem;font-size:1rem;"></h4>
+            <div id="caseViewDesc" style="font-size:0.875rem;color:var(--text-secondary);line-height:1.6;white-space:pre-wrap;word-break:break-word;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;padding:0.75rem 1rem;min-height:80px;margin-bottom:1rem;"></div>
+            <div id="caseViewMeta" style="font-size:0.75rem;color:var(--text-muted);"></div>
+            <div style="display:flex;gap:0.5rem;margin-top:1.25rem;justify-content:flex-end;">
+              <button class="btn btn-sm btn-outline" onclick="closeCaseModal()">Close</button>
+              <button class="btn btn-sm" onclick="switchCaseToEdit()" style="background:var(--accent);color:#fff;border:none;">Edit</button>
+            </div>
+          </div>
+
+          <!-- Edit / Create mode -->
+          <div id="caseEditMode" style="display:block;">
+            <div style="display:flex;flex-direction:column;gap:1rem;">
+              <div>
+                <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">Title *</label>
+                <input type="text" id="caseInputTitle" maxlength="120" placeholder="e.g. MinIO production setup"
+                  style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.875rem;">
+              </div>
+              <div>
+                <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">Visibility *</label>
+                <div style="display:flex;gap:0.5rem;">
+                  <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;font-size:0.875rem;padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);flex:1;justify-content:center;" id="visLabelPublic">
+                    <input type="radio" name="caseVisibility" value="public" id="caseVisPublic" onchange="onCaseVisibilityChange()" style="accent-color:var(--accent);">
+                    🌐 Public
+                  </label>
+                  <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;font-size:0.875rem;padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);flex:1;justify-content:center;" id="visLabelPrivate">
+                    <input type="radio" name="caseVisibility" value="private" id="caseVisPrivate" onchange="onCaseVisibilityChange()" style="accent-color:var(--yellow);">
+                    🔒 Private
+                  </label>
+                </div>
+              </div>
+              <div>
+                <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">Description</label>
+                <textarea id="caseInputDesc" maxlength="4000" rows="5" placeholder="Notes, configuration details, credentials, steps..."
+                  style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.875rem;resize:vertical;line-height:1.5;"></textarea>
+              </div>
+              <div>
+                <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">Tags <span style="opacity:0.6;">(comma-separated, optional)</span></label>
+                <input type="text" id="caseInputTags" maxlength="400" placeholder="docker, nginx, ssl"
+                  style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.875rem;">
+              </div>
+            </div>
+            <div style="display:flex;gap:0.5rem;margin-top:1.5rem;justify-content:flex-end;align-items:center;">
+              <span id="caseModalErr" style="font-size:0.8rem;color:var(--red);flex:1;"></span>
+              <button class="btn btn-sm btn-outline" onclick="closeCaseModal()">Cancel</button>
+              <button class="btn btn-sm" id="caseModalSaveBtn" onclick="saveCase()"
+                style="background:var(--accent);color:#fff;border:none;">Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Delete confirmation -->
+      <div id="caseDeleteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1001;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:440px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;">
+            <svg width="22" height="22" viewBox="0 0 16 16" fill="var(--red)"><path d="M8.982 1.566a1.13 1.13 0 00-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 01-1.1 0L7.1 5.995A.905.905 0 018 5zm.002 6a1 1 0 110 2 1 1 0 010-2z"/></svg>
+            <h3 style="margin:0;color:var(--red);">Delete Case</h3>
+          </div>
+          <p id="caseDeleteDesc" style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1.5rem;line-height:1.5;"></p>
+          <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
+            <button class="btn btn-sm btn-outline" onclick="closeCaseDeleteModal()">Cancel</button>
+            <button class="btn btn-sm" id="caseDeleteConfirmBtn"
+              style="background:var(--red);color:#fff;border:none;" onclick="confirmDeleteCase()">Delete</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1774,6 +1976,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     resources:  function() { return loadResources(); },
     apps:       function() { return loadApps(); },
     users:      function() { return loadDeployUsers(); },
+    cases:      function() { return loadCases(); },
     settings:   function() { return loadSettings(); }
   };
 
@@ -3379,22 +3582,31 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       }
 
       var html = '<div class="table-wrap"><table><thead><tr>' +
-        '<th>Username</th><th>Created</th><th>Group</th><th style="width:160px;">Actions</th>' +
+        '<th>Username</th><th>Auth</th><th>Created</th><th>Group</th><th style="width:180px;">Actions</th>' +
         '</tr></thead><tbody>';
 
       userList.forEach(function(u) {
         var created = u.created_at ? new Date(u.created_at).toLocaleDateString() + " " + new Date(u.created_at).toLocaleTimeString() : "—";
+        var authBadge = u.ssh_only
+          ? '<span style="background:#1a3a2a;color:#3fb950;padding:2px 8px;border-radius:4px;font-size:0.72rem;white-space:nowrap;">SSH Key</span>'
+          : '<span style="background:#2a2a1a;color:#d29922;padding:2px 8px;border-radius:4px;font-size:0.72rem;white-space:nowrap;">Password</span>';
+        var resetBtn = u.ssh_only
+          ? '<button onclick="openAddKeyModal(\'' + escapeHtml(u.username) + '\')" class="btn btn-secondary" style="padding:3px 10px;font-size:0.75rem;" title="Add SSH key">' +
+              '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:-1px;margin-right:3px;"><path d="M8 2a.5.5 0 01.5.5v5h5a.5.5 0 010 1h-5v5a.5.5 0 01-1 0v-5h-5a.5.5 0 010-1h5v-5A.5.5 0 018 2z"/></svg>Key' +
+            '</button>'
+          : '<button onclick="openResetModal(\'' + escapeHtml(u.username) + '\')" class="btn btn-secondary" style="padding:3px 10px;font-size:0.75rem;" title="Reset password">' +
+              '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:-1px;margin-right:3px;">' +
+                '<path d="M11.5 1a.5.5 0 010 1h-1.293l3.147 3.146a.5.5 0 01-.708.708L9.5 2.707V4a.5.5 0 01-1 0V1.5a.5.5 0 01.5-.5h2.5zm-6.354 4.854a.5.5 0 10-.708-.708L1.293 8.293A1 1 0 001 9v2a1 1 0 001 1h2a1 1 0 00.707-.293l3.147-3.147a.5.5 0 10-.708-.708L4 11.001H2V9l3.146-3.146z"/>' +
+              '</svg>Reset' +
+            '</button>';
         html += '<tr>' +
           '<td><strong>' + escapeHtml(u.username) + '</strong></td>' +
+          '<td>' + authBadge + '</td>' +
           '<td style="color:var(--text-muted);font-size:0.82rem;">' + created + '</td>' +
           '<td><span class="badge badge-running"><span class="badge-dot"></span> deploy</span></td>' +
           '<td>' +
             '<div style="display:flex;gap:6px;">' +
-              '<button onclick="openResetModal(\'' + escapeHtml(u.username) + '\')" class="btn btn-secondary" style="padding:3px 10px;font-size:0.75rem;" title="Reset password">' +
-                '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:-1px;margin-right:3px;">' +
-                  '<path d="M11.5 1a.5.5 0 010 1h-1.293l3.147 3.146a.5.5 0 01-.708.708L9.5 2.707V4a.5.5 0 01-1 0V1.5a.5.5 0 01.5-.5h2.5zm-6.354 4.854a.5.5 0 10-.708-.708L1.293 8.293A1 1 0 001 9v2a1 1 0 001 1h2a1 1 0 00.707-.293l3.147-3.147a.5.5 0 10-.708-.708L4 11.001H2V9l3.146-3.146z"/>' +
-                '</svg>Reset' +
-              '</button>' +
+              resetBtn +
               '<button onclick="deleteDeployUser(\'' + escapeHtml(u.username) + '\')" class="btn btn-secondary" style="padding:3px 10px;font-size:0.75rem;border-color:#f8514966;color:#f85149;" title="Delete user">' +
                 '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" style="vertical-align:-1px;margin-right:3px;">' +
                   '<path d="M4 4l8 8M12 4l-8 8" stroke="#f85149" stroke-width="1.5" stroke-linecap="round"/>' +
@@ -3411,16 +3623,48 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     });
   }
 
+  var _authMode = "password"; // "password" or "ssh"
+
+  function setAuthMode(mode) {
+    _authMode = mode;
+    var passBtn = document.getElementById("authModePass");
+    var sshBtn = document.getElementById("authModeSSH");
+    var passFields = document.getElementById("passFields");
+    var sshFields = document.getElementById("sshFields");
+
+    if (mode === "ssh") {
+      passBtn.style.background = "var(--bg-input)"; passBtn.style.color = "var(--text-muted)";
+      sshBtn.style.background = "var(--accent)"; sshBtn.style.color = "#fff";
+      passFields.style.display = "none";
+      sshFields.style.display = "block";
+    } else {
+      passBtn.style.background = "var(--accent)"; passBtn.style.color = "#fff";
+      sshBtn.style.background = "var(--bg-input)"; sshBtn.style.color = "var(--text-muted)";
+      passFields.style.display = "block";
+      sshFields.style.display = "none";
+    }
+  }
+
   function createDeployUser() {
     var nameEl = document.getElementById("newUserName");
-    var passEl = document.getElementById("newUserPass");
     var msgEl = document.getElementById("createUserMsg");
     var btn = document.getElementById("btnCreateUser");
     var username = nameEl.value.trim();
-    var password = passEl.value;
 
     if (!username) { msgEl.style.color = "#f85149"; msgEl.textContent = "Username required"; return; }
-    if (password.length < 8) { msgEl.style.color = "#f85149"; msgEl.textContent = "Password must be at least 8 chars"; return; }
+
+    var body;
+    if (_authMode === "ssh") {
+      var keyEl = document.getElementById("newUserSSHKey");
+      var sshKey = keyEl.value.trim();
+      if (!sshKey) { msgEl.style.color = "#f85149"; msgEl.textContent = "SSH public key required"; return; }
+      body = { username: username, ssh_only: true, ssh_key: sshKey };
+    } else {
+      var passEl = document.getElementById("newUserPass");
+      var password = passEl.value;
+      if (password.length < 8) { msgEl.style.color = "#f85149"; msgEl.textContent = "Password must be at least 8 chars"; return; }
+      body = { username: username, password: password };
+    }
 
     btn.disabled = true;
     msgEl.style.color = "var(--text-muted)";
@@ -3428,14 +3672,18 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     apiFetch("/api/users/create", {
       method: "POST",
-      body: { username: username, password: password }
+      body: body
     }).then(function(data) {
       btn.disabled = false;
       if (data && data.success) {
         msgEl.style.color = "#3fb950";
         msgEl.textContent = "User '" + username + "' created!";
         nameEl.value = "";
-        passEl.value = "";
+        if (_authMode === "ssh") {
+          document.getElementById("newUserSSHKey").value = "";
+        } else {
+          document.getElementById("newUserPass").value = "";
+        }
         loadDeployUsers();
         setTimeout(function() { msgEl.textContent = ""; }, 4000);
       } else {
@@ -3447,6 +3695,28 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       msgEl.style.color = "#f85149";
       msgEl.textContent = "Connection error";
     });
+  }
+
+  // Add SSH Key modal for existing SSH-only users.
+  var _addKeyTarget = "";
+
+  function openAddKeyModal(username) {
+    _addKeyTarget = username;
+    var msg = "Add SSH public key for user '" + username + "':\\n\\n" +
+      "Paste the public key (ssh-ed25519, ssh-rsa, etc.):";
+    var key = prompt(msg);
+    if (!key || !key.trim()) return;
+
+    apiFetch("/api/users/ssh-keys/add", {
+      method: "POST",
+      body: { username: username, ssh_key: key.trim() }
+    }).then(function(data) {
+      if (data && data.success) {
+        alert("SSH key added for '" + username + "'");
+      } else {
+        alert("Error: " + ((data && data.error) || "Failed to add key"));
+      }
+    }).catch(function() { alert("Connection error"); });
   }
 
   function deleteDeployUser(username) {
@@ -5237,6 +5507,223 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       showLogin();
     }
   })();
+
+})();
+
+// ── Cases ─────────────────────────────────────────────────────────────────
+(function() {
+  var casesFilter = '';       // '' | 'public' | 'private'
+  var casesData   = [];       // last fetched list
+  var caseDeleteId = null;    // id pending delete confirmation
+
+  // Filter toggle
+  window.setCasesFilter = function(v) {
+    casesFilter = v;
+    var btns = { '': 'casesFilterAll', 'public': 'casesFilterPublic', 'private': 'casesFilterPrivate' };
+    Object.keys(btns).forEach(function(k) {
+      var el = document.getElementById(btns[k]);
+      if (el) {
+        el.style.background = (k === v) ? 'var(--accent)' : 'none';
+        el.style.color      = (k === v) ? '#fff' : 'var(--text-secondary)';
+      }
+    });
+    var lbl = document.getElementById('casesFilterLabel');
+    if (lbl) lbl.textContent = v ? ('Showing ' + v + ' only') : '';
+    renderCases(casesData);
+  };
+
+  // Load cases from API
+  window.loadCases = function() {
+    apiFetch('/api/cases').then(function(data) {
+      casesData = data.data || [];
+      document.getElementById('caseCount').textContent = casesData.length;
+      renderCases(casesData);
+    }).catch(function(e) {
+      document.getElementById('casesContent').innerHTML =
+        '<div style="padding:1.5rem;color:var(--red);font-size:0.875rem;">Failed to load cases: ' + esc(e.message) + '</div>';
+    });
+  };
+
+  function renderCases(all) {
+    var list = casesFilter ? all.filter(function(c) { return c.visibility === casesFilter; }) : all;
+    var el = document.getElementById('casesContent');
+    if (!list.length) {
+      var msg = casesFilter
+        ? 'No ' + casesFilter + ' cases yet.'
+        : 'No cases yet. Click <strong>New Case</strong> to create one.';
+      el.innerHTML = '<div class="cases-empty">' + msg + '</div>';
+      return;
+    }
+    el.innerHTML = list.map(function(c) {
+      var badge = c.visibility === 'private'
+        ? '<span class="case-badge-private">🔒 Private</span>'
+        : '<span class="case-badge-public">🌐 Public</span>';
+      var tags = (c.tags || []).map(function(t) {
+        return '<span class="case-tag">' + esc(t) + '</span>';
+      }).join('');
+      var desc = c.description
+        ? '<div class="case-card-desc">' + esc(c.description) + '</div>'
+        : '<div class="case-card-desc" style="color:var(--text-muted);font-style:italic;">No description</div>';
+      var ts = c.updated_at ? new Date(c.updated_at).toLocaleDateString() : '';
+      return '<div class="case-card" onclick="openCaseModal(' + JSON.stringify(c).replace(/"/g, '&quot;') + ')">' +
+        '<div class="case-card-actions" onclick="event.stopPropagation();">' +
+          '<button class="case-action-btn" onclick="openCaseModal(' + JSON.stringify(c).replace(/"/g, '&quot;') + ')">Edit</button>' +
+          '<button class="case-action-btn del" onclick="openCaseDeleteModal(' + JSON.stringify(c).replace(/"/g, '&quot;') + ')">Delete</button>' +
+        '</div>' +
+        '<div class="case-card-header">' + badge + '<span class="case-card-title">' + esc(c.title) + '</span></div>' +
+        desc +
+        '<div class="case-card-footer">' + tags + (ts ? '<span style="font-size:0.7rem;color:var(--text-muted);margin-left:auto;">Updated ' + ts + '</span>' : '') + '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  // Escape helper
+  function esc(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // Open modal for view/edit (pass null for new)
+  window.openCaseModal = function(caseObj) {
+    document.getElementById('caseModal').style.display = 'flex';
+    document.getElementById('caseModalErr').textContent = '';
+
+    if (!caseObj) {
+      // New case
+      document.getElementById('caseModalTitle').textContent = 'New Case';
+      document.getElementById('caseEditId').value = '';
+      document.getElementById('caseInputTitle').value = '';
+      document.getElementById('caseInputDesc').value = '';
+      document.getElementById('caseInputTags').value = '';
+      document.getElementById('caseVisPublic').checked = true;
+      onCaseVisibilityChange();
+      document.getElementById('caseViewMode').style.display = 'none';
+      document.getElementById('caseEditMode').style.display = 'block';
+      document.getElementById('caseModalSaveBtn').textContent = 'Create';
+    } else {
+      // View/edit existing
+      document.getElementById('caseModalTitle').textContent = caseObj.title;
+      document.getElementById('caseEditId').value = caseObj.id;
+      // Populate edit fields for potential switch to edit
+      document.getElementById('caseInputTitle').value = caseObj.title;
+      document.getElementById('caseInputDesc').value = caseObj.description || '';
+      document.getElementById('caseInputTags').value = (caseObj.tags || []).join(', ');
+      if (caseObj.visibility === 'private') {
+        document.getElementById('caseVisPrivate').checked = true;
+      } else {
+        document.getElementById('caseVisPublic').checked = true;
+      }
+      onCaseVisibilityChange();
+      document.getElementById('caseModalSaveBtn').textContent = 'Save';
+      // Render view pane
+      var badge = caseObj.visibility === 'private'
+        ? '<span class="case-badge-private">🔒 Private</span>'
+        : '<span class="case-badge-public">🌐 Public</span>';
+      document.getElementById('caseViewVisibilityBadge').innerHTML = badge;
+      document.getElementById('caseViewTitleEl').textContent = caseObj.title;
+      document.getElementById('caseViewDesc').textContent = caseObj.description || '(no description)';
+      document.getElementById('caseViewTags').innerHTML = (caseObj.tags || []).map(function(t) {
+        return '<span class="case-tag">' + esc(t) + '</span>';
+      }).join('');
+      var created = caseObj.created_at ? new Date(caseObj.created_at).toLocaleString() : '';
+      var updated = caseObj.updated_at ? new Date(caseObj.updated_at).toLocaleString() : '';
+      document.getElementById('caseViewMeta').textContent = 'Created: ' + created + (updated ? ' · Updated: ' + updated : '');
+      document.getElementById('caseViewMode').style.display = 'block';
+      document.getElementById('caseEditMode').style.display = 'none';
+    }
+    setTimeout(function() { document.getElementById('caseInputTitle').focus(); }, 50);
+  };
+
+  window.closeCaseModal = function() {
+    document.getElementById('caseModal').style.display = 'none';
+  };
+
+  window.switchCaseToEdit = function() {
+    document.getElementById('caseViewMode').style.display = 'none';
+    document.getElementById('caseEditMode').style.display = 'block';
+    setTimeout(function() { document.getElementById('caseInputTitle').focus(); }, 30);
+  };
+
+  window.onCaseVisibilityChange = function() {
+    var isPrivate = document.getElementById('caseVisPrivate').checked;
+    var lpub = document.getElementById('visLabelPublic');
+    var lpriv = document.getElementById('visLabelPrivate');
+    if (lpub)  { lpub.style.borderColor  = isPrivate ? 'var(--border)' : 'var(--accent)';  lpub.style.color  = isPrivate ? 'var(--text-secondary)' : 'var(--accent)'; }
+    if (lpriv) { lpriv.style.borderColor = isPrivate ? 'var(--yellow)' : 'var(--border)'; lpriv.style.color = isPrivate ? 'var(--yellow)' : 'var(--text-secondary)'; }
+  };
+
+  window.saveCase = function() {
+    var id    = document.getElementById('caseEditId').value;
+    var title = document.getElementById('caseInputTitle').value.trim();
+    var desc  = document.getElementById('caseInputDesc').value.trim();
+    var vis   = document.getElementById('caseVisPrivate').checked ? 'private' : 'public';
+    var rawTags = document.getElementById('caseInputTags').value;
+    var tags  = rawTags.split(',').map(function(t){ return t.trim(); }).filter(Boolean);
+    var errEl = document.getElementById('caseModalErr');
+
+    if (!title) { errEl.textContent = 'Title is required.'; return; }
+
+    var btn = document.getElementById('caseModalSaveBtn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    var url  = id ? '/api/cases/update' : '/api/cases/create';
+    var body = id
+      ? { id: id, title: title, description: desc, visibility: vis, tags: tags }
+      : { title: title, description: desc, visibility: vis, tags: tags };
+
+    apiFetch(url, { method: 'POST', body: JSON.stringify(body) }).then(function() {
+      closeCaseModal();
+      loadCases();
+    }).catch(function(e) {
+      errEl.textContent = e.message || 'Save failed.';
+    }).finally(function() {
+      btn.disabled = false;
+      btn.textContent = id ? 'Save' : 'Create';
+    });
+  };
+
+  // Delete modal
+  window.openCaseDeleteModal = function(caseObj) {
+    caseDeleteId = caseObj.id;
+    document.getElementById('caseDeleteDesc').textContent =
+      'Permanently delete "' + caseObj.title + '"? This cannot be undone.';
+    document.getElementById('caseDeleteModal').style.display = 'flex';
+  };
+
+  window.closeCaseDeleteModal = function() {
+    caseDeleteId = null;
+    document.getElementById('caseDeleteModal').style.display = 'none';
+  };
+
+  window.confirmDeleteCase = function() {
+    if (!caseDeleteId) return;
+    var btn = document.getElementById('caseDeleteConfirmBtn');
+    btn.disabled = true;
+    btn.textContent = 'Deleting...';
+    apiFetch('/api/cases/delete', { method: 'POST', body: JSON.stringify({ id: caseDeleteId }) })
+      .then(function() {
+        closeCaseDeleteModal();
+        loadCases();
+      })
+      .catch(function(e) {
+        closeCaseDeleteModal();
+        showToast('Delete failed: ' + (e.message || 'unknown error'), 'error');
+      })
+      .finally(function() {
+        btn.disabled = false;
+        btn.textContent = 'Delete';
+      });
+  };
+
+  // Close modals on backdrop click
+  document.getElementById('caseModal').addEventListener('click', function(e) {
+    if (e.target === this) closeCaseModal();
+  });
+  document.getElementById('caseDeleteModal').addEventListener('click', function(e) {
+    if (e.target === this) closeCaseDeleteModal();
+  });
+})();
 
 })();
 </script>
