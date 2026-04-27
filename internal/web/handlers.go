@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mrthoabby/serverpilot/internal/apps"
 	"github.com/mrthoabby/serverpilot/internal/auth"
 	"github.com/mrthoabby/serverpilot/internal/cases"
 	"github.com/mrthoabby/serverpilot/internal/deps"
@@ -2469,6 +2470,231 @@ func (s *Server) handleAppUninstall(w http.ResponseWriter, r *http.Request) {
 	log.Printf("app-uninstall: completed %q — steps=%d paths=%v warnings=%d",
 		req.AppID, result.StepsDone, result.RemovedPaths, len(result.Warnings))
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: result})
+}
+
+// ── Managed Apps (application directories in /opt with .env files) ───────
+
+// handleManagedApps lists all managed application directories.
+func (s *Server) handleManagedApps(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	appsList := apps.ListApps()
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: appsList})
+}
+
+type managedAppCreateRequest struct {
+	Name string `json:"name"`
+}
+
+// handleManagedAppCreate creates a new application directory in /opt/<name>.
+func (s *Server) handleManagedAppCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+
+	var req managedAppCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	req.Name = strings.TrimSpace(strings.ToLower(req.Name))
+	if req.Name == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "app name is required"})
+		return
+	}
+
+	log.Printf("managed-app: creating %q", req.Name)
+	if err := apps.CreateApp(req.Name); err != nil {
+		log.Printf("managed-app: create error: %v", err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+
+	log.Printf("managed-app: created /opt/%s", req.Name)
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
+		"name": req.Name,
+		"path": "/opt/" + req.Name,
+	}})
+}
+
+type managedAppDeleteRequest struct {
+	Name string `json:"name"`
+}
+
+// handleManagedAppDelete removes a managed application directory.
+func (s *Server) handleManagedAppDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+
+	var req managedAppDeleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	if req.Name == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "app name is required"})
+		return
+	}
+
+	log.Printf("managed-app: deleting %q", req.Name)
+	if err := apps.DeleteApp(req.Name); err != nil {
+		log.Printf("managed-app: delete error: %v", err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+
+	log.Printf("managed-app: deleted /opt/%s", req.Name)
+	writeJSON(w, http.StatusOK, apiResponse{Success: true})
+}
+
+type envFileCreateRequest struct {
+	App    string `json:"app"`
+	Prefix string `json:"prefix"` // optional; empty = ".env"
+}
+
+// handleEnvFileCreate creates a new .env file inside a managed app.
+func (s *Server) handleEnvFileCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+
+	var req envFileCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	if req.App == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "app name is required"})
+		return
+	}
+
+	req.Prefix = strings.TrimSpace(strings.ToLower(req.Prefix))
+
+	fileName, err := apps.CreateEnvFile(req.App, req.Prefix)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
+		"file_name": fileName,
+	}})
+}
+
+// handleEnvFileRead reads an .env file.
+// Without ?plaintext=1: returns AES-256-GCM encrypted content.
+// With ?plaintext=1: returns plaintext (requires HTTPS + auth).
+func (s *Server) handleEnvFileRead(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+
+	appName := r.URL.Query().Get("app")
+	fileName := r.URL.Query().Get("file")
+
+	if appName == "" || fileName == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "app and file parameters required"})
+		return
+	}
+
+	if r.URL.Query().Get("plaintext") == "1" {
+		// Plaintext mode — for the editor. Protected by auth middleware + HTTPS.
+		content, err := apps.ReadEnvFilePlaintext(appName, fileName)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+			return
+		}
+		// Set no-cache headers for sensitive content.
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+		w.Header().Set("Pragma", "no-cache")
+		writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: content})
+		return
+	}
+
+	// Encrypted mode — content encrypted with AES-256-GCM.
+	content, err := apps.ReadEnvFile(appName, fileName)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: content})
+}
+
+type envFileSaveRequest struct {
+	App      string `json:"app"`
+	FileName string `json:"file_name"`
+	Content  string `json:"content"` // plaintext content from editor
+}
+
+// handleEnvFileSave saves .env file content.
+// Content arrives as plaintext over the authenticated HTTPS channel.
+// The file is written with 0600 permissions (owner-only read/write).
+func (s *Server) handleEnvFileSave(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+
+	var req envFileSaveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	if req.App == "" || req.FileName == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "app and file_name are required"})
+		return
+	}
+
+	if err := apps.SaveEnvFilePlaintext(req.App, req.FileName, req.Content); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+
+	log.Printf("env-file: saved %s/%s (%d bytes)", req.App, req.FileName, len(req.Content))
+	writeJSON(w, http.StatusOK, apiResponse{Success: true})
+}
+
+type envFileDeleteRequest struct {
+	App      string `json:"app"`
+	FileName string `json:"file_name"`
+}
+
+// handleEnvFileDelete removes an .env file from a managed app.
+func (s *Server) handleEnvFileDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+
+	var req envFileDeleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	if req.App == "" || req.FileName == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "app and file_name are required"})
+		return
+	}
+
+	if err := apps.DeleteEnvFile(req.App, req.FileName); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{Success: true})
 }
 
 // handlePortAllocate finds the next available port and reserves it for 1 minute.

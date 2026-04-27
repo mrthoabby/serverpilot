@@ -99,6 +99,15 @@ func (s *Server) Start() error {
 	mux.Handle("/api/apps", s.authMiddleware(http.HandlerFunc(s.handleApps)))
 	mux.Handle("/api/apps/uninstall", s.authMiddleware(http.HandlerFunc(s.handleAppUninstall)))
 
+	// Managed applications (/opt directories with .env files).
+	mux.Handle("/api/managed-apps", s.authMiddleware(http.HandlerFunc(s.handleManagedApps)))
+	mux.Handle("/api/managed-apps/create", s.authMiddleware(http.HandlerFunc(s.handleManagedAppCreate)))
+	mux.Handle("/api/managed-apps/delete", s.authMiddleware(http.HandlerFunc(s.handleManagedAppDelete)))
+	mux.Handle("/api/managed-apps/env", s.authMiddleware(http.HandlerFunc(s.handleEnvFileRead)))
+	mux.Handle("/api/managed-apps/env/create", s.authMiddleware(http.HandlerFunc(s.handleEnvFileCreate)))
+	mux.Handle("/api/managed-apps/env/save", s.authMiddleware(http.HandlerFunc(s.handleEnvFileSave)))
+	mux.Handle("/api/managed-apps/env/delete", s.authMiddleware(http.HandlerFunc(s.handleEnvFileDelete)))
+
 	// Cases — operator notes/scenarios (public or private).
 	mux.Handle("/api/cases", s.authMiddleware(http.HandlerFunc(s.handleCasesList)))
 	mux.Handle("/api/cases/create", s.authMiddleware(http.HandlerFunc(s.handleCasesCreate)))

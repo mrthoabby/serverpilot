@@ -1446,6 +1446,106 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     <!-- Apps Tab -->
     <div class="tab-panel" id="panel-apps">
+
+      <!-- ── Managed Applications ── -->
+      <div class="card" style="margin-bottom:1.5rem;">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+          <h2>Managed Applications</h2>
+          <div style="display:flex;gap:0.5rem;">
+            <button class="btn btn-sm btn-outline" onclick="loadManagedApps()">&#x21bb; Refresh</button>
+            <button class="btn btn-sm" style="background:var(--accent);color:#fff;border:none;" onclick="openCreateAppModal()">+ Create Application</button>
+          </div>
+        </div>
+        <p style="padding:0 1.25rem;color:var(--text-secondary);font-size:0.8125rem;margin-bottom:0.75rem;">
+          Application directories in <code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;font-size:0.75rem;">/opt/</code>. Each app can contain <code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;font-size:0.75rem;">.env</code> files with environment variables.
+          <strong style="color:var(--yellow);">Content is encrypted in transit</strong> (AES-256-GCM).
+        </p>
+        <div id="managedAppsContent">
+          <div class="spinner"><div class="spinner-ring"></div>Loading managed applications...</div>
+        </div>
+      </div>
+
+      <!-- Create App Modal -->
+      <div id="createAppModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:480px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <h3 style="margin:0 0 1rem 0;">Create Application</h3>
+          <p style="color:var(--text-secondary);font-size:0.8125rem;margin-bottom:1rem;line-height:1.5;">
+            Enter the application name. A directory will be created at <code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;">/opt/&lt;name&gt;</code> with a default <code>.env</code> file.
+          </p>
+          <div style="margin-bottom:1rem;">
+            <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.25rem;font-weight:600;">APP NAME</label>
+            <input type="text" id="createAppName" placeholder="e.g. srp-api" style="width:100%;padding:0.5rem 0.75rem;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:0.875rem;box-sizing:border-box;" pattern="[a-z][a-z0-9_-]*" maxlength="64">
+            <div style="font-size:0.6875rem;color:var(--text-muted);margin-top:0.25rem;">Lowercase letters, numbers, hyphens, underscores. Must start with a letter.</div>
+          </div>
+          <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
+            <button class="btn btn-sm btn-outline" onclick="closeCreateAppModal()">Cancel</button>
+            <button class="btn btn-sm" id="createAppBtn" style="background:var(--accent);color:#fff;border:none;" onclick="submitCreateApp()">Create</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Create Env File Modal -->
+      <div id="createEnvModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:480px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <h3 style="margin:0 0 1rem 0;">Add .env File</h3>
+          <p style="color:var(--text-secondary);font-size:0.8125rem;margin-bottom:1rem;line-height:1.5;">
+            Enter a prefix for the .env file name, or leave empty for the default <code>.env</code>.
+          </p>
+          <input type="hidden" id="createEnvAppName">
+          <div style="margin-bottom:1rem;">
+            <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.25rem;font-weight:600;">FILE PREFIX (optional)</label>
+            <div style="display:flex;align-items:center;gap:0.5rem;">
+              <input type="text" id="createEnvPrefix" placeholder="e.g. procs" style="flex:1;padding:0.5rem 0.75rem;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:0.875rem;" pattern="[a-z0-9_-]*" maxlength="32">
+              <span style="color:var(--text-secondary);font-family:monospace;font-size:0.875rem;">.env</span>
+            </div>
+            <div style="font-size:0.6875rem;color:var(--text-muted);margin-top:0.25rem;">Empty = <code>.env</code> &nbsp;|&nbsp; "procs" = <code>procs.env</code> &nbsp;|&nbsp; "staging" = <code>staging.env</code></div>
+          </div>
+          <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
+            <button class="btn btn-sm btn-outline" onclick="closeCreateEnvModal()">Cancel</button>
+            <button class="btn btn-sm" id="createEnvBtn" style="background:var(--accent);color:#fff;border:none;" onclick="submitCreateEnvFile()">Create File</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Edit Env File Modal -->
+      <div id="editEnvModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:640px;width:95%;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
+            <h3 style="margin:0;" id="editEnvTitle">Edit .env</h3>
+            <div style="display:flex;align-items:center;gap:0.5rem;">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="var(--green)"><path d="M8 16A8 8 0 108 0a8 8 0 000 16zm3.78-9.72a.75.75 0 00-1.06-1.06L7.25 8.69 5.28 6.72a.75.75 0 00-1.06 1.06l2.5 2.5a.75.75 0 001.06 0l4-4z"/></svg>
+              <span style="font-size:0.6875rem;color:var(--green);font-weight:600;">AES-256-GCM ENCRYPTED</span>
+            </div>
+          </div>
+          <p style="color:var(--text-secondary);font-size:0.75rem;margin-bottom:0.75rem;">
+            <span id="editEnvMeta"></span>
+          </p>
+          <input type="hidden" id="editEnvApp">
+          <input type="hidden" id="editEnvFile">
+          <textarea id="editEnvContent" style="width:100%;height:320px;padding:0.75rem;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-family:monospace;font-size:0.8125rem;resize:vertical;box-sizing:border-box;line-height:1.6;" spellcheck="false"></textarea>
+          <div style="display:flex;gap:0.75rem;justify-content:flex-end;margin-top:1rem;">
+            <button class="btn btn-sm btn-outline" onclick="closeEditEnvModal()">Cancel</button>
+            <button class="btn btn-sm" id="saveEnvBtn" style="background:var(--green);color:#fff;border:none;" onclick="submitSaveEnvFile()">Save Changes</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Delete App Confirmation Modal -->
+      <div id="deleteAppModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:480px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;">
+            <svg width="24" height="24" viewBox="0 0 16 16" fill="var(--red)"><path d="M8.982 1.566a1.13 1.13 0 00-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 01-1.1 0L7.1 5.995A.905.905 0 018 5zm.002 6a1 1 0 110 2 1 1 0 010-2z"/></svg>
+            <h3 style="margin:0;color:var(--red);">Delete Application</h3>
+          </div>
+          <p id="deleteAppDesc" style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1.5rem;line-height:1.5;"></p>
+          <input type="hidden" id="deleteAppName">
+          <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
+            <button class="btn btn-sm btn-outline" onclick="closeDeleteAppModal()">Cancel</button>
+            <button class="btn btn-sm" id="deleteAppConfirmBtn" style="background:var(--red);color:#fff;border:none;" onclick="submitDeleteApp()">Yes, delete everything</button>
+          </div>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
           <h2>Installed Applications</h2>
@@ -1974,7 +2074,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     images:     function() { return loadImages(); },
     mappings:   function() { return loadMappings(); },
     resources:  function() { return loadResources(); },
-    apps:       function() { return loadApps(); },
+    apps:       function() { loadManagedApps(); return loadApps(); },
     users:      function() { return loadDeployUsers(); },
     cases:      function() { return loadCases(); },
     settings:   function() { return loadSettings(); }
@@ -3574,6 +3674,225 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   // Close modal when clicking the backdrop.
   document.getElementById("appUninstallModal").addEventListener("click", function(e) {
     if (e.target === this) closeAppUninstallModal();
+  });
+
+  // ── Managed Applications ──
+
+  async function loadManagedApps() {
+    var el = document.getElementById("managedAppsContent");
+    if (!el) return;
+    el.innerHTML = '<div class="spinner"><div class="spinner-ring"></div>Loading managed applications...</div>';
+    try {
+      var resp = await apiFetch("/api/managed-apps");
+      var apps = (resp && resp.data) ? resp.data : (resp || []);
+      renderManagedApps(apps);
+    } catch(err) {
+      el.innerHTML = '<p style="padding:1rem;color:var(--red);">Error: ' + escapeHtml(err.message) + '</p>';
+    }
+  }
+
+  function renderManagedApps(apps) {
+    var el = document.getElementById("managedAppsContent");
+    if (!el) return;
+
+    if (!apps || apps.length === 0) {
+      el.innerHTML = '<p style="padding:1.25rem;color:var(--text-secondary);">No managed applications yet. Click <strong>Create Application</strong> to get started.</p>';
+      return;
+    }
+
+    var cards = apps.map(function(app) {
+      var envBadges = (app.env_files || []).map(function(f) {
+        return '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:6px;background:var(--bg-primary);border:1px solid var(--border);font-family:monospace;font-size:0.75rem;color:var(--text-secondary);cursor:pointer;" ' +
+          'onclick="openEditEnvFile(\'' + escapeHtml(app.name) + '\',\'' + escapeHtml(f) + '\')" title="Click to edit">' +
+          '<svg width="12" height="12" viewBox="0 0 16 16" fill="var(--accent)" style="flex-shrink:0;"><path d="M2 4a2 2 0 012-2h4.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V12a2 2 0 01-2 2H4a2 2 0 01-2-2V4z"/></svg>' +
+          escapeHtml(f) +
+          '<button onclick="event.stopPropagation();deleteEnvFile(\'' + escapeHtml(app.name) + '\',\'' + escapeHtml(f) + '\')" ' +
+            'style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:0;margin-left:4px;font-size:0.875rem;line-height:1;" title="Delete file">&times;</button>' +
+        '</span>';
+      }).join(' ');
+
+      var created = app.created_at ? new Date(app.created_at).toLocaleDateString() : '—';
+
+      return '<div style="padding:1rem 1.25rem;border-bottom:1px solid var(--border);">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">' +
+          '<div style="display:flex;align-items:center;gap:0.75rem;">' +
+            '<span style="font-size:1.25rem;">📂</span>' +
+            '<div>' +
+              '<div style="font-weight:600;color:var(--text-primary);">' + escapeHtml(app.name) + '</div>' +
+              '<div style="font-family:monospace;font-size:0.6875rem;color:var(--text-muted);">' + escapeHtml(app.path) + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div style="display:flex;align-items:center;gap:0.5rem;">' +
+            '<span style="font-size:0.6875rem;color:var(--text-muted);">Created ' + escapeHtml(created) + '</span>' +
+            '<button class="btn btn-sm btn-outline" onclick="openCreateEnvFileModal(\'' + escapeHtml(app.name) + '\')" style="font-size:0.75rem;">+ .env</button>' +
+            '<button class="btn btn-sm" style="background:var(--red);color:#fff;border:none;font-size:0.75rem;" onclick="openDeleteAppModal(\'' + escapeHtml(app.name) + '\')">Delete</button>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:0.5rem;">' +
+          (envBadges || '<span style="font-size:0.75rem;color:var(--text-muted);font-style:italic;">No .env files</span>') +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    el.innerHTML = cards;
+  }
+
+  // ── Create App Modal ──
+  function openCreateAppModal() {
+    document.getElementById("createAppName").value = "";
+    document.getElementById("createAppModal").style.display = "flex";
+    setTimeout(function() { document.getElementById("createAppName").focus(); }, 100);
+  }
+
+  function closeCreateAppModal() {
+    document.getElementById("createAppModal").style.display = "none";
+  }
+
+  async function submitCreateApp() {
+    var name = document.getElementById("createAppName").value.trim().toLowerCase();
+    if (!name) { showToast("App name is required", "error"); return; }
+    var btn = document.getElementById("createAppBtn");
+    btn.disabled = true; btn.textContent = "Creating...";
+    try {
+      await apiFetch("/api/managed-apps/create", { method: "POST", body: { name: name } });
+      closeCreateAppModal();
+      showToast("Application '" + name + "' created at /opt/" + name, "success");
+      loadManagedApps();
+    } catch(err) {
+      showToast("Failed: " + err.message, "error");
+    } finally {
+      btn.disabled = false; btn.textContent = "Create";
+    }
+  }
+
+  // ── Create Env File Modal ──
+  function openCreateEnvFileModal(appName) {
+    document.getElementById("createEnvAppName").value = appName;
+    document.getElementById("createEnvPrefix").value = "";
+    document.getElementById("createEnvModal").style.display = "flex";
+    setTimeout(function() { document.getElementById("createEnvPrefix").focus(); }, 100);
+  }
+
+  function closeCreateEnvModal() {
+    document.getElementById("createEnvModal").style.display = "none";
+  }
+
+  async function submitCreateEnvFile() {
+    var appName = document.getElementById("createEnvAppName").value;
+    var prefix = document.getElementById("createEnvPrefix").value.trim().toLowerCase();
+    var btn = document.getElementById("createEnvBtn");
+    btn.disabled = true; btn.textContent = "Creating...";
+    try {
+      var resp = await apiFetch("/api/managed-apps/env/create", { method: "POST", body: { app: appName, prefix: prefix } });
+      var data = (resp && resp.data) ? resp.data : resp;
+      closeCreateEnvModal();
+      showToast("File '" + (data.file_name || prefix + ".env") + "' created in " + appName, "success");
+      loadManagedApps();
+    } catch(err) {
+      showToast("Failed: " + err.message, "error");
+    } finally {
+      btn.disabled = false; btn.textContent = "Create File";
+    }
+  }
+
+  // ── Edit Env File Modal ──
+  async function openEditEnvFile(appName, fileName) {
+    var modal = document.getElementById("editEnvModal");
+    modal.style.display = "flex";
+    document.getElementById("editEnvTitle").textContent = "Edit " + fileName;
+    document.getElementById("editEnvMeta").textContent = "Loading...";
+    document.getElementById("editEnvContent").value = "";
+    document.getElementById("editEnvContent").disabled = true;
+    document.getElementById("editEnvApp").value = appName;
+    document.getElementById("editEnvFile").value = fileName;
+
+    try {
+      // Fetch plaintext for editing (served over authenticated HTTPS channel).
+      var resp = await apiFetch("/api/managed-apps/env?app=" + encodeURIComponent(appName) + "&file=" + encodeURIComponent(fileName) + "&plaintext=1");
+      var data = (resp && resp.data) ? resp.data : resp;
+
+      document.getElementById("editEnvMeta").textContent =
+        appName + " / " + fileName + " — " + data.size_bytes + " bytes" +
+        (data.last_modified ? " — modified " + new Date(data.last_modified).toLocaleString() : "");
+      document.getElementById("editEnvContent").value = data.content || "";
+      document.getElementById("editEnvContent").disabled = false;
+
+    } catch(err) {
+      document.getElementById("editEnvMeta").textContent = "Error: " + err.message;
+      document.getElementById("editEnvContent").value = "";
+    }
+  }
+
+  function closeEditEnvModal() {
+    document.getElementById("editEnvModal").style.display = "none";
+    document.getElementById("editEnvContent").value = ""; // clear sensitive data from DOM
+  }
+
+  async function submitSaveEnvFile() {
+    var appName = document.getElementById("editEnvApp").value;
+    var fileName = document.getElementById("editEnvFile").value;
+    var content = document.getElementById("editEnvContent").value;
+    var btn = document.getElementById("saveEnvBtn");
+    btn.disabled = true; btn.textContent = "Encrypting & Saving...";
+    try {
+      await apiFetch("/api/managed-apps/env/save", {
+        method: "POST",
+        body: { app: appName, file_name: fileName, content: content }
+      });
+      closeEditEnvModal();
+      showToast(fileName + " saved successfully", "success");
+    } catch(err) {
+      showToast("Failed to save: " + err.message, "error");
+    } finally {
+      btn.disabled = false; btn.textContent = "Save Changes";
+    }
+  }
+
+  // ── Delete Env File ──
+  async function deleteEnvFile(appName, fileName) {
+    if (!confirm("Delete " + fileName + " from " + appName + "? This cannot be undone.")) return;
+    try {
+      await apiFetch("/api/managed-apps/env/delete", { method: "POST", body: { app: appName, file_name: fileName } });
+      showToast(fileName + " deleted from " + appName, "success");
+      loadManagedApps();
+    } catch(err) {
+      showToast("Failed: " + err.message, "error");
+    }
+  }
+
+  // ── Delete App Modal ──
+  function openDeleteAppModal(appName) {
+    document.getElementById("deleteAppName").value = appName;
+    document.getElementById("deleteAppDesc").innerHTML =
+      'You are about to <strong>delete the application directory</strong> <code>/opt/' + escapeHtml(appName) + '</code> and <strong>all its .env files</strong>.<br><br>' +
+      '<strong style="color:var(--red);">This action cannot be undone.</strong>';
+    document.getElementById("deleteAppModal").style.display = "flex";
+  }
+
+  function closeDeleteAppModal() {
+    document.getElementById("deleteAppModal").style.display = "none";
+  }
+
+  async function submitDeleteApp() {
+    var appName = document.getElementById("deleteAppName").value;
+    var btn = document.getElementById("deleteAppConfirmBtn");
+    btn.disabled = true; btn.textContent = "Deleting...";
+    try {
+      await apiFetch("/api/managed-apps/delete", { method: "POST", body: { name: appName } });
+      closeDeleteAppModal();
+      showToast("Application '" + appName + "' deleted", "success");
+      loadManagedApps();
+    } catch(err) {
+      showToast("Failed: " + err.message, "error");
+    } finally {
+      btn.disabled = false; btn.textContent = "Yes, delete everything";
+    }
+  }
+
+  // Close managed app modals on backdrop click.
+  ["createAppModal", "createEnvModal", "editEnvModal", "deleteAppModal"].forEach(function(id) {
+    var m = document.getElementById(id);
+    if (m) m.addEventListener("click", function(e) { if (e.target === this) this.style.display = "none"; });
   });
 
   // ── Deploy Users ──
