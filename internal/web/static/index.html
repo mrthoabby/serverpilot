@@ -1091,7 +1091,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     <h1>Server<span>Pilot</span></h1>
     <p class="login-subtitle">Server administration dashboard</p>
     <div class="login-error" id="loginError"></div>
-    <form id="loginForm" autocomplete="on">
+    <form id="loginForm" autocomplete="on" method="POST" action="javascript:void(0)">
       <div class="form-group">
         <label for="username">Username</label>
         <input type="text" id="username" name="username" required autocomplete="username" placeholder="Enter username">
@@ -2005,6 +2005,20 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   }
 
   // ── Login / Logout ──
+
+  // SECURITY: If credentials leaked into the URL as query params (e.g. from a
+  // browser autofill bug, bookmark, or direct link), strip them immediately so
+  // they don't persist in browser history, server logs, or the Referer header.
+  (function() {
+    var params = new URLSearchParams(window.location.search);
+    if (params.has("username") || params.has("password")) {
+      params.delete("username");
+      params.delete("password");
+      var cleanURL = window.location.pathname + (params.toString() ? "?" + params.toString() : "");
+      window.history.replaceState({}, "", cleanURL);
+    }
+  })();
+
   var loginScreen = document.getElementById("loginScreen");
   var dashboard = document.getElementById("dashboard");
 
