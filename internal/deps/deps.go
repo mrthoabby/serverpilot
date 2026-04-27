@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -27,6 +28,89 @@ func isInstalled(paths []string) bool {
 	return findBinary(paths) != ""
 }
 
+// distroID reads /etc/os-release and returns the lowercase ID value (e.g. "debian", "ubuntu").
+func distroID() string {
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return "unknown"
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "ID=") {
+			id := strings.TrimPrefix(line, "ID=")
+			id = strings.Trim(id, `"'`)
+			return strings.ToLower(strings.TrimSpace(id))
+		}
+	}
+	return "unknown"
+}
+
+// fixDockerAptSources scans /etc/apt/sources.list.d/ for Docker source files that
+// reference the wrong Linux distribution and corrects them so apt-get update succeeds.
+// Docker maintains separate repos per distro; mixing them (e.g. ubuntu on Debian) causes
+// 404 errors. This is a no-op when no Docker source files are present.
+func fixDockerAptSources() {
+	id := distroID()
+	if id == "unknown" || id == "ubuntu" {
+		// No correction needed on Ubuntu, or when distro is undetectable.
+		return
+	}
+
+	dir := "/etc/apt/sources.list.d"
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+
+	// Distros whose repos are hosted under download.docker.com/linux/<distro>.
+	// ubuntu and debian are the only two we fix automatically.
+	knownWrong := []string{"ubuntu"}
+	if id == "ubuntu" {
+		knownWrong = []string{"debian"}
+	}
+
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		// Only touch files that look like Docker source files.
+		if !strings.Contains(strings.ToLower(name), "docker") {
+			continue
+		}
+
+		path := filepath.Join(dir, name)
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		content := string(raw)
+
+		changed := false
+		for _, wrong := range knownWrong {
+			wrongToken := "download.docker.com/linux/" + wrong
+			if strings.Contains(content, wrongToken) {
+				rightToken := "download.docker.com/linux/" + id
+				content = strings.ReplaceAll(content, wrongToken, rightToken)
+				fmt.Printf("[setup] Fixed Docker apt source %s: replaced %q with %q\n",
+					name, "linux/"+wrong, "linux/"+id)
+				changed = true
+			}
+		}
+
+		if changed {
+			// Write corrected content with same permissions.
+			info, _ := e.Info()
+			mode := os.FileMode(0644)
+			if info != nil {
+				mode = info.Mode()
+			}
+			if werr := os.WriteFile(path, []byte(content), mode); werr != nil {
+				fmt.Printf("[setup] WARNING: could not write fixed apt source %s: %v\n", name, werr)
+			}
+		}
+	}
+}
+
 // CheckAndInstall checks if Docker and Nginx are installed.
 // If not, it prompts the user and attempts to install them via apt-get.
 func CheckAndInstall() error {
@@ -35,6 +119,11 @@ func CheckAndInstall() error {
 		if !promptInstall("Docker") {
 			return fmt.Errorf("docker is required but not installed")
 		}
+		// Repair any stale Docker apt sources that point to the wrong distro
+		// before running apt-get update — a mismatched repo (e.g. ubuntu on Debian)
+		// causes apt-get update to fail with 404 even when docker.io is available
+		// from the distribution's own repos.
+		fixDockerAptSources()
 		if err := installPackage("docker.io"); err != nil {
 			return fmt.Errorf("failed to install Docker: %w", err)
 		}

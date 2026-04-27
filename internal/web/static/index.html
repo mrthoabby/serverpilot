@@ -1097,6 +1097,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.5A1.5 1.5 0 012.5 1h3A1.5 1.5 0 017 2.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3A1.5 1.5 0 0115 10.5v3A1.5 1.5 0 0113.5 15h-3A1.5 1.5 0 019 13.5v-3z"/></svg>
         Apps
       </button>
+      <button class="tab-btn" data-tab="users">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M10.5 5a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0zm.061 3.073a4 4 0 10-5.123 0 6.004 6.004 0 00-3.431 5.142.75.75 0 001.498.07 4.5 4.5 0 018.99 0 .75.75 0 101.498-.07 6.004 6.004 0 00-3.432-5.142z"/></svg>
+        Users
+      </button>
       <button class="tab-btn" data-tab="settings">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4.754a3.246 3.246 0 100 6.492 3.246 3.246 0 000-6.492zM5.754 8a2.246 2.246 0 114.492 0 2.246 2.246 0 01-4.492 0z"/><path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 01-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 01-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 01.52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 011.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 011.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 01.52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 01-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 01-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 002.693 1.115l.291-.16c.764-.415 1.6.422 1.184 1.185l-.159.292a1.873 1.873 0 001.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 00-1.115 2.693l.16.291c.415.764-.422 1.6-1.185 1.184l-.292-.159a1.873 1.873 0 00-2.692 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 00-2.693-1.115l-.291.16c-.764.415-1.6-.422-1.184-1.185l.159-.292A1.873 1.873 0 001.945 8.93l-.318-.094c-.835-.246-.835-1.428 0-1.674l.319-.094a1.873 1.873 0 001.115-2.693l-.16-.291c-.415-.764.422-1.6 1.185-1.184l.292.159a1.873 1.873 0 002.692-1.116l.094-.318z"/></svg>
         Settings
@@ -1409,6 +1413,113 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       </div>
     </div>
 
+    <!-- Users Tab -->
+    <div class="tab-panel" id="panel-users">
+      <div class="refresh-bar">
+        <span class="refresh-bar-ts" id="ts-users">--</span>
+      </div>
+
+      <!-- Create User Form -->
+      <div class="card" style="max-width:560px;margin-bottom:1rem;">
+        <div class="card-header"><h2>Create Deploy User</h2></div>
+        <div style="padding:1rem;">
+          <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:1rem;">Create a Linux system user for CI/CD deploys, SSH access, or automation. Users are added to the <code>deploy</code> group.</p>
+          <div style="display:flex;flex-direction:column;gap:0.75rem;">
+            <div>
+              <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">Username</label>
+              <input type="text" id="newUserName" placeholder="ci-deploy" maxlength="32"
+                style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.85rem;"
+                pattern="[a-z][a-z0-9_-]*">
+              <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px;">Lowercase letters, numbers, hyphens, underscores. Must start with a letter.</div>
+            </div>
+            <div>
+              <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">Password</label>
+              <div style="display:flex;gap:0.5rem;">
+                <input type="password" id="newUserPass" placeholder="Min 8 characters"
+                  style="flex:1;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.85rem;">
+                <button onclick="togglePasswordVis('newUserPass', this)" class="btn btn-secondary" style="padding:6px 10px;font-size:0.78rem;" title="Show/hide">
+                  <svg id="eyeIconCreate" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3.5C4.136 3.5 1.04 6.008.152 7.59a.796.796 0 000 .82C1.04 9.992 4.136 12.5 8 12.5s6.96-2.508 7.848-4.09a.796.796 0 000-.82C14.96 6.008 11.864 3.5 8 3.5zM8 11a3 3 0 110-6 3 3 0 010 6z"/><circle cx="8" cy="8" r="1.5"/></svg>
+                </button>
+              </div>
+            </div>
+            <div style="display:flex;gap:0.5rem;align-items:center;">
+              <button onclick="createDeployUser()" class="btn btn-primary" id="btnCreateUser" style="padding:8px 20px;">Create User</button>
+              <span id="createUserMsg" style="font-size:0.8rem;"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Users Table -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Deploy Users</h2>
+          <button onclick="loadDeployUsers()" class="btn btn-secondary" style="padding:4px 12px;font-size:0.78rem;">Refresh</button>
+        </div>
+        <div id="usersContent">
+          <div class="spinner"><div class="spinner-ring"></div>Loading users...</div>
+        </div>
+      </div>
+
+      <!-- Google Cloud Firewall (shown only if gcloud is available) -->
+      <div id="gcloudSection" style="display:none;margin-top:1rem;">
+        <div class="card">
+          <div class="card-header">
+            <h2>
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:-3px;margin-right:4px;"><path d="M8.186 1.113a.5.5 0 00-.372 0L1.846 3.5l5.968 2.354a.5.5 0 00.372 0L14.154 3.5 8.186 1.113zM14.5 4.239l-6 2.368a1.5 1.5 0 01-1 0l-6-2.368v6.999a.5.5 0 00.314.464l6.5 2.563a.5.5 0 00.372 0l6.5-2.563a.5.5 0 00.314-.464V4.24z"/></svg>
+              Google Cloud Firewall
+            </h2>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span id="gcloudProject" style="font-size:0.75rem;color:var(--text-muted);"></span>
+              <button onclick="loadFirewallRules()" class="btn btn-secondary" style="padding:4px 12px;font-size:0.78rem;">Refresh</button>
+            </div>
+          </div>
+          <div style="padding:1rem;">
+            <!-- Open Port Form -->
+            <div style="display:flex;gap:0.5rem;align-items:flex-end;margin-bottom:1rem;flex-wrap:wrap;">
+              <div>
+                <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:3px;">TCP Port</label>
+                <input type="number" id="fwPort" min="1" max="65535" placeholder="3000"
+                  style="width:100px;padding:6px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.85rem;">
+              </div>
+              <div>
+                <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:3px;">Source Range</label>
+                <input type="text" id="fwSource" value="0.0.0.0/0" placeholder="0.0.0.0/0"
+                  style="width:160px;padding:6px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.85rem;">
+              </div>
+              <button onclick="openFirewallPort()" class="btn btn-primary" id="btnFwOpen" style="padding:6px 16px;">Open Port</button>
+              <span id="fwMsg" style="font-size:0.8rem;"></span>
+            </div>
+
+            <!-- Rules Table -->
+            <div id="fwRulesContent">
+              <div style="color:var(--text-muted);font-size:0.82rem;">Loading firewall rules...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reset Password Modal -->
+      <div id="resetPassModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:none;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:1.5rem;width:90%;max-width:400px;">
+          <h3 style="margin:0 0 1rem 0;font-size:1rem;">Reset Password</h3>
+          <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.75rem;">New password for <strong id="resetPassUser"></strong>:</p>
+          <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
+            <input type="password" id="resetPassInput" placeholder="Min 8 characters"
+              style="flex:1;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.85rem;">
+            <button onclick="togglePasswordVis('resetPassInput', this)" class="btn btn-secondary" style="padding:6px 10px;" title="Show/hide">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3.5C4.136 3.5 1.04 6.008.152 7.59a.796.796 0 000 .82C1.04 9.992 4.136 12.5 8 12.5s6.96-2.508 7.848-4.09a.796.796 0 000-.82C14.96 6.008 11.864 3.5 8 3.5zM8 11a3 3 0 110-6 3 3 0 010 6z"/><circle cx="8" cy="8" r="1.5"/></svg>
+            </button>
+          </div>
+          <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+            <button onclick="closeResetModal()" class="btn btn-secondary" style="padding:6px 16px;">Cancel</button>
+            <button onclick="submitResetPassword()" class="btn btn-primary" id="btnResetPass" style="padding:6px 16px;">Reset</button>
+          </div>
+          <span id="resetPassMsg" style="font-size:0.8rem;display:block;margin-top:0.5rem;"></span>
+        </div>
+      </div>
+    </div>
+
     <!-- Settings Tab -->
     <div class="tab-panel" id="panel-settings">
       <div class="card" style="max-width: 600px;">
@@ -1662,6 +1773,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     mappings:   function() { return loadMappings(); },
     resources:  function() { return loadResources(); },
     apps:       function() { return loadApps(); },
+    users:      function() { return loadDeployUsers(); },
     settings:   function() { return loadSettings(); }
   };
 
@@ -3246,6 +3358,297 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   document.getElementById("appUninstallModal").addEventListener("click", function(e) {
     if (e.target === this) closeAppUninstallModal();
   });
+
+  // ── Deploy Users ──
+
+  function loadDeployUsers() {
+    var wrap = document.getElementById("usersContent");
+    if (!wrap) return;
+    var tsEl = document.getElementById("ts-users");
+    if (tsEl) tsEl.textContent = new Date().toLocaleTimeString();
+
+    apiFetch("/api/users").then(function(data) {
+      if (!data || !data.success) {
+        wrap.innerHTML = '<div class="empty-state"><p>Error loading users</p></div>';
+        return;
+      }
+      var userList = data.data || [];
+      if (userList.length === 0) {
+        wrap.innerHTML = '<div class="empty-state"><p>No deploy users created yet. Use the form above to create one.</p></div>';
+        return;
+      }
+
+      var html = '<div class="table-wrap"><table><thead><tr>' +
+        '<th>Username</th><th>Created</th><th>Group</th><th style="width:160px;">Actions</th>' +
+        '</tr></thead><tbody>';
+
+      userList.forEach(function(u) {
+        var created = u.created_at ? new Date(u.created_at).toLocaleDateString() + " " + new Date(u.created_at).toLocaleTimeString() : "—";
+        html += '<tr>' +
+          '<td><strong>' + escapeHtml(u.username) + '</strong></td>' +
+          '<td style="color:var(--text-muted);font-size:0.82rem;">' + created + '</td>' +
+          '<td><span class="badge badge-running"><span class="badge-dot"></span> deploy</span></td>' +
+          '<td>' +
+            '<div style="display:flex;gap:6px;">' +
+              '<button onclick="openResetModal(\'' + escapeHtml(u.username) + '\')" class="btn btn-secondary" style="padding:3px 10px;font-size:0.75rem;" title="Reset password">' +
+                '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:-1px;margin-right:3px;">' +
+                  '<path d="M11.5 1a.5.5 0 010 1h-1.293l3.147 3.146a.5.5 0 01-.708.708L9.5 2.707V4a.5.5 0 01-1 0V1.5a.5.5 0 01.5-.5h2.5zm-6.354 4.854a.5.5 0 10-.708-.708L1.293 8.293A1 1 0 001 9v2a1 1 0 001 1h2a1 1 0 00.707-.293l3.147-3.147a.5.5 0 10-.708-.708L4 11.001H2V9l3.146-3.146z"/>' +
+                '</svg>Reset' +
+              '</button>' +
+              '<button onclick="deleteDeployUser(\'' + escapeHtml(u.username) + '\')" class="btn btn-secondary" style="padding:3px 10px;font-size:0.75rem;border-color:#f8514966;color:#f85149;" title="Delete user">' +
+                '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" style="vertical-align:-1px;margin-right:3px;">' +
+                  '<path d="M4 4l8 8M12 4l-8 8" stroke="#f85149" stroke-width="1.5" stroke-linecap="round"/>' +
+                '</svg>Delete' +
+              '</button>' +
+            '</div>' +
+          '</td></tr>';
+      });
+
+      html += '</tbody></table></div>';
+      wrap.innerHTML = html;
+    }).catch(function() {
+      wrap.innerHTML = '<div class="empty-state"><p>Error loading users</p></div>';
+    });
+  }
+
+  function createDeployUser() {
+    var nameEl = document.getElementById("newUserName");
+    var passEl = document.getElementById("newUserPass");
+    var msgEl = document.getElementById("createUserMsg");
+    var btn = document.getElementById("btnCreateUser");
+    var username = nameEl.value.trim();
+    var password = passEl.value;
+
+    if (!username) { msgEl.style.color = "#f85149"; msgEl.textContent = "Username required"; return; }
+    if (password.length < 8) { msgEl.style.color = "#f85149"; msgEl.textContent = "Password must be at least 8 chars"; return; }
+
+    btn.disabled = true;
+    msgEl.style.color = "var(--text-muted)";
+    msgEl.textContent = "Creating...";
+
+    apiFetch("/api/users/create", {
+      method: "POST",
+      body: { username: username, password: password }
+    }).then(function(data) {
+      btn.disabled = false;
+      if (data && data.success) {
+        msgEl.style.color = "#3fb950";
+        msgEl.textContent = "User '" + username + "' created!";
+        nameEl.value = "";
+        passEl.value = "";
+        loadDeployUsers();
+        setTimeout(function() { msgEl.textContent = ""; }, 4000);
+      } else {
+        msgEl.style.color = "#f85149";
+        msgEl.textContent = (data && data.error) || "Failed to create user";
+      }
+    }).catch(function() {
+      btn.disabled = false;
+      msgEl.style.color = "#f85149";
+      msgEl.textContent = "Connection error";
+    });
+  }
+
+  function deleteDeployUser(username) {
+    if (!confirm("Delete user '" + username + "'?\n\nThis removes the Linux user and their home directory permanently.")) return;
+
+    apiFetch("/api/users/delete", {
+      method: "POST",
+      body: { username: username }
+    }).then(function(data) {
+      if (data && data.success) {
+        loadDeployUsers();
+      } else {
+        alert("Error: " + ((data && data.error) || "Failed to delete user"));
+      }
+    }).catch(function() { alert("Connection error"); });
+  }
+
+  // ── Reset Password Modal ──
+  var _resetTarget = "";
+
+  function openResetModal(username) {
+    _resetTarget = username;
+    document.getElementById("resetPassUser").textContent = username;
+    document.getElementById("resetPassInput").value = "";
+    document.getElementById("resetPassMsg").textContent = "";
+    var modal = document.getElementById("resetPassModal");
+    modal.style.display = "flex";
+  }
+
+  function closeResetModal() {
+    document.getElementById("resetPassModal").style.display = "none";
+    _resetTarget = "";
+  }
+
+  function submitResetPassword() {
+    var passEl = document.getElementById("resetPassInput");
+    var msgEl = document.getElementById("resetPassMsg");
+    var btn = document.getElementById("btnResetPass");
+    var newPass = passEl.value;
+
+    if (newPass.length < 8) { msgEl.style.color = "#f85149"; msgEl.textContent = "Password must be at least 8 chars"; return; }
+
+    btn.disabled = true;
+    msgEl.style.color = "var(--text-muted)";
+    msgEl.textContent = "Resetting...";
+
+    apiFetch("/api/users/reset-password", {
+      method: "POST",
+      body: { username: _resetTarget, password: newPass }
+    }).then(function(data) {
+      btn.disabled = false;
+      if (data && data.success) {
+        msgEl.style.color = "#3fb950";
+        msgEl.textContent = "Password reset successfully!";
+        setTimeout(function() { closeResetModal(); }, 1500);
+      } else {
+        msgEl.style.color = "#f85149";
+        msgEl.textContent = (data && data.error) || "Failed to reset password";
+      }
+    }).catch(function() {
+      btn.disabled = false;
+      msgEl.style.color = "#f85149";
+      msgEl.textContent = "Connection error";
+    });
+  }
+
+  // Toggle password visibility for any input by id.
+  function togglePasswordVis(inputId, btn) {
+    var input = document.getElementById(inputId);
+    if (!input) return;
+    if (input.type === "password") {
+      input.type = "text";
+    } else {
+      input.type = "password";
+    }
+  }
+
+  // Close reset modal on backdrop click.
+  document.getElementById("resetPassModal").addEventListener("click", function(e) {
+    if (e.target === this) closeResetModal();
+  });
+
+  // ── Google Cloud Firewall (conditional) ──
+
+  // Check on first load of Users tab whether gcloud is available.
+  var _gcloudChecked = false;
+
+  // Patch loadDeployUsers to also check gcloud on first call.
+  var _origLoadDeployUsers = loadDeployUsers;
+  loadDeployUsers = function() {
+    _origLoadDeployUsers();
+    if (!_gcloudChecked) {
+      _gcloudChecked = true;
+      apiFetch("/api/gcloud/status").then(function(data) {
+        if (data && data.success && data.data && data.data.available) {
+          document.getElementById("gcloudSection").style.display = "block";
+          var projEl = document.getElementById("gcloudProject");
+          if (projEl && data.data.project) {
+            projEl.textContent = "Project: " + data.data.project;
+          }
+          loadFirewallRules();
+        }
+      }).catch(function() {});
+    }
+  };
+
+  function loadFirewallRules() {
+    var wrap = document.getElementById("fwRulesContent");
+    if (!wrap) return;
+
+    apiFetch("/api/gcloud/firewall").then(function(data) {
+      if (!data || !data.success) {
+        wrap.innerHTML = '<div style="color:var(--text-muted);font-size:0.82rem;">Failed to load rules</div>';
+        return;
+      }
+      var rules = data.data || [];
+      if (rules.length === 0) {
+        wrap.innerHTML = '<div style="color:var(--text-muted);font-size:0.82rem;">No firewall rules found</div>';
+        return;
+      }
+
+      var html = '<div class="table-wrap"><table style="font-size:0.82rem;"><thead><tr>' +
+        '<th>Rule Name</th><th>Direction</th><th>Allowed</th><th>Source</th><th>Status</th><th style="width:70px;"></th>' +
+        '</tr></thead><tbody>';
+
+      rules.forEach(function(r) {
+        var isSP = r.name.indexOf("sp-") === 0;
+        var statusBadge = r.disabled
+          ? '<span class="badge badge-stopped"><span class="badge-dot"></span> disabled</span>'
+          : '<span class="badge badge-running"><span class="badge-dot"></span> active</span>';
+        var deleteBtn = isSP
+          ? '<button onclick="closeFirewallRule(\'' + escapeHtml(r.name) + '\')" class="btn btn-secondary" style="padding:2px 8px;font-size:0.72rem;border-color:#f8514966;color:#f85149;" title="Delete rule">' +
+              '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" style="vertical-align:-1px;"><path d="M4 4l8 8M12 4l-8 8" stroke="#f85149" stroke-width="1.5" stroke-linecap="round"/></svg> Close' +
+            '</button>'
+          : '<span style="font-size:0.7rem;color:var(--text-muted);">external</span>';
+        html += '<tr>' +
+          '<td><code style="font-size:0.78rem;">' + escapeHtml(r.name) + '</code></td>' +
+          '<td>' + escapeHtml(r.direction || "INGRESS") + '</td>' +
+          '<td>' + escapeHtml(r.allowed) + '</td>' +
+          '<td style="font-family:monospace;font-size:0.78rem;">' + escapeHtml(r.source_ranges || "—") + '</td>' +
+          '<td>' + statusBadge + '</td>' +
+          '<td style="text-align:center;">' + deleteBtn + '</td>' +
+          '</tr>';
+      });
+
+      html += '</tbody></table></div>';
+      wrap.innerHTML = html;
+    }).catch(function() {
+      wrap.innerHTML = '<div style="color:#f85149;font-size:0.82rem;">Error loading firewall rules</div>';
+    });
+  }
+
+  function openFirewallPort() {
+    var portEl = document.getElementById("fwPort");
+    var srcEl = document.getElementById("fwSource");
+    var msgEl = document.getElementById("fwMsg");
+    var btn = document.getElementById("btnFwOpen");
+    var port = parseInt(portEl.value, 10);
+    var source = srcEl.value.trim() || "0.0.0.0/0";
+
+    if (!port || port < 1 || port > 65535) { msgEl.style.color = "#f85149"; msgEl.textContent = "Invalid port"; return; }
+
+    btn.disabled = true;
+    msgEl.style.color = "var(--text-muted)";
+    msgEl.textContent = "Opening...";
+
+    apiFetch("/api/gcloud/firewall/open", {
+      method: "POST",
+      body: { port: port, source: source }
+    }).then(function(data) {
+      btn.disabled = false;
+      if (data && data.success) {
+        msgEl.style.color = "#3fb950";
+        msgEl.textContent = "Port " + port + " opened!";
+        portEl.value = "";
+        loadFirewallRules();
+        setTimeout(function() { msgEl.textContent = ""; }, 4000);
+      } else {
+        msgEl.style.color = "#f85149";
+        msgEl.textContent = (data && data.error) || "Failed";
+      }
+    }).catch(function() {
+      btn.disabled = false;
+      msgEl.style.color = "#f85149";
+      msgEl.textContent = "Connection error";
+    });
+  }
+
+  function closeFirewallRule(name) {
+    if (!confirm("Delete firewall rule '" + name + "'?\nThis will close the port.")) return;
+
+    apiFetch("/api/gcloud/firewall/close", {
+      method: "POST",
+      body: { name: name }
+    }).then(function(data) {
+      if (data && data.success) {
+        loadFirewallRules();
+      } else {
+        alert("Error: " + ((data && data.error) || "Failed to delete rule"));
+      }
+    }).catch(function() { alert("Connection error"); });
+  }
 
   // ── Settings ──
   var settingsData = { domain: "", ssl_enabled: false, insecure_blocked: false, port: 0 };

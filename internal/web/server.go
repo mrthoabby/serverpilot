@@ -81,6 +81,18 @@ func (s *Server) Start() error {
 	mux.Handle("/api/gdapp/activate", s.authMiddleware(http.HandlerFunc(s.handleGDAppActivate)))
 	mux.Handle("/api/gdapp/deactivate", s.authMiddleware(http.HandlerFunc(s.handleGDAppDeactivate)))
 
+	// Deploy users.
+	mux.Handle("/api/users", s.authMiddleware(http.HandlerFunc(s.handleDeployUsers)))
+	mux.Handle("/api/users/create", s.authMiddleware(http.HandlerFunc(s.handleDeployUserCreate)))
+	mux.Handle("/api/users/reset-password", s.authMiddleware(http.HandlerFunc(s.handleDeployUserResetPassword)))
+	mux.Handle("/api/users/delete", s.authMiddleware(http.HandlerFunc(s.handleDeployUserDelete)))
+
+	// Google Cloud Firewall (conditional — only works if gcloud is installed).
+	mux.Handle("/api/gcloud/status", s.authMiddleware(http.HandlerFunc(s.handleGCloudStatus)))
+	mux.Handle("/api/gcloud/firewall", s.authMiddleware(http.HandlerFunc(s.handleFirewallRules)))
+	mux.Handle("/api/gcloud/firewall/open", s.authMiddleware(http.HandlerFunc(s.handleFirewallOpen)))
+	mux.Handle("/api/gcloud/firewall/close", s.authMiddleware(http.HandlerFunc(s.handleFirewallClose)))
+
 	// Installed applications.
 	mux.Handle("/api/apps", s.authMiddleware(http.HandlerFunc(s.handleApps)))
 	mux.Handle("/api/apps/uninstall", s.authMiddleware(http.HandlerFunc(s.handleAppUninstall)))

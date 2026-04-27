@@ -24,8 +24,9 @@ import (
 	"github.com/mrthoabby/serverpilot/internal/docker"
 	"github.com/mrthoabby/serverpilot/internal/labels"
 	"github.com/mrthoabby/serverpilot/internal/mapper"
-	"github.com/mrthoabby/serverpilot/internal/portalloc"
 	"github.com/mrthoabby/serverpilot/internal/nginx"
+	"github.com/mrthoabby/serverpilot/internal/portalloc"
+	"github.com/mrthoabby/serverpilot/internal/users"
 	"github.com/mrthoabby/serverpilot/internal/sysinfo"
 	"github.com/mrthoabby/serverpilot/internal/templates"
 )
@@ -2496,5 +2497,213 @@ func (s *Server) handlePortAllocate(w http.ResponseWriter, r *http.Request) {
 		"port":       port,
 		"locked_for": "60s",
 		"range":      fmt.Sprintf("%d-%d", minPort, maxPort),
+	}})
+}
+
+// ── Deploy Users ─────────────────────────────────────────────────────────
+
+// handleDeployUsers returns the list of ServerPilot-managed deploy users.
+func (s *Server) handleDeployUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	userList := users.ListUsers()
+	// Return empty array instead of null when no users exist.
+	if userList == nil {
+		userList = []users.DeployUser{}
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: userList})
+}
+
+// handleDeployUserCreate creates a new Linux deploy user.
+// POST body: {"username": "ci-deploy", "password": "securepass123"}
+func (s *Server) handleDeployUserCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	req.Username = strings.TrimSpace(req.Username)
+	if req.Username == "" || req.Password == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "username and password are required"})
+		return
+	}
+
+	if err := users.CreateUser(req.Username, req.Password); err != nil {
+		log.Printf("deploy-user-create: failed for %q: %v", req.Username, err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+
+	log.Printf("deploy-user-create: created user %q", req.Username)
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
+		"username": req.Username,
+		"message":  fmt.Sprintf("User '%s' created successfully", req.Username),
+	}})
+}
+
+// handleDeployUserResetPassword resets the password for a managed deploy user.
+// POST body: {"username": "ci-deploy", "password": "newpass456"}
+func (s *Server) handleDeployUserResetPassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	req.Username = strings.TrimSpace(req.Username)
+	if req.Username == "" || req.Password == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "username and password are required"})
+		return
+	}
+
+	if err := users.ResetPassword(req.Username, req.Password); err != nil {
+		log.Printf("deploy-user-reset: failed for %q: %v", req.Username, err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+
+	log.Printf("deploy-user-reset: password reset for %q", req.Username)
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
+		"username": req.Username,
+		"message":  fmt.Sprintf("Password reset for '%s'", req.Username),
+	}})
+}
+
+// handleDeployUserDelete removes a managed deploy user from the system.
+// POST body: {"username": "ci-deploy"}
+func (s *Server) handleDeployUserDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+
+	var req struct {
+		Username string `json:"username"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	req.Username = strings.TrimSpace(req.Username)
+	if req.Username == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "username is required"})
+		return
+	}
+
+	if err := users.DeleteUser(req.Username); err != nil {
+		log.Printf("deploy-user-delete: failed for %q: %v", req.Username, err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+
+	log.Printf("deploy-user-delete: removed user %q", req.Username)
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
+		"username": req.Username,
+		"message":  fmt.Sprintf("User '%s' deleted", req.Username),
+	}})
+}
+
+// ── Google Cloud Firewall ────────────────────────────────────────────────
+
+// handleGCloudStatus checks if gcloud is available and configured.
+func (s *Server) handleGCloudStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: users.CheckGCloud()})
+}
+
+// handleFirewallRules lists GCP firewall rules.
+func (s *Server) handleFirewallRules(w http.ResponseWriter, r *http.Request) {
+	rules, err := users.ListFirewallRules()
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+	if rules == nil {
+		rules = []users.FirewallRule{}
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: rules})
+}
+
+// handleFirewallOpen creates a firewall rule to allow TCP on a given port.
+// POST body: {"port": 3000, "source": "0.0.0.0/0"}
+func (s *Server) handleFirewallOpen(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	var req struct {
+		Port   int    `json:"port"`
+		Source string `json:"source"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	if req.Port < 1 || req.Port > 65535 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid port"})
+		return
+	}
+
+	if err := users.OpenFirewallPort(req.Port, req.Source); err != nil {
+		log.Printf("firewall-open: failed port %d: %v", req.Port, err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+
+	log.Printf("firewall-open: opened TCP port %d (source: %s)", req.Port, req.Source)
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]interface{}{
+		"port":    req.Port,
+		"message": fmt.Sprintf("Firewall rule created for TCP:%d", req.Port),
+	}})
+}
+
+// handleFirewallClose deletes a ServerPilot-managed firewall rule.
+// POST body: {"name": "sp-allow-tcp-3000"}
+func (s *Server) handleFirewallClose(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	if req.Name == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "rule name is required"})
+		return
+	}
+
+	if err := users.CloseFirewallPort(req.Name); err != nil {
+		log.Printf("firewall-close: failed %q: %v", req.Name, err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+
+	log.Printf("firewall-close: deleted rule %q", req.Name)
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
+		"name":    req.Name,
+		"message": fmt.Sprintf("Firewall rule '%s' deleted", req.Name),
 	}})
 }
