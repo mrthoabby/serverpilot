@@ -161,7 +161,8 @@ func saveRegistry(reg *registry) error {
 	}
 	// Write to a temp file then rename for atomic replacement (no partial reads).
 	tmp := registryPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
+	// 0666 so any user can read/write (file lives in /tmp, ephemeral).
+	if err := os.WriteFile(tmp, data, 0666); err != nil {
 		return err
 	}
 	return os.Rename(tmp, registryPath)

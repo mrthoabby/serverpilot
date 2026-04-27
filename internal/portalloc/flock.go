@@ -9,7 +9,9 @@ import (
 // It returns an unlock function that releases the lock and closes the file.
 // This prevents race conditions when multiple `sp port` calls run concurrently.
 func lockFile(path string) (unlock func(), err error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
+	// 0666 so any user (root, deploy users, etc.) can acquire the lock.
+	// The file lives in /tmp and is ephemeral — broad permissions are safe here.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
 		return nil, err
 	}
