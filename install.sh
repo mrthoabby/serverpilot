@@ -113,10 +113,13 @@ fetch_latest_version() {
 # ---------------------------------------------------------------------------
 
 download_binary() {
-    # Pin downloads to the published GitHub Release asset URL. Replacing
-    # a release asset on GitHub requires an explicit delete (auditable),
-    # so this URL is effectively immutable once published.
-    BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
+    # Pin downloads to the IMMUTABLE TAG ref via raw.githubusercontent.com.
+    # The release flow commits binaries to the repo under release/<VER>/
+    # and tags. Pinning at the tag (instead of master) neutralises the
+    # "force-push to master replaces binaries" attack vector while keeping
+    # the existing distribution path unchanged.
+    VER_PATH="${VERSION#v}"
+    BASE_URL="https://raw.githubusercontent.com/${REPO}/${VERSION}/release/${VER_PATH}"
     DOWNLOAD_URL="${BASE_URL}/${BIN_NAME}-${OS}-${ARCH}"
     SHA_URL="${BASE_URL}/${BIN_NAME}-${OS}-${ARCH}.sha256"
 

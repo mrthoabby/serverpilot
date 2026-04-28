@@ -215,13 +215,18 @@ func downloadAndReplace(tagVersion string) error {
 
 	client := newSecureHTTPClient(httpDownloadTimeout)
 
-	// The project distributes binaries as GitHub Release ASSETS — the user
-	// pushes a tag, opens the Release on GitHub, and uploads the platform
-	// binaries as assets. That makes the asset URL inherently immutable:
-	// once a release is published, GitHub does not let an asset be replaced
-	// silently (a re-upload requires deleting the existing one, which is
-	// audited). This is strictly stronger than serving from master/release/.
-	base := fmt.Sprintf("https://github.com/mrthoabby/serverpilot/releases/download/%s", tagVersion)
+	// The project's release flow commits binaries to the repo under
+	// release/<version>/ and tags. We download via raw.githubusercontent.com
+	// pinned to the IMMUTABLE TAG ref (not master) — that closes the
+	// "force-push to master replaces binaries" attack vector while matching
+	// the existing distribution path. The /releases/latest API is still our
+	// discovery channel because it only lists tags that were formally
+	// published as Releases, not stray tags.
+	ver := strings.TrimPrefix(tagVersion, "v")
+	base := fmt.Sprintf(
+		"https://raw.githubusercontent.com/mrthoabby/serverpilot/%s/release/%s",
+		tagVersion, ver,
+	)
 	binURL := fmt.Sprintf("%s/sp-%s-%s", base, osName, archName)
 	sumURL := binURL + ".sha256"
 

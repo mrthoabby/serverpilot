@@ -1739,11 +1739,16 @@ func downloadAndReplace(tagVersion string) error {
 	archName := runtime.GOARCH
 
 	client := secureHTTPClient(5 * time.Minute)
-	// Pin to the published GitHub Release asset URL. The release flow is:
-	// tag from master → publish a Release on GitHub → upload binaries as
-	// release assets. The download URL is then inherently immutable per
-	// asset (replacing a published asset requires an explicit delete).
-	base := fmt.Sprintf("https://github.com/mrthoabby/serverpilot/releases/download/%s", tagVersion)
+	// raw.githubusercontent.com pinned to the immutable tag ref — matches
+	// the project's release flow (binaries commiteados at release/<ver>/
+	// in the repo, then tagged + pushed). The tag pin neutralises the
+	// "force-push to master" attack while preserving the existing
+	// distribution path. Discovery still goes through /releases/latest.
+	ver := strings.TrimPrefix(tagVersion, "v")
+	base := fmt.Sprintf(
+		"https://raw.githubusercontent.com/mrthoabby/serverpilot/%s/release/%s",
+		tagVersion, ver,
+	)
 	binURL := fmt.Sprintf("%s/sp-%s-%s", base, osName, archName)
 	sumURL := binURL + ".sha256"
 

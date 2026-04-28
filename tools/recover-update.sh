@@ -67,7 +67,11 @@ if ! printf '%s' "$TAG" | grep -Eq "$TAG_REGEX"; then
 fi
 echo "    → $TAG"
 
-URL="https://github.com/${REPO}/releases/download/${TAG}/sp-${OS}-${ARCH}"
+# The release flow commits binaries to the repo at release/<ver>/ and tags
+# them. raw.githubusercontent.com pinned to the immutable TAG ref serves
+# them, while the tag pin (vs. master) neutralises any future force-push.
+VER_PATH="${TAG#v}"
+URL="https://raw.githubusercontent.com/${REPO}/${TAG}/release/${VER_PATH}/sp-${OS}-${ARCH}"
 SHA_URL="${URL}.sha256"
 
 echo "[2/5] Downloading $(basename "$URL")..."
