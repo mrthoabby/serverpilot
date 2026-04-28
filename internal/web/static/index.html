@@ -2065,8 +2065,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         <input type="text" id="assocDomain" required placeholder="example.com">
       </div>
       <div class="form-group">
-        <label for="assocPort">Container Port</label>
-        <input type="text" id="assocPort" required placeholder="3000">
+        <label for="assocPort">Host port to proxy</label>
+        <input type="text" id="assocPort" required placeholder="3001">
+        <div style="font-size:0.7rem;color:var(--text-muted);margin-top:4px;line-height:1.4;">
+          The port Docker published on the host (the left side of <code>3001:8080</code>) — NOT the container's internal port. Nginx runs on the host and reaches the container through this published port.
+        </div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-outline" id="assocCancelBtn">Cancel</button>
@@ -2120,8 +2123,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         <input type="text" id="gdappDomain" required placeholder="docs.example.com">
       </div>
       <div class="form-group">
-        <label for="gdappPort">Container Port</label>
+        <label for="gdappPort">Host port to proxy</label>
         <input type="text" id="gdappPort" required placeholder="3010" value="3010">
+        <div style="font-size:0.7rem;color:var(--text-muted);margin-top:4px;line-height:1.4;">
+          The port Docker published on the host (left side of <code>3001:8080</code>) — NOT the container's internal port.
+        </div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-outline" id="gdappCancelBtn">Cancel</button>
@@ -3262,9 +3268,13 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var actionText = "Create " + (templateNames[label] || "an Nginx site");
     setText(document.getElementById("associateModalSub"), actionText + " for \"" + container.name + "\"");
     document.getElementById("assocDomain").value = "";
+    // Prefill the HOST port (the one Docker published on 0.0.0.0:<port>),
+    // not the container's internal port. Nginx runs on the host, outside
+    // the docker network, so its proxy_pass must target the host port.
+    // Example: a `-p 3001:8080` mapping → use 3001 here, not 8080.
     var port = "";
     if (container.ports && container.ports.length) {
-      port = String(container.ports[0].container_port || container.ports[0].host_port || "");
+      port = String(container.ports[0].host_port || container.ports[0].container_port || "");
     }
     document.getElementById("assocPort").value = port;
     document.getElementById("assocTemplate").value = label;
