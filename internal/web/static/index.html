@@ -2070,6 +2070,24 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         <div style="font-size:0.7rem;color:var(--text-muted);margin-top:4px;line-height:1.4;">
           The port Docker published on the host (the left side of <code>3001:8080</code>) — NOT the container's internal port. Nginx runs on the host and reaches the container through this published port.
         </div>
+        <!-- Allocate-via-sp-port helper. Shown only when the container
+             has no host_port published. The button reserves a port from
+             the configured sp port range (default 3000-3999) for 60s and
+             prefills it here, so the operator only has to redeploy with
+             `-p <allocated>:<internal>` and then click Create Site. -->
+        <div id="assocAllocate" style="display:none;margin-top:10px;padding:10px 12px;border:1px solid rgba(210,153,34,0.4);border-radius:6px;background:rgba(210,153,34,0.10);">
+          <div style="font-size:0.74rem;color:#d29922;line-height:1.45;margin-bottom:6px;">
+            ⚠ <strong>This container has no host port published.</strong>
+            Allocate a free port from the sp port range, then redeploy the
+            container with <code>-p &lt;allocated&gt;:&lt;internal&gt;</code> before
+            clicking Create Site.
+          </div>
+          <button type="button" id="assocAllocateBtn" onclick="allocatePortForAssoc()"
+                  class="btn btn-sm" style="background:var(--accent);color:#fff;font-size:0.74rem;">
+            Allocate via sp port
+          </button>
+          <div id="assocAllocateMsg" style="font-size:0.7rem;color:var(--text-muted);margin-top:6px;line-height:1.4;"></div>
+        </div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-outline" id="assocCancelBtn">Cancel</button>
@@ -2514,20 +2532,41 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       tdStatus.appendChild(badge);
       tr.appendChild(tdStatus);
 
-      // Ports
+      // Ports — distinguish "published to host" from "exposed only".
+      // Exposed-only ports (declared in Dockerfile EXPOSE but not bound
+      // with `-p host:container`) cannot be reached from nginx-on-host;
+      // we colour them amber and surface a warning so the operator sees
+      // the gap before clicking Associate Site.
       var tdPorts = document.createElement("td");
+      var anyExposedOnly = false;
       if (c.ports && c.ports.length) {
         c.ports.forEach(function(p) {
           var ptag = document.createElement("span");
           ptag.className = "port-tag";
-          setText(ptag, p.host_port + ":" + p.container_port + "/" + p.protocol);
+          if (p.host_port) {
+            setText(ptag, p.host_port + ":" + p.container_port + "/" + p.protocol);
+          } else {
+            anyExposedOnly = true;
+            ptag.style.background = "rgba(210,153,34,0.15)";
+            ptag.style.color = "#d29922";
+            ptag.title = "Exposed by the container but not published to the host. Nginx running on the host cannot reach this directly — redeploy the container with `-p <host>:<container>`.";
+            setText(ptag, "exposed " + p.container_port + "/" + p.protocol);
+          }
           tdPorts.appendChild(ptag);
         });
-      } else {
+      }
+      if (!c.ports || !c.ports.length) {
         var noPort = document.createElement("span");
         noPort.style.color = "var(--text-muted)";
         setText(noPort, "None");
         tdPorts.appendChild(noPort);
+      } else if (anyExposedOnly) {
+        var warn = document.createElement("div");
+        warn.style.fontSize = "0.66rem";
+        warn.style.color = "#d29922";
+        warn.style.marginTop = "3px";
+        setText(warn, "⚠ no host port published");
+        tdPorts.appendChild(warn);
       }
       tr.appendChild(tdPorts);
 
@@ -3261,25 +3300,85 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   // ── Associate Site Modal ──
   var assocModal = document.getElementById("associateModal");
 
+  // _assocPendingContainer is the container the modal currently points at.
+  // Stored for allocatePortForAssoc which needs the internal port to render
+  // the "redeploy with -p X:Y" instruction.
+  var _assocPendingContainer = null;
+
   function openAssociateModal(container, templateType) {
+    _assocPendingContainer = container;
     document.getElementById("assocContainerId").value = container.id;
     var label = templateType || "nestjs";
     var templateNames = { api: "API reverse proxy", nestjs: "NestJS site", nextjs: "Next.js site", frontend: "Frontend/SPA site", minio: "MinIO object storage" };
     var actionText = "Create " + (templateNames[label] || "an Nginx site");
     setText(document.getElementById("associateModalSub"), actionText + " for \"" + container.name + "\"");
     document.getElementById("assocDomain").value = "";
+
     // Prefill the HOST port (the one Docker published on 0.0.0.0:<port>),
     // not the container's internal port. Nginx runs on the host, outside
     // the docker network, so its proxy_pass must target the host port.
-    // Example: a `-p 3001:8080` mapping → use 3001 here, not 8080.
-    var port = "";
+    // If the container has NO host_port (Dockerfile EXPOSE but never
+    // `-p`-published), surface the Allocate-via-sp-port helper.
+    var hostPort = "";
+    var hasExposedOnly = false;
     if (container.ports && container.ports.length) {
-      port = String(container.ports[0].host_port || container.ports[0].container_port || "");
+      var first = container.ports[0];
+      if (first.host_port) {
+        hostPort = String(first.host_port);
+      } else if (first.container_port) {
+        hasExposedOnly = true;
+      }
     }
-    document.getElementById("assocPort").value = port;
+    document.getElementById("assocPort").value = hostPort;
     document.getElementById("assocTemplate").value = label;
+
+    // Toggle the Allocate panel based on whether the operator needs help.
+    var panel = document.getElementById("assocAllocate");
+    var msg = document.getElementById("assocAllocateMsg");
+    if (msg) { msg.style.color = "var(--text-muted)"; msg.textContent = ""; }
+    if (panel) panel.style.display = hasExposedOnly ? "block" : "none";
+
     assocModal.classList.add("show");
   }
+
+  // allocatePortForAssoc reserves a free host port from the sp port range
+  // (default 3000-3999) for 60 seconds, prefills the modal, and renders
+  // an instruction snippet showing the exact `-p` mapping to use. The
+  // server-side endpoint is the same one used by CI/CD scripts (sp port
+  // CLI), so the reservation is real and visible to other allocators.
+  async function allocatePortForAssoc() {
+    var btn = document.getElementById("assocAllocateBtn");
+    var msg = document.getElementById("assocAllocateMsg");
+    if (!btn || !msg) return;
+    btn.disabled = true;
+    msg.style.color = "var(--text-muted)";
+    msg.textContent = "Allocating from sp port range…";
+    try {
+      var resp = await apiFetch("/api/system/port");
+      var data = (resp && resp.data) || {};
+      var port = data.port;
+      if (!port) throw new Error("no port returned");
+      document.getElementById("assocPort").value = String(port);
+      var internal = "<internal>";
+      if (_assocPendingContainer && _assocPendingContainer.ports && _assocPendingContainer.ports.length) {
+        var p = _assocPendingContainer.ports[0];
+        if (p && p.container_port) internal = String(p.container_port);
+      }
+      msg.style.color = "#3fb950";
+      msg.innerHTML =
+        '✓ Port <strong>' + port + '</strong> reserved for ~60s. Redeploy the container with:<br>' +
+        '<code style="display:inline-block;margin-top:4px;padding:3px 6px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;font-size:0.72rem;">' +
+          'docker run … -p ' + port + ':' + escapeHtml(internal) + ' …' +
+        '</code><br>' +
+        '<span style="font-size:0.66rem;color:var(--text-muted);">After the new container is up, click <strong>Create Site</strong>. If you don\'t finish within 60s, click Allocate again to extend.</span>';
+    } catch (err) {
+      msg.style.color = "#f85149";
+      msg.textContent = "Failed: " + ((err && err.message) || "error");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  window.allocatePortForAssoc = allocatePortForAssoc;
 
   document.getElementById("assocCancelBtn").addEventListener("click", function() {
     assocModal.classList.remove("show");
