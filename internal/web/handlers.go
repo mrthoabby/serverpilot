@@ -4319,6 +4319,33 @@ func (s *Server) handleDBCellUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: result})
 }
 
+// handleDBSchema returns the schemas/tables/columns/PKs of a postgres
+// connection so the dashboard can render the schema browser tree.
+//   GET /api/db/schema?connection_id=<id>
+func (s *Server) handleDBSchema(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	id := strings.TrimSpace(r.URL.Query().Get("connection_id"))
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "connection_id is required"})
+		return
+	}
+	secret, err := s.requireSessionSecret()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: err.Error()})
+		return
+	}
+	tree, err := dbqueryService.LoadSchema(id, secret)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: tree})
+}
+
 func (s *Server) handleDBAudit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})

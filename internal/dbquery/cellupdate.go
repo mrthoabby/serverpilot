@@ -3,12 +3,17 @@ package dbquery
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
 )
+
+// jsonMarshal is aliased so coerceForDriver can call it without dragging
+// the encoding/json import into every reader of this file's symbols.
+func jsonMarshal(v interface{}) ([]byte, error) { return json.Marshal(v) }
 
 // ── Inline cell editing ─────────────────────────────────────────────────
 //
@@ -55,20 +60,25 @@ type EditableMeta struct {
 	PrimaryKey []string `json:"primary_key"`
 }
 
-// simpleSelectRegex matches the narrow shape we are willing to mark as
-// editable: a single bare SELECT against a single table, optionally
-// schema-qualified, optionally with WHERE/ORDER BY/LIMIT clauses but no
-// JOINs, no aggregates, no GROUP BY, no UNION, no subselects.
-//
-// Anything that doesn't match drops to non-editable. This is a deliberate
-// design choice: it's better to refuse to edit than to silently update
-// the wrong row because the operator wrote a query with ambiguous row
-// identity.
-//
-// Captures: 1 = optional schema, 2 = table.
-var simpleSelectRegex = regexp.MustCompile(`(?i)^\s*select\s+.+?\s+from\s+(?:"?([a-zA-Z_][a-zA-Z0-9_]*)"?\.)?"?([a-zA-Z_][a-zA-Z0-9_]*)"?(?:\s+(?:where|order\s+by|limit|--|/\*|;|$))`)
+// fromTableRegex extracts the first `FROM <schema?>.<table>` reference.
+// We deliberately do NOT try to match the entire query shape with one
+// pattern — too brittle (whitespace, table aliases, comments, EOF
+// edge cases). Instead the strategy is two-step: run disqualifyingRegex
+// to refuse anything that mixes tables, then this regex to identify
+// the single FROM target. Captures: 1 = optional schema, 2 = table.
+var fromTableRegex = regexp.MustCompile(`(?is)\bfrom\s+(?:"?([a-zA-Z_][a-zA-Z0-9_]*)"?\.)?"?([a-zA-Z_][a-zA-Z0-9_]*)"?\b`)
 
-var disqualifyingRegex = regexp.MustCompile(`(?i)\b(join|union|group\s+by|having|with\s+|distinct\s+|insert|update|delete|drop|alter|truncate)\b|\bselect\s+\w+\s*\(`)
+// disqualifyingRegex catches every shape where row identity would be
+// ambiguous (JOINs, set operations, aggregates, GROUP BY, comma-joins),
+// plus DML/DDL keywords. Anything matched here drops the result to
+// non-editable.
+var disqualifyingRegex = regexp.MustCompile(`(?is)\b(join|union|intersect|except|group\s+by|having|with\s+|distinct\s+|insert|update|delete|drop|alter|truncate)\b|\bselect\s+\w+\s*\(|\bfrom\b[^)]*,[^)]*\bwhere\b|\bfrom\b\s*\(`)
+
+// columnTypeRegex restricts the type name we'll inject into a CAST. The
+// value comes from pg_catalog.format_type() — already sanitised — but
+// defense-in-depth keeps a hostile catalogue compromise from injecting
+// a SQL fragment.
+var columnTypeRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_ ()\[\],]*$`)
 
 // detectEditable inspects a successful SELECT query against a postgres
 // connection and returns the editability metadata if the result set is
@@ -80,10 +90,17 @@ var disqualifyingRegex = regexp.MustCompile(`(?i)\b(join|union|group\s+by|having
 // nil for the metadata.
 func detectEditable(ctx context.Context, db *sql.DB, query string, returnedColumns []string) *EditableMeta {
 	q := strings.TrimSpace(query)
+	// Strip a single trailing semicolon so it doesn't trip the regex.
+	q = strings.TrimRight(q, "; \t\n\r")
+	// Strip line comments — they could contain words that look like
+	// disqualifiers but aren't part of the executed query.
+	if idx := strings.Index(q, "--"); idx >= 0 {
+		q = q[:idx]
+	}
 	if disqualifyingRegex.MatchString(q) {
 		return nil
 	}
-	m := simpleSelectRegex.FindStringSubmatch(q)
+	m := fromTableRegex.FindStringSubmatch(q)
 	if m == nil {
 		return nil
 	}
@@ -251,18 +268,46 @@ func (s *Service) ApplyCellUpdate(in CellUpdateInput, sessionSecret string) (*Ce
 		return nil, err
 	}
 
-	// 4. Build the SQL with quoted identifiers + value placeholders.
-	args := []interface{}{in.NewValue}
+	// 3b. Look up the actual postgres type of the target column. We use
+	// it to add a `$1::<type>` cast in the UPDATE so values flow
+	// correctly into jsonb, arrays, timestamps, and other types where
+	// implicit text→type coercion isn't supported by the driver.
+	colType, err := columnDataType(ctx, db, in.Schema, in.Table, in.Column)
+	if err != nil {
+		return nil, err
+	}
+	if !columnTypeRegex.MatchString(colType) {
+		return nil, errors.New("column type not safe for cast")
+	}
+	// Look up PK column types too so the WHERE values cast correctly.
+	// Without this, a uuid PK fails because postgres won't compare
+	// uuid = text without an explicit cast.
+	pkTypes := make(map[string]string, len(pkNames))
+	for _, c := range pkNames {
+		t, err := columnDataType(ctx, db, in.Schema, in.Table, c)
+		if err != nil {
+			return nil, err
+		}
+		if !columnTypeRegex.MatchString(t) {
+			return nil, errors.New("pk column type not safe for cast")
+		}
+		pkTypes[c] = t
+	}
+
+	// 4. Build the SQL with quoted identifiers, parameter placeholders,
+	// and per-column casts derived from the catalogue.
+	args := []interface{}{coerceForDriver(in.NewValue)}
 	whereParts := make([]string, 0, len(pkNames))
 	for i, c := range pkNames {
-		whereParts = append(whereParts, fmt.Sprintf("%s = $%d", quoteIdent(c), i+2))
-		args = append(args, in.PKValues[c])
+		whereParts = append(whereParts, fmt.Sprintf("%s = $%d::%s", quoteIdent(c), i+2, pkTypes[c]))
+		args = append(args, coerceForDriver(in.PKValues[c]))
 	}
 	stmt := fmt.Sprintf(
-		"UPDATE %s.%s SET %s = $1 WHERE %s",
+		"UPDATE %s.%s SET %s = $1::%s WHERE %s",
 		quoteIdent(in.Schema),
 		quoteIdent(in.Table),
 		quoteIdent(in.Column),
+		colType,
 		strings.Join(whereParts, " AND "),
 	)
 
@@ -296,17 +341,22 @@ func (s *Service) ApplyCellUpdate(in CellUpdateInput, sessionSecret string) (*Ce
 	}
 
 	// 6. Re-fetch the canonical new value (the DB may have applied a
-	// trigger, default, or coercion).
+	// trigger, default, or coercion). The WHERE clause has the same
+	// casts as the UPDATE — re-using whereParts but with $1, $2…
+	// numbering since this query has no SET.
+	whereForSelect := make([]string, 0, len(pkNames))
+	for i, c := range pkNames {
+		whereForSelect = append(whereForSelect, fmt.Sprintf("%s = $%d::%s", quoteIdent(c), i+1, pkTypes[c]))
+	}
 	selStmt := fmt.Sprintf(
 		"SELECT %s FROM %s.%s WHERE %s",
 		quoteIdent(in.Column),
 		quoteIdent(in.Schema),
 		quoteIdent(in.Table),
-		strings.Join(whereParts, " AND "),
+		strings.Join(whereForSelect, " AND "),
 	)
 	var newVal interface{}
 	if err := db.QueryRowContext(ctx, selStmt, args[1:]...).Scan(&newVal); err != nil {
-		// Non-fatal: the UPDATE itself succeeded; we just couldn't read back.
 		newVal = in.NewValue
 	}
 	if b, ok := newVal.([]byte); ok {
@@ -319,6 +369,52 @@ func (s *Service) ApplyCellUpdate(in CellUpdateInput, sessionSecret string) (*Ce
 		NewValue:     newVal,
 		SQLPattern:   stmt,
 	}, nil
+}
+
+// columnDataType returns the canonical postgres type of a column as
+// emitted by `pg_catalog.format_type` — values like "integer", "text",
+// "jsonb", "varchar(255)", "numeric(10,2)", "text[]", "timestamp with
+// time zone". Used to construct safe `$N::<type>` casts.
+func columnDataType(ctx context.Context, db *sql.DB, schema, table, column string) (string, error) {
+	var t string
+	err := db.QueryRowContext(ctx, `
+		select pg_catalog.format_type(a.atttypid, a.atttypmod)
+		from pg_attribute a
+		join pg_class c on c.oid = a.attrelid
+		join pg_namespace n on n.oid = c.relnamespace
+		where n.nspname = $1 and c.relname = $2 and a.attname = $3
+		  and a.attnum > 0 and not a.attisdropped
+	`, schema, table, column).Scan(&t)
+	if err != nil {
+		return "", err
+	}
+	return t, nil
+}
+
+// coerceForDriver adapts an arbitrary JSON-decoded value to a form that
+// lib/pq can serialise. The driver doesn't know what to do with maps or
+// slices arriving from JSON; we render them back to their canonical
+// string form (JSON text) and let postgres apply the column's $N::<type>
+// cast. NULL and primitives pass through unchanged.
+func coerceForDriver(v interface{}) interface{} {
+	switch x := v.(type) {
+	case nil:
+		return nil
+	case string, bool, int, int32, int64, float32, float64:
+		return x
+	case []byte:
+		return string(x)
+	case map[string]interface{}, []interface{}:
+		// Re-marshal so postgres sees JSON text. Combined with the
+		// $1::jsonb / $1::json cast in the UPDATE, this lands in the
+		// column correctly.
+		b, err := jsonMarshal(x)
+		if err == nil {
+			return string(b)
+		}
+	}
+	// Fallback: stringify via fmt so the driver gets a known type.
+	return fmt.Sprintf("%v", v)
 }
 
 // ── Catalogue assertions (postgres) ─────────────────────────────────────

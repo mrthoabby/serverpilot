@@ -2056,6 +2056,30 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         </div>
       </div>
 
+      <!-- Schema browser modal — postgres only. Lazy-loads the tree on
+           open. Click a table to expand its columns. Click any of the
+           three template buttons to drop a starter query (SELECT /
+           UPDATE / INSERT) into the editor. The dashboard never
+           auto-runs the generated query — the operator reviews and
+           runs it explicitly, with the same audit-log path as any
+           other query. -->
+      <div id="dbSchemaModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:1.25rem;max-width:760px;width:94%;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;">
+            <h3 style="margin:0;color:var(--text-primary);">📂 Schema browser</h3>
+            <button type="button" class="btn btn-sm btn-outline" onclick="closeDBSchemaBrowser()">Close</button>
+          </div>
+          <p style="font-size:0.72rem;color:var(--text-muted);margin:0 0 0.75rem;line-height:1.4;">
+            Click a table to see its columns. Use the action buttons next to each table to drop a starter SELECT / UPDATE / INSERT into the editor. PK columns are marked.
+          </p>
+          <input type="text" id="dbSchemaFilter" placeholder="Filter tables…" oninput="filterDBSchemaTree()"
+            style="padding:6px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:0.78rem;margin-bottom:0.5rem;">
+          <div id="dbSchemaContent" style="overflow-y:auto;flex:1;font-family:monospace;font-size:0.78rem;">
+            <div class="spinner"><div class="spinner-ring"></div>Loading…</div>
+          </div>
+        </div>
+      </div>
+
       <!-- New / Edit Connection modal -->
       <div id="dbConnModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
         <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:1.5rem;max-width:560px;width:92%;max-height:90vh;overflow-y:auto;">
@@ -4593,6 +4617,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         (c.description ? '<div style="font-size:0.66rem;color:var(--text-muted);margin-top:2px;">' + escapeHtml(c.description) + '</div>' : '') +
         '<div style="display:flex;gap:4px;margin-top:6px;">' +
           '<button type="button" onclick="event.stopPropagation();testDBConnection(\'' + escapeHtml(c.id) + '\')" class="btn btn-sm btn-outline" style="font-size:0.66rem;padding:2px 8px;">Test</button>' +
+          '<button type="button" onclick="event.stopPropagation();openDBSchemaBrowser(\'' + escapeHtml(c.id) + '\')" class="btn btn-sm btn-outline" style="font-size:0.66rem;padding:2px 8px;">📂 Schema</button>' +
           '<button type="button" onclick="event.stopPropagation();editDBConnection(\'' + escapeHtml(c.id) + '\')" class="btn btn-sm btn-outline" style="font-size:0.66rem;padding:2px 8px;">Edit</button>' +
           '<button type="button" onclick="event.stopPropagation();deleteDBConnection(\'' + escapeHtml(c.id) + '\')" class="btn btn-sm" style="font-size:0.66rem;padding:2px 8px;background:transparent;border:1px solid #f8514966;color:#f85149;">Delete</button>' +
         '</div>' +
@@ -4875,6 +4900,28 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   renderDBResult = renderDBResultEditable; // eslint-disable-line no-func-assign
   window.renderDBResult = renderDBResultEditable;
 
+  // looksLikeJSON checks if a string is plausibly JSON or a postgres
+  // array literal. Used to decide between single-line input and
+  // multiline textarea for the cell editor.
+  function looksLikeJSON(s) {
+    if (typeof s !== "string") return false;
+    var t = s.trim();
+    return (t.startsWith("{") && t.endsWith("}")) ||
+           (t.startsWith("[") && t.endsWith("]"));
+  }
+  // Heuristic: use a textarea when the value is long, has newlines,
+  // or looks like JSON / array. Future: when we cache the schema
+  // metadata for the active connection, we'll consult column types
+  // (jsonb, json, array) directly. For now the heuristic catches the
+  // common cases.
+  function shouldUseMultilineEditor(displayVal) {
+    if (typeof displayVal !== "string") return false;
+    if (displayVal.length > 80) return true;
+    if (displayVal.indexOf("\n") !== -1) return true;
+    if (looksLikeJSON(displayVal)) return true;
+    return false;
+  }
+
   function startCellEdit(td) {
     if (!_dbLastResult || !_dbLastResult.editable) return;
     if (td.dataset.editing === "1") return;
@@ -4887,35 +4934,239 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     td.dataset.editing = "1";
     td.dataset.original = displayVal;
     td.style.padding = "0";
+    td.style.whiteSpace = "normal";
+    td.style.maxWidth = "none";
     td.innerHTML = "";
-    var input = document.createElement("input");
-    input.type = "text";
-    input.value = displayVal;
-    input.style.cssText = "width:100%;padding:5px 10px;background:var(--bg-input);border:1px solid var(--accent);border-radius:0;color:var(--text-primary);font-family:monospace;font-size:0.72rem;";
-    td.appendChild(input);
-    input.focus();
-    input.select();
+
+    var multiline = shouldUseMultilineEditor(displayVal);
+    var editor;
+    if (multiline) {
+      editor = document.createElement("textarea");
+      editor.rows = Math.max(3, Math.min(15, displayVal.split("\n").length + 1));
+      editor.style.cssText = "width:100%;min-height:80px;padding:6px 10px;background:var(--bg-input);border:1px solid var(--accent);border-radius:0;color:var(--text-primary);font-family:monospace;font-size:0.74rem;resize:vertical;";
+      // Pretty-print JSON if it parses, so the operator sees structure.
+      if (looksLikeJSON(displayVal)) {
+        try { editor.value = JSON.stringify(JSON.parse(displayVal), null, 2); }
+        catch(e) { editor.value = displayVal; }
+      } else {
+        editor.value = displayVal;
+      }
+    } else {
+      editor = document.createElement("input");
+      editor.type = "text";
+      editor.value = displayVal;
+      editor.style.cssText = "width:100%;padding:5px 10px;background:var(--bg-input);border:1px solid var(--accent);border-radius:0;color:var(--text-primary);font-family:monospace;font-size:0.72rem;";
+    }
+    td.appendChild(editor);
+    editor.focus();
+    if (typeof editor.select === "function") editor.select();
+
+    // Show inline help for multiline so the operator knows Ctrl+Enter
+    // saves and Escape cancels (a plain Enter inserts a newline in the
+    // textarea, unlike the single-line input).
+    if (multiline) {
+      var hint = document.createElement("div");
+      hint.style.cssText = "padding:3px 10px;font-size:0.64rem;color:var(--text-muted);background:var(--bg-input);border-top:1px solid var(--border);";
+      hint.textContent = "Ctrl+Enter (Cmd+Enter) saves · Esc cancels · JSON is pretty-printed for editing and re-serialised on save";
+      td.appendChild(hint);
+    }
 
     function commit(save) {
       if (td.dataset.editing !== "1") return;
       td.dataset.editing = "0";
-      var newVal = input.value;
+      var newVal = editor.value;
+      // For JSON-shaped editing, re-compact before sending so postgres
+      // gets the canonical form. If the user wrote invalid JSON, send
+      // as-is and let the server's $1::jsonb cast complain.
+      if (multiline && looksLikeJSON(td.dataset.original)) {
+        try { newVal = JSON.stringify(JSON.parse(newVal)); } catch(e) { /* keep raw */ }
+      }
       if (!save || newVal === td.dataset.original) {
-        // Cancel — restore display.
         renderDBResultEditable(_dbLastResult);
         return;
       }
       submitCellUpdate(rowIdx, colIdx, newVal);
     }
-    input.addEventListener("keydown", function(e) {
-      if (e.key === "Enter") { e.preventDefault(); commit(true); }
-      else if (e.key === "Escape") { e.preventDefault(); commit(false); }
+    editor.addEventListener("keydown", function(e) {
+      if (multiline) {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commit(true); }
+        else if (e.key === "Escape") { e.preventDefault(); commit(false); }
+      } else {
+        if (e.key === "Enter") { e.preventDefault(); commit(true); }
+        else if (e.key === "Escape") { e.preventDefault(); commit(false); }
+      }
     });
-    input.addEventListener("blur", function() {
+    editor.addEventListener("blur", function() {
       if (td.dataset.editing === "1") commit(true);
     });
   }
   window.startCellEdit = startCellEdit;
+
+  // ── Schema browser modal ───────────────────────────────────────────
+  // Loads schemas/tables/columns from /api/db/schema and renders them
+  // as a collapsible tree. Each table has SELECT / INSERT / UPDATE
+  // template buttons that drop a starter query into the editor.
+
+  var _dbSchema = null;
+  var _dbSchemaConnId = null;
+
+  async function openDBSchemaBrowser(connId) {
+    _dbSchemaConnId = connId;
+    document.getElementById("dbSchemaContent").innerHTML = '<div class="spinner"><div class="spinner-ring"></div>Loading…</div>';
+    document.getElementById("dbSchemaFilter").value = "";
+    document.getElementById("dbSchemaModal").style.display = "flex";
+    try {
+      var resp = await apiFetch("/api/db/schema?connection_id=" + encodeURIComponent(connId));
+      _dbSchema = (resp && resp.data) || { schemas: [] };
+      renderDBSchemaTree();
+    } catch (err) {
+      document.getElementById("dbSchemaContent").innerHTML =
+        '<div style="color:var(--red);padding:0.75rem;font-size:0.78rem;">Failed to load: ' + escapeHtml((err && err.message) || "error") + '</div>';
+    }
+  }
+  function closeDBSchemaBrowser() {
+    document.getElementById("dbSchemaModal").style.display = "none";
+  }
+
+  function renderDBSchemaTree() {
+    var box = document.getElementById("dbSchemaContent");
+    if (!box) return;
+    if (!_dbSchema || !_dbSchema.schemas || _dbSchema.schemas.length === 0) {
+      box.innerHTML = '<div style="color:var(--text-muted);padding:0.75rem;">No tables found in this database.</div>';
+      return;
+    }
+    var filter = (document.getElementById("dbSchemaFilter").value || "").toLowerCase();
+    var html = "";
+    _dbSchema.schemas.forEach(function(sch) {
+      var schTables = (sch.tables || []).filter(function(t) {
+        if (!filter) return true;
+        if (t.name.toLowerCase().indexOf(filter) !== -1) return true;
+        return (t.columns || []).some(function(c) { return c.name.toLowerCase().indexOf(filter) !== -1; });
+      });
+      if (schTables.length === 0) return;
+      html += '<div style="margin-bottom:8px;">';
+      html += '<div style="font-weight:700;color:var(--accent);font-size:0.78rem;padding:4px 0;">' + escapeHtml(sch.name) + ' <span style="color:var(--text-muted);font-weight:400;">(' + schTables.length + ' relations)</span></div>';
+      schTables.forEach(function(t, idx) {
+        var key = sch.name + '.' + t.name;
+        var kindBadge = '';
+        if (t.kind === 'view')        kindBadge = '<span style="background:#1a3a3a;color:#5de4cc;padding:0 5px;border-radius:3px;font-size:0.6rem;margin-left:4px;">view</span>';
+        else if (t.kind === 'matview')kindBadge = '<span style="background:#3a2a1a;color:#d4a85d;padding:0 5px;border-radius:3px;font-size:0.6rem;margin-left:4px;">matview</span>';
+        else if (t.kind === 'foreign')kindBadge = '<span style="background:#3a1a3a;color:#d45dd4;padding:0 5px;border-radius:3px;font-size:0.6rem;margin-left:4px;">foreign</span>';
+        else if (t.kind === 'partitioned') kindBadge = '<span style="background:#1a2a3a;color:#5da8d4;padding:0 5px;border-radius:3px;font-size:0.6rem;margin-left:4px;">partitioned</span>';
+        html += '<div style="margin-left:8px;border-left:1px solid var(--border);padding-left:10px;margin-bottom:4px;">';
+        html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:3px 0;">';
+        html +=   '<button type="button" onclick="toggleSchemaTable(\'' + escapeHtml(key) + '\')" id="ttog-' + escapeHtml(key) + '" style="background:none;border:none;color:var(--text-primary);cursor:pointer;font-family:monospace;padding:0;font-size:0.78rem;">▸ ' + escapeHtml(t.name) + '</button>';
+        html += kindBadge;
+        html += '<span style="flex:1;"></span>';
+        html += '<button type="button" onclick="schemaInsertSelect(\'' + escapeHtml(sch.name) + '\',\'' + escapeHtml(t.name) + '\')" class="btn btn-sm btn-outline" style="font-size:0.62rem;padding:1px 6px;">SELECT</button>';
+        if (t.kind !== 'view' && t.kind !== 'matview') {
+          html += '<button type="button" onclick="schemaInsertUpdate(\'' + escapeHtml(sch.name) + '\',\'' + escapeHtml(t.name) + '\')" class="btn btn-sm btn-outline" style="font-size:0.62rem;padding:1px 6px;">UPDATE</button>';
+          html += '<button type="button" onclick="schemaInsertInsert(\'' + escapeHtml(sch.name) + '\',\'' + escapeHtml(t.name) + '\')" class="btn btn-sm btn-outline" style="font-size:0.62rem;padding:1px 6px;">INSERT</button>';
+        }
+        html += '</div>';
+        html += '<div id="tcols-' + escapeHtml(key) + '" style="display:none;padding:3px 0 6px 12px;">';
+        (t.columns || []).forEach(function(c) {
+          var pkBadge = c.is_pk ? ' <span style="color:#3fb950;font-size:0.6rem;">PK</span>' : '';
+          var nullBadge = c.nullable ? '' : ' <span style="color:#f85149;font-size:0.6rem;" title="NOT NULL">NN</span>';
+          var defBadge = c.default ? ' <span style="color:var(--text-muted);font-size:0.6rem;" title="default: ' + escapeHtml(c.default) + '">def</span>' : '';
+          html += '<div style="font-size:0.7rem;color:var(--text-muted);padding:1px 0;">' +
+                  '<span style="color:var(--text-primary);">' + escapeHtml(c.name) + '</span>' + pkBadge + nullBadge + defBadge +
+                  ' <span style="color:#5db4d4;">' + escapeHtml(c.type) + '</span>' +
+                  '</div>';
+        });
+        html += '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    });
+    box.innerHTML = html;
+  }
+  function filterDBSchemaTree() { renderDBSchemaTree(); }
+
+  function toggleSchemaTable(key) {
+    var div = document.getElementById("tcols-" + key);
+    var btn = document.getElementById("ttog-" + key);
+    if (!div) return;
+    if (div.style.display === "none") {
+      div.style.display = "block";
+      if (btn) btn.textContent = btn.textContent.replace("▸", "▾");
+    } else {
+      div.style.display = "none";
+      if (btn) btn.textContent = btn.textContent.replace("▾", "▸");
+    }
+  }
+
+  // schemaFindTable looks up a table in the loaded tree. Returns null if
+  // not found (e.g. operator manipulated the DOM during load).
+  function schemaFindTable(schema, table) {
+    if (!_dbSchema) return null;
+    for (var i = 0; i < _dbSchema.schemas.length; i++) {
+      if (_dbSchema.schemas[i].name !== schema) continue;
+      var tables = _dbSchema.schemas[i].tables || [];
+      for (var j = 0; j < tables.length; j++) {
+        if (tables[j].name === table) return tables[j];
+      }
+    }
+    return null;
+  }
+
+  // putQueryAndClose drops `sql` into the editor, switches the active
+  // connection if needed, and closes the schema modal. Never auto-runs.
+  function putQueryAndClose(sql) {
+    var ta = document.getElementById("dbQuery");
+    if (ta) ta.value = sql;
+    if (_dbSchemaConnId && _dbSchemaConnId !== _dbActiveConnId) {
+      selectDBConnection(_dbSchemaConnId);
+    }
+    closeDBSchemaBrowser();
+    if (ta) ta.focus();
+  }
+
+  function schemaInsertSelect(schema, table) {
+    var t = schemaFindTable(schema, table);
+    var cols = t ? (t.columns || []).map(function(c) { return '"' + c.name + '"'; }) : ['*'];
+    var sql = 'SELECT ' + cols.join(', ') + '\nFROM "' + schema + '"."' + table + '"\nLIMIT 100;';
+    putQueryAndClose(sql);
+  }
+  function schemaInsertUpdate(schema, table) {
+    var t = schemaFindTable(schema, table);
+    if (!t) return;
+    var nonPK = (t.columns || []).filter(function(c) { return !c.is_pk; });
+    var pk = (t.columns || []).filter(function(c) { return c.is_pk; });
+    var setLines = nonPK.map(function(c) { return '  "' + c.name + '" = NULL  -- ' + c.type; }).join(',\n');
+    var whereLines = pk.length > 0
+      ? pk.map(function(c) { return '"' + c.name + '" = NULL  -- ' + c.type; }).join(' AND ')
+      : '"id" = NULL  -- no PK detected; provide a WHERE manually';
+    var sql = '-- Replace NULLs and uncomment / edit each line you need\n' +
+              'UPDATE "' + schema + '"."' + table + '" SET\n' + setLines + '\nWHERE ' + whereLines + ';';
+    putQueryAndClose(sql);
+  }
+  function schemaInsertInsert(schema, table) {
+    var t = schemaFindTable(schema, table);
+    if (!t) return;
+    var insertable = (t.columns || []).filter(function(c) {
+      // Skip columns with a default and that are PK (typically serial/identity).
+      return !(c.is_pk && c.default);
+    });
+    var colList = insertable.map(function(c) { return '"' + c.name + '"'; }).join(', ');
+    var valList = insertable.map(function(c) { return 'NULL  /* ' + c.type + (c.nullable ? '' : ' NOT NULL') + ' */'; }).join(',\n  ');
+    var sql = 'INSERT INTO "' + schema + '"."' + table + '" (\n  ' + colList + '\n) VALUES (\n  ' + valList + '\n);';
+    putQueryAndClose(sql);
+  }
+
+  // Backdrop close.
+  var schModal = document.getElementById("dbSchemaModal");
+  if (schModal) {
+    schModal.addEventListener("click", function(e) { if (e.target === this) closeDBSchemaBrowser(); });
+  }
+
+  window.openDBSchemaBrowser  = openDBSchemaBrowser;
+  window.closeDBSchemaBrowser = closeDBSchemaBrowser;
+  window.toggleSchemaTable    = toggleSchemaTable;
+  window.filterDBSchemaTree   = filterDBSchemaTree;
+  window.schemaInsertSelect   = schemaInsertSelect;
+  window.schemaInsertUpdate   = schemaInsertUpdate;
+  window.schemaInsertInsert   = schemaInsertInsert;
 
   async function submitCellUpdate(rowIdx, colIdx, newVal) {
     if (!_dbLastResult || !_dbLastResult.editable) return;

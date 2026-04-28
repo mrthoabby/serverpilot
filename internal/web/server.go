@@ -98,6 +98,7 @@ func (s *Server) Start() error {
 	mux.Handle("/api/db/connections/test", s.authMiddleware(http.HandlerFunc(s.handleDBConnectionsTest)))
 	mux.Handle("/api/db/query", s.authMiddleware(http.HandlerFunc(s.handleDBQuery)))
 	mux.Handle("/api/db/cell-update", s.authMiddleware(http.HandlerFunc(s.handleDBCellUpdate)))
+	mux.Handle("/api/db/schema", s.authMiddleware(http.HandlerFunc(s.handleDBSchema)))
 	mux.Handle("/api/db/audit", s.authMiddleware(http.HandlerFunc(s.handleDBAudit)))
 	mux.Handle("/api/users/reset-password", s.authMiddleware(http.HandlerFunc(s.handleDeployUserResetPassword)))
 	mux.Handle("/api/users/delete", s.authMiddleware(http.HandlerFunc(s.handleDeployUserDelete)))
