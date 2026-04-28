@@ -76,12 +76,23 @@ func (s *Service) GrantGroup(actor, username, group string) error {
 		return errors.New("gpasswd not available")
 	}
 
+	// gpasswd syntax: `gpasswd -a USER GROUP` where `-a` consumes the next
+	// argv slot as USER. The "--" end-of-options marker MUST come AFTER
+	// USER (between USER and GROUP) — placing it between -a and USER
+	// makes gpasswd treat "--" as the username and fail with exit code 3.
+	//
+	// Even though both `username` and `group` are pre-validated against
+	// usernameRegex / groupNameRegex (neither can start with "-"), keeping
+	// the "--" between USER and GROUP is correct defense-in-depth: if a
+	// future change loosens the group regex, GROUP cannot be re-interpreted
+	// as a flag.
+	//
 	// gpasswd -a is idempotent: if the user is already in the group it
 	// emits a notice but exits 0. We rely on that — the dashboard treats
 	// "grant" as desired-state.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, gpasswdResolved, "-a", "--", username, group)
+	cmd := exec.CommandContext(ctx, gpasswdResolved, "-a", username, "--", group)
 	if err := cmd.Run(); err != nil {
 		_ = s.audit(actor, "group.grant", auditScopeGroup, username, group, "", "error", err)
 		return FormatExecError("gpasswd add", err)
@@ -115,9 +126,10 @@ func (s *Service) RevokeGroup(actor, username, group string) error {
 		return errors.New("gpasswd not available")
 	}
 
+	// Same arg-order rule as GrantGroup: `--` MUST sit between USER and GROUP.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, gpasswdResolved, "-d", "--", username, group)
+	cmd := exec.CommandContext(ctx, gpasswdResolved, "-d", username, "--", group)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		// gpasswd exits 3 when the user is not a member. Treat as success.
