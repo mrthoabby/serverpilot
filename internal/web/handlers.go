@@ -2253,9 +2253,22 @@ type dependencyInstallRequest struct {
 	Package string `json:"package"`
 }
 
-// knownDependencies maps dependency names to their apt install commands.
+// knownDependencies maps dependency slugs to their apt install argv. The
+// slug is the value the UI sends in the request body; the argv is what
+// gets executed. Every entry MUST:
+//   - Use an absolute path for apt-get (no PATH games at root).
+//   - Pass "--" before package names so a name beginning with "-" cannot
+//     be re-interpreted as a flag (CWE-78 argument injection defence).
+//   - List every package literally — never derive package names from
+//     user input.
+// The slugs themselves are validated against this map at request time,
+// so the UI can never request an arbitrary package.
 var knownDependencies = map[string][]string{
-	"certbot": {"apt", "install", "-y", "certbot", "python3-certbot-nginx"},
+	"certbot": {"/usr/bin/apt-get", "install", "-y", "--", "certbot", "python3-certbot-nginx"},
+	// `acl` is the userspace tool package (provides setfacl + getfacl).
+	// Tiny, no-config, safe to install via one-click — same risk profile
+	// as certbot but without any state changes to the filesystem.
+	"acl": {"/usr/bin/apt-get", "install", "-y", "--", "acl"},
 }
 
 // handleDependencyInstall installs a missing dependency via apt with SSE streaming logs.

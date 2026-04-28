@@ -4315,8 +4315,44 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       var capsResp = await apiFetch("/api/permissions/capabilities");
       var caps = (capsResp && capsResp.data) || {};
       if (!caps.acl) {
-        capsEl.innerHTML = '<span style="color:var(--red);">⚠ ' + escapeHtml(caps.acl_reason || "ACLs not supported") + '</span>';
-        contentEl.innerHTML = '<p style="color:var(--text-muted);">POSIX ACL support is required to grant per-user folder permissions.</p>';
+        // Two distinct cases. Auto-fixable: missing apt package. Manual:
+        // filesystem doesn't support ACLs (requires remount or fstab edit,
+        // which we deliberately do NOT one-click — too risky to apply
+        // unilaterally from a dashboard).
+        if (caps.acl_tools_missing) {
+          capsEl.innerHTML =
+            '<div style="color:var(--accent);font-size:0.78rem;margin-bottom:6px;">⚠ ' +
+              escapeHtml(caps.acl_reason || "ACL tools missing") +
+            '</div>' +
+            '<button type="button" id="installAclBtn" onclick="installACLSupport()" ' +
+              'class="btn btn-sm" style="background:var(--accent);color:#fff;font-size:0.75rem;">' +
+              'Install ACL support (apt install acl)' +
+            '</button>' +
+            '<span id="installAclMsg" style="margin-left:8px;font-size:0.72rem;color:var(--text-muted);"></span>';
+          contentEl.innerHTML = '<p style="color:var(--text-muted);">After install, the filesystem grants will become available without restarting the dashboard.</p>';
+        } else if (caps.acl_fs_unsupported) {
+          var target = caps.acl_mount_target || "/opt";
+          capsEl.innerHTML = '<span style="color:var(--red);">⚠ ' + escapeHtml(caps.acl_reason || "Filesystem does not support ACLs") + '</span>';
+          contentEl.innerHTML =
+            '<p style="color:var(--text-muted);font-size:0.82rem;margin-bottom:8px;">' +
+              'The <code>acl</code> package is installed but the filesystem under <code>' + escapeHtml(target) + '</code> is not currently mounted with ACL support. The dashboard intentionally does NOT remount filesystems for you — that touches the boot path. Run these commands by hand on the server:' +
+            '</p>' +
+            '<pre style="background:var(--bg-input);padding:10px 12px;border-radius:6px;font-size:0.74rem;color:var(--text-primary);overflow-x:auto;border:1px solid var(--border);user-select:all;">' +
+              '# 1. Verify which mount holds ' + escapeHtml(target) + ':\n' +
+              'mount | grep " $(df ' + escapeHtml(target) + ' | awk \'NR==2{print $NF}\') "\n\n' +
+              '# 2. Try a non-persistent remount first:\n' +
+              'sudo mount -o remount,acl ' + escapeHtml(target) + '\n\n' +
+              '# 3. If step 2 worked, verify:\n' +
+              'getfacl ' + escapeHtml(target) + '\n\n' +
+              '# 4. If you want it to survive reboots, edit /etc/fstab and add\n' +
+              '#    ",acl" to the options column for that mountpoint, then test:\n' +
+              'sudo mount -fav    # -f = fake (dry-run), -a = all, -v = verbose' +
+            '</pre>' +
+            '<p style="color:var(--text-muted);font-size:0.72rem;margin-top:6px;">After fixing, click the lock icon on a managed app again to refresh.</p>';
+        } else {
+          capsEl.innerHTML = '<span style="color:var(--red);">⚠ ' + escapeHtml(caps.acl_reason || "ACLs not supported") + '</span>';
+          contentEl.innerHTML = '<p style="color:var(--text-muted);">POSIX ACL support is required to grant per-user folder permissions.</p>';
+        }
         return;
       }
       var resp = await apiFetch("/api/permissions/managed-app?app=" + encodeURIComponent(appName));
@@ -4358,6 +4394,75 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       await refreshManagedAppPerms(_permsCurrentApp);
     } catch (err) {
       showToast("Failed: " + (err.message || "error"), "error");
+    }
+  }
+
+  // installACLSupport drives the same SSE-streaming dependency-install
+  // endpoint that certbot uses, but for the `acl` apt package. The
+  // package list is hardcoded server-side (see knownDependencies) so
+  // there is no path for the UI to request an arbitrary package.
+  //
+  // The SSE response is consumed via fetch + ReadableStream so we can
+  // disable the button and surface a small status message while apt-get
+  // runs. After "done", we re-fetch /api/permissions/capabilities to
+  // confirm ACL is now available, then re-render the modal.
+  async function installACLSupport() {
+    var btn = document.getElementById("installAclBtn");
+    var msg = document.getElementById("installAclMsg");
+    if (!btn || !msg) return;
+    btn.disabled = true;
+    msg.style.color = "var(--text-muted)";
+    msg.textContent = "Running apt install acl...";
+
+    try {
+      var resp = await fetch("/api/dependencies/install", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          "X-SP-Client": "dashboard",
+          "X-SP-Build":  "1",
+          "X-SP-Source": "ui"
+        },
+        body: JSON.stringify({ package: "acl" })
+      });
+      if (!resp.ok || !resp.body) {
+        throw new Error("install request failed (HTTP " + resp.status + ")");
+      }
+      // Consume the SSE stream; we don't render every line, just wait for
+      // a "done" event or stream close.
+      var reader = resp.body.getReader();
+      var decoder = new TextDecoder();
+      var buf = "";
+      var success = false;
+      while (true) {
+        var chunk = await reader.read();
+        if (chunk.done) break;
+        buf += decoder.decode(chunk.value, { stream: true });
+        var idx;
+        while ((idx = buf.indexOf("\n\n")) !== -1) {
+          var event = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          if (event.indexOf("event: done") !== -1) {
+            success = event.indexOf('"success":true') !== -1;
+          }
+        }
+      }
+      if (!success) {
+        msg.style.color = "#f85149";
+        msg.textContent = "apt install acl did not complete successfully — check journalctl -u serverpilot";
+        btn.disabled = false;
+        return;
+      }
+      msg.style.color = "#3fb950";
+      msg.textContent = "Installed. Re-checking ACL support...";
+      // Give the kernel a tick to propagate the new binaries.
+      await new Promise(function(r){ setTimeout(r, 300); });
+      await refreshManagedAppPerms(_permsCurrentApp);
+    } catch (err) {
+      msg.style.color = "#f85149";
+      msg.textContent = "Install failed: " + (err.message || "error");
+      btn.disabled = false;
     }
   }
 
@@ -4485,6 +4590,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   window.openManagedAppPermsModal  = openManagedAppPermsModal;
   window.closeManagedAppPermsModal = closeManagedAppPermsModal;
   window.setManagedAppLevel        = setManagedAppLevel;
+  window.installACLSupport         = installACLSupport;
   window.openSystemAppPermsModal   = openSystemAppPermsModal;
   window.closeSystemAppPermsModal  = closeSystemAppPermsModal;
   window.toggleSystemCap           = toggleSystemCap;

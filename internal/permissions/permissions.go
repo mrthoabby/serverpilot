@@ -158,11 +158,55 @@ func (defaultProbe) HasGpasswd() bool {
 // SystemCapabilities reports which permission primitives are available on
 // the host. Called at startup AND on every settings page render so the UI
 // can disable controls with a clear reason instead of failing silently.
+//
+// The split between `ACLToolsMissing` and `ACLFsUnsupported` lets the UI
+// offer one-click auto-install (apt install acl) only when the cause is
+// the missing package — never when the filesystem itself doesn't support
+// ACLs, since that would require a remount or fstab edit, both of which
+// are too high-risk to one-click. Operator-action is preserved for those.
 type SystemCapabilities struct {
-	ACL         bool   `json:"acl"`
-	ACLReason   string `json:"acl_reason,omitempty"`
-	Sudoers     bool   `json:"sudoers"`
-	Groups      bool   `json:"groups"`
+	ACL              bool   `json:"acl"`
+	ACLReason        string `json:"acl_reason,omitempty"`
+	ACLToolsMissing  bool   `json:"acl_tools_missing,omitempty"`  // can be auto-fixed via apt install acl
+	ACLFsUnsupported bool   `json:"acl_fs_unsupported,omitempty"` // requires manual remount / fstab edit
+	ACLMountTarget   string `json:"acl_mount_target,omitempty"`   // e.g. "/" or "/opt", for the suggested remount command
+	Sudoers          bool   `json:"sudoers"`
+	Groups           bool   `json:"groups"`
+}
+
+// HasACLTools is split out so the UI can distinguish "package missing"
+// (auto-fixable) from "filesystem doesn't support" (operator-action). The
+// previous combined HasACL also still works and is what the grant /
+// revoke paths consult; this one is purely advisory for the dashboard.
+type extendedProbe interface {
+	DependenciesProbe
+	HasACLTools() bool
+	FilesystemSupportsACL(path string) (bool, string) // (ok, mountTarget)
+}
+
+func (defaultProbe) HasACLTools() bool {
+	if _, err := exec.LookPath("/usr/bin/setfacl"); err != nil {
+		return false
+	}
+	if _, err := exec.LookPath("/usr/bin/getfacl"); err != nil {
+		return false
+	}
+	return true
+}
+
+// FilesystemSupportsACL probes the filesystem holding `path` for ACL
+// support. Returns (ok, mountTarget). The mountTarget is the directory
+// the operator would need to remount if support is missing — useful for
+// the UI suggestion. Probe is canonical (we run getfacl); we do not parse
+// /proc/mounts because mount-option discovery is brittle (bind mounts,
+// remounts, btrfs subvolumes).
+func (defaultProbe) FilesystemSupportsACL(path string) (bool, string) {
+	target := path
+	out, err := exec.Command("/usr/bin/getfacl", "--", path).CombinedOutput()
+	if err == nil && len(out) > 0 {
+		return true, target
+	}
+	return false, target
 }
 
 func (s *Service) Capabilities() SystemCapabilities {
@@ -170,10 +214,33 @@ func (s *Service) Capabilities() SystemCapabilities {
 		Sudoers: s.deps.HasVisudo(),
 		Groups:  s.deps.HasGpasswd(),
 	}
-	caps.ACL = s.deps.HasACL("/opt")
-	if !caps.ACL {
-		caps.ACLReason = "POSIX ACLs unavailable on the filesystem holding /opt — install acl package and remount with the 'acl' option"
+	probe, isExtended := s.deps.(extendedProbe)
+	if !isExtended {
+		// Fall back to the simple combined check.
+		caps.ACL = s.deps.HasACL("/opt")
+		if !caps.ACL {
+			caps.ACLReason = "POSIX ACLs unavailable on the filesystem holding /opt — install acl package and remount with the 'acl' option"
+		}
+		return caps
 	}
+
+	caps.ACLMountTarget = "/opt"
+	hasTools := probe.HasACLTools()
+	if !hasTools {
+		caps.ACL = false
+		caps.ACLToolsMissing = true
+		caps.ACLReason = "The 'acl' package is not installed. Click 'Install ACL support' to install it via apt."
+		return caps
+	}
+	fsOK, target := probe.FilesystemSupportsACL("/opt")
+	caps.ACLMountTarget = target
+	if !fsOK {
+		caps.ACL = false
+		caps.ACLFsUnsupported = true
+		caps.ACLReason = "POSIX ACLs are not active on the filesystem holding /opt. The 'acl' package is installed but the filesystem needs to be remounted with the 'acl' option (or mounted on a filesystem that supports ACLs)."
+		return caps
+	}
+	caps.ACL = true
 	return caps
 }
 
