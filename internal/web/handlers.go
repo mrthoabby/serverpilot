@@ -1657,8 +1657,9 @@ var httpClientShort = &http.Client{Timeout: 15 * time.Second}
 
 // tagRegex restricts auto-update tag values to strict semver before they are
 // allowed to flow into a download URL. Closes URL-injection via a poisoned
-// GitHub API response.
-var tagRegex = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
+// GitHub API response. Accepts both "v1.2.3" and "1.2.3" — the project tags
+// without the leading "v" in some releases.
+var tagRegex = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
 
 // secureHTTPClient returns an http.Client with TLS 1.2+, the given timeout,
 // and no cross-origin redirect following.
@@ -1711,16 +1712,19 @@ func fetchLatestTag() (string, error) {
 // maxBinarySize caps the download size at 200 MB to prevent memory exhaustion.
 const maxBinarySize = 200 * 1024 * 1024
 
-// downloadAndReplace downloads the new binary, verifies its SHA-256 against
-// the published checksum file, and atomically replaces the current binary.
+// downloadAndReplace downloads the new binary and atomically replaces the
+// current one. Checksum verification is best-effort and matches whatever the
+// release pipeline publishes:
 //
-// Hardening over the previous implementation:
-//   - Pinned to the IMMUTABLE GitHub release asset URL (not master).
-//   - Strict tag regex check before URL composition.
-//   - SHA-256 checksum download + constant-time compare before swap.
-//   - TLS 1.2+ minimum, no cross-origin redirects, explicit timeouts.
-//   - os.CreateTemp inside the binary's own directory (no predictable name).
-//   - Explicit fsync before rename.
+//   * If a SHA-256 sidecar (<binary>.sha256) is present at the same path,
+//     we enforce it strictly with a constant-time compare.
+//   * If not, we log a warning and proceed. TLS 1.2+ minimum, the strict
+//     tag regex, and pinning to the immutable tag ref still apply, and the
+//     atomic replace gives a rollback path.
+//
+// To upgrade to "always strict", generate the sidecar in vs-pre-run/Makefile
+// (e.g. `sha256sum sp-linux-amd64 > sp-linux-amd64.sha256`). Once the sidecar
+// exists alongside every binary, this code starts enforcing without changes.
 func downloadAndReplace(tagVersion string) error {
 	if !tagRegex.MatchString(tagVersion) {
 		return fmt.Errorf("refusing update: invalid tag format")
@@ -1730,7 +1734,14 @@ func downloadAndReplace(tagVersion string) error {
 	archName := runtime.GOARCH
 
 	client := secureHTTPClient(5 * time.Minute)
-	base := fmt.Sprintf("https://github.com/mrthoabby/serverpilot/releases/download/%s", tagVersion)
+	// Pin to the immutable tag ref via raw.githubusercontent.com — same
+	// distribution path the project already uses, but a tag instead of master
+	// so a future force-push to master cannot replace the served binary.
+	ver := strings.TrimPrefix(tagVersion, "v")
+	base := fmt.Sprintf(
+		"https://raw.githubusercontent.com/mrthoabby/serverpilot/%s/release/%s",
+		tagVersion, ver,
+	)
 	binURL := fmt.Sprintf("%s/sp-%s-%s", base, osName, archName)
 	sumURL := binURL + ".sha256"
 
@@ -1738,21 +1749,24 @@ func downloadAndReplace(tagVersion string) error {
 	if err != nil {
 		return fmt.Errorf("binary download failed")
 	}
-	sumBytes, err := fetchLimited(client, sumURL, 1024)
-	if err != nil {
-		return fmt.Errorf("checksum download failed — refusing update")
-	}
-	sumFields := strings.Fields(string(sumBytes))
-	if len(sumFields) == 0 {
-		return fmt.Errorf("empty checksum file")
-	}
-	expectedSum, err := hex.DecodeString(sumFields[0])
-	if err != nil || len(expectedSum) != sha256.Size {
-		return fmt.Errorf("invalid checksum file")
-	}
-	actualSum := sha256.Sum256(binBytes)
-	if subtle.ConstantTimeCompare(actualSum[:], expectedSum) != 1 {
-		return fmt.Errorf("checksum mismatch — refusing update")
+
+	// Best-effort checksum verification.
+	sumBytes, sumErr := fetchLimited(client, sumURL, 1024)
+	if sumErr == nil && len(sumBytes) > 0 {
+		sumFields := strings.Fields(string(sumBytes))
+		if len(sumFields) == 0 {
+			return fmt.Errorf("empty checksum file")
+		}
+		expectedSum, err := hex.DecodeString(sumFields[0])
+		if err != nil || len(expectedSum) != sha256.Size {
+			return fmt.Errorf("invalid checksum file")
+		}
+		actualSum := sha256.Sum256(binBytes)
+		if subtle.ConstantTimeCompare(actualSum[:], expectedSum) != 1 {
+			return fmt.Errorf("checksum mismatch — refusing update")
+		}
+	} else {
+		log.Printf("update: no checksum sidecar at %s — proceeding with TLS + tag pinning only", sumURL)
 	}
 
 	execPath, err := os.Executable()

@@ -20,9 +20,10 @@ BIN_NAME="sp"
 INSTALL_DIR_SYSTEM="/usr/local/bin"
 INSTALL_DIR_USER="$HOME/.local/bin"
 
-# Strict semver regex — refuse any tag value that does not match.
+# Strict semver regex — refuse any tag value that does not match. Accepts
+# both "v1.2.3" and "1.2.3" because the project tags both ways.
 # Closes a URL-injection channel via the GitHub API JSON response.
-TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+TAG_REGEX='^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -33,9 +34,11 @@ ok()    { printf "\033[1;32m[ok]\033[0m    %s\n" "$1"; }
 warn()  { printf "\033[1;33m[warn]\033[0m  %s\n" "$1"; }
 error() { printf "\033[1;31m[error]\033[0m %s\n" "$1" >&2; exit 1; }
 
-# Allow caller to skip integrity verification ONLY by setting an explicit
-# environment variable. Default behaviour is to require verification.
-: "${SP_REQUIRE_CHECKSUM:=1}"
+# Default mode: verify if a sidecar is present, warn otherwise.
+# Set SP_REQUIRE_CHECKSUM=strict (or =1) to REFUSE install when the
+# sidecar is missing — recommended once vs-pre-run/Makefile starts
+# emitting sha256 files alongside each binary.
+: "${SP_REQUIRE_CHECKSUM:=optional}"
 
 # ---------------------------------------------------------------------------
 # Detect OS
@@ -107,10 +110,13 @@ fetch_latest_version() {
 # ---------------------------------------------------------------------------
 
 download_binary() {
-    # Pin downloads to the IMMUTABLE GitHub release asset URL — NOT the
-    # mutable "raw.githubusercontent.com/.../master/..." path that can be
-    # force-pushed at any time.
-    BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
+    # Pin downloads to the immutable TAG ref via raw.githubusercontent.com.
+    # GitHub serves raw blobs at any ref, so pinning the tag closes the
+    # "force-push to master replaces binaries" attack vector while preserving
+    # the project's existing release model (binaries committed under
+    # release/<version>/ in the repo).
+    VER_PATH="${VERSION#v}"
+    BASE_URL="https://raw.githubusercontent.com/${REPO}/${VERSION}/release/${VER_PATH}"
     DOWNLOAD_URL="${BASE_URL}/${BIN_NAME}-${OS}-${ARCH}"
     SHA_URL="${BASE_URL}/${BIN_NAME}-${OS}-${ARCH}.sha256"
 
@@ -136,36 +142,40 @@ download_binary() {
         error "Download produced an empty file: $DOWNLOAD_URL"
     fi
 
-    # Verify SHA-256 checksum.
-    if [ "$SP_REQUIRE_CHECKSUM" = "1" ]; then
-        info "Verifying SHA-256 checksum..."
-        if command -v curl >/dev/null 2>&1; then
-            curl --proto =https --tlsv1.2 -fsSL "$SHA_URL" -o "$TMP_SHA" \
-                || error "Could not download checksum file. Refusing to install. Set SP_REQUIRE_CHECKSUM=0 to skip (NOT RECOMMENDED)."
-        else
-            wget --secure-protocol=TLSv1_2 -qO "$TMP_SHA" "$SHA_URL" \
-                || error "Could not download checksum file. Refusing to install. Set SP_REQUIRE_CHECKSUM=0 to skip (NOT RECOMMENDED)."
-        fi
+    # Verify SHA-256 checksum if a sidecar exists. The project doesn't
+    # currently publish .sha256 files alongside the binaries, so by default
+    # we treat absence as a warning. Set SP_REQUIRE_CHECKSUM=1 (or "strict")
+    # to refuse installation when the sidecar is missing — recommended once
+    # the release pipeline starts emitting them.
+    info "Probing for SHA-256 sidecar..."
+    SUM_OK=0
+    if command -v curl >/dev/null 2>&1; then
+        curl --proto =https --tlsv1.2 -fsSL "$SHA_URL" -o "$TMP_SHA" 2>/dev/null && SUM_OK=1
+    else
+        wget --secure-protocol=TLSv1_2 -qO "$TMP_SHA" "$SHA_URL" 2>/dev/null && SUM_OK=1
+    fi
 
+    if [ "$SUM_OK" = "1" ] && [ -s "$TMP_SHA" ]; then
         EXPECTED="$(awk '{print $1}' "$TMP_SHA")"
         if [ -z "$EXPECTED" ]; then
-            error "Empty checksum file. Refusing to install."
+            error "Checksum file is empty. Refusing to install."
         fi
-
         if command -v sha256sum >/dev/null 2>&1; then
             ACTUAL="$(sha256sum "$TMP_BIN" | awk '{print $1}')"
         elif command -v shasum >/dev/null 2>&1; then
             ACTUAL="$(shasum -a 256 "$TMP_BIN" | awk '{print $1}')"
         else
-            error "Neither sha256sum nor shasum is available. Cannot verify integrity. Install one of them, or set SP_REQUIRE_CHECKSUM=0 (NOT RECOMMENDED)."
+            error "Neither sha256sum nor shasum available; cannot verify the published checksum. Install one or wait for a release without sidecar."
         fi
-
         if [ "$ACTUAL" != "$EXPECTED" ]; then
             error "Checksum mismatch! Expected $EXPECTED but got $ACTUAL. Refusing to install — possible tampered binary."
         fi
         ok "Checksum verified."
     else
-        warn "SP_REQUIRE_CHECKSUM=0 — integrity verification SKIPPED. This is unsafe."
+        if [ "$SP_REQUIRE_CHECKSUM" = "strict" ] || [ "$SP_REQUIRE_CHECKSUM" = "1" ]; then
+            error "SP_REQUIRE_CHECKSUM=$SP_REQUIRE_CHECKSUM but the sidecar at $SHA_URL is missing. Refusing to install."
+        fi
+        warn "No SHA-256 sidecar at $SHA_URL — proceeding with TLS + tag pinning only."
     fi
 
     chmod 0755 "$TMP_BIN"

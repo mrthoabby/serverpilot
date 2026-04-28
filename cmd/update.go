@@ -57,7 +57,11 @@ const (
 	maxChecksumSize     = 1024              // 1 KB
 )
 
-var tagRegex = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
+// tagRegex accepts BOTH "v1.2.3" and "1.2.3" because the project tags both
+// ways in practice (version.go ships without the leading "v"). The leading
+// "v" is therefore optional. The strict body still blocks shell metas /
+// path separators / URL injection via a poisoned GitHub API response.
+var tagRegex = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
 
 func newSecureHTTPClient(timeout time.Duration) *http.Client {
 	return &http.Client{
@@ -186,8 +190,15 @@ func fetchLimitedBytes(client *http.Client, url string, max int64) ([]byte, erro
 }
 
 // downloadAndReplace downloads + verifies the binary and atomically replaces
-// the running executable. It is intentionally conservative — every step that
-// can fail does so loudly, with no fallback.
+// the running executable. The checksum step is BEST-EFFORT: if the release
+// pipeline publishes a sidecar `<binary>.sha256` we enforce it strictly; if
+// not, we log a warning and proceed with TLS + tag-pinning as the only
+// integrity gates. This matches the project's current release process,
+// which commits binaries directly under release/<version>/ in the repo.
+//
+// To turn checksum into a hard gate, generate `<binary>.sha256` alongside
+// each binary in vs-pre-run/Makefile (sha256sum sp-linux-amd64 > sp-linux-amd64.sha256).
+// Once the sidecar is present this code automatically enforces it.
 func downloadAndReplace(tagVersion string) error {
 	if !tagRegex.MatchString(tagVersion) {
 		return fmt.Errorf("refusing to update: invalid tag format")
@@ -198,8 +209,16 @@ func downloadAndReplace(tagVersion string) error {
 
 	client := newSecureHTTPClient(httpDownloadTimeout)
 
-	// Pin to the immutable tag asset URL — NOT raw.githubusercontent.com/master.
-	base := fmt.Sprintf("https://github.com/mrthoabby/serverpilot/releases/download/%s", tagVersion)
+	// Pin to the IMMUTABLE TAG ref via raw.githubusercontent.com, NOT to the
+	// `master` branch. GitHub serves raw blobs at any ref (tag, branch,
+	// commit). Pinning at the tag closes the "force-push to master replaces
+	// binaries" attack vector while preserving the project's existing
+	// distribution model (binaries committed under release/<version>/).
+	ver := strings.TrimPrefix(tagVersion, "v")
+	base := fmt.Sprintf(
+		"https://raw.githubusercontent.com/mrthoabby/serverpilot/%s/release/%s",
+		tagVersion, ver,
+	)
 	binURL := fmt.Sprintf("%s/sp-%s-%s", base, osName, archName)
 	sumURL := binURL + ".sha256"
 
@@ -207,24 +226,30 @@ func downloadAndReplace(tagVersion string) error {
 	if err != nil {
 		return fmt.Errorf("binary download failed")
 	}
-	sumBytes, err := fetchLimitedBytes(client, sumURL, maxChecksumSize)
-	if err != nil {
-		return fmt.Errorf("checksum download failed — refusing update")
-	}
 
-	// Parse "<hex>  <filename>" or just "<hex>".
-	sumFields := strings.Fields(string(sumBytes))
-	if len(sumFields) == 0 {
-		return fmt.Errorf("empty checksum file — refusing update")
-	}
-	expectedSum, err := hex.DecodeString(sumFields[0])
-	if err != nil || len(expectedSum) != sha256.Size {
-		return fmt.Errorf("invalid checksum file — refusing update")
-	}
-
-	actualSum := sha256.Sum256(binBytes)
-	if subtle.ConstantTimeCompare(actualSum[:], expectedSum) != 1 {
-		return fmt.Errorf("checksum mismatch — refusing update")
+	// Best-effort checksum verification. Strict if sidecar exists.
+	sumBytes, sumErr := fetchLimitedBytes(client, sumURL, maxChecksumSize)
+	if sumErr == nil && len(sumBytes) > 0 {
+		sumFields := strings.Fields(string(sumBytes))
+		if len(sumFields) == 0 {
+			return fmt.Errorf("empty checksum file — refusing update")
+		}
+		expectedSum, err := hex.DecodeString(sumFields[0])
+		if err != nil || len(expectedSum) != sha256.Size {
+			return fmt.Errorf("invalid checksum file — refusing update")
+		}
+		actualSum := sha256.Sum256(binBytes)
+		if subtle.ConstantTimeCompare(actualSum[:], expectedSum) != 1 {
+			return fmt.Errorf("checksum mismatch — refusing update")
+		}
+	} else {
+		// Sidecar not published. We still have TLS 1.2+ minimum, pinned tag
+		// (force-push to master cannot affect us), and atomic replace +
+		// rollback. The remaining residual risk is GitHub-account compromise
+		// of the publisher; mitigation is to add the sidecar in vs-pre-run/.
+		fmt.Fprintf(os.Stderr,
+			"warning: no checksum sidecar at %s — proceeding with TLS + tag-pinning only\n",
+			sumURL)
 	}
 
 	execPath, err := os.Executable()
