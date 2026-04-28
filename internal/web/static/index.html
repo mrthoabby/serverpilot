@@ -2195,11 +2195,38 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
     if (!resp.ok) {
       var errText = "";
-      try { var j = await resp.json(); errText = j.error || j.message || resp.statusText; } catch(e) { errText = resp.statusText; }
+      // Read body as text first; resp.json() on empty body throws
+      // "Unexpected end of input" which we don't want propagating.
+      try {
+        var bodyText = await resp.text();
+        if (bodyText && bodyText.trim()) {
+          try {
+            var j = JSON.parse(bodyText);
+            errText = j.error || j.message || resp.statusText;
+          } catch(e) {
+            errText = resp.statusText || bodyText.slice(0, 200);
+          }
+        } else {
+          errText = resp.statusText || "request failed";
+        }
+      } catch(e) {
+        errText = resp.statusText || "request failed";
+      }
       throw new Error(errText);
     }
     var ct = resp.headers.get("content-type") || "";
-    if (ct.includes("application/json")) return resp.json();
+    if (ct.includes("application/json")) {
+      // Defensive: a 200 with Content-Type:application/json but an empty
+      // body would make resp.json() throw "Unexpected end of input" and
+      // the calling code would see that as an Uncaught SyntaxError. Read
+      // as text and parse only when there is actually something to parse.
+      var raw = await resp.text();
+      if (!raw || !raw.trim()) return null;
+      try { return JSON.parse(raw); }
+      catch(e) {
+        throw new Error("invalid JSON response from server");
+      }
+    }
     return null;
   }
 
