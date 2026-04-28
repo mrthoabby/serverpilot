@@ -22,8 +22,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type githubTag struct {
-	Name string `json:"name"`
+// githubRelease matches the JSON returned by /repos/<owner>/<repo>/releases/latest.
+// Only the published-tag name matters here; we ignore the rest.
+type githubRelease struct {
+	TagName string `json:"tag_name"`
 }
 
 // ── Hardening ────────────────────────────────────────────────────────────
@@ -131,13 +133,17 @@ func init() {
 	rootCmd.AddCommand(updateCmd)
 }
 
+// fetchLatestTag asks GitHub for the latest PUBLISHED release. We use
+// /releases/latest (not /tags) so a stray tag without a published Release
+// is never a candidate for auto-update — the project only ships via
+// formally published Releases with binary assets attached.
 func fetchLatestTag() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), httpUpdateTimeout)
 	defer cancel()
 
 	client := newSecureHTTPClient(httpUpdateTimeout)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		"https://api.github.com/repos/mrthoabby/serverpilot/tags?per_page=1", nil)
+		"https://api.github.com/repos/mrthoabby/serverpilot/releases/latest", nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to build update request")
 	}
@@ -155,19 +161,19 @@ func fetchLatestTag() (string, error) {
 	}
 
 	limited := io.LimitReader(resp.Body, maxJSONResponseSize)
-	var tags []githubTag
-	if err := json.NewDecoder(limited).Decode(&tags); err != nil {
+	var rel githubRelease
+	if err := json.NewDecoder(limited).Decode(&rel); err != nil {
 		return "", fmt.Errorf("invalid update response")
 	}
-	if len(tags) == 0 {
-		return "", fmt.Errorf("no releases found")
+	if rel.TagName == "" {
+		return "", fmt.Errorf("no published release found")
 	}
 
 	// Validate the tag BEFORE returning it — closes URL injection channel.
-	if !tagRegex.MatchString(tags[0].Name) {
+	if !tagRegex.MatchString(rel.TagName) {
 		return "", fmt.Errorf("refusing update: invalid tag format")
 	}
-	return tags[0].Name, nil
+	return rel.TagName, nil
 }
 
 func fetchLimitedBytes(client *http.Client, url string, max int64) ([]byte, error) {
@@ -209,16 +215,13 @@ func downloadAndReplace(tagVersion string) error {
 
 	client := newSecureHTTPClient(httpDownloadTimeout)
 
-	// Pin to the IMMUTABLE TAG ref via raw.githubusercontent.com, NOT to the
-	// `master` branch. GitHub serves raw blobs at any ref (tag, branch,
-	// commit). Pinning at the tag closes the "force-push to master replaces
-	// binaries" attack vector while preserving the project's existing
-	// distribution model (binaries committed under release/<version>/).
-	ver := strings.TrimPrefix(tagVersion, "v")
-	base := fmt.Sprintf(
-		"https://raw.githubusercontent.com/mrthoabby/serverpilot/%s/release/%s",
-		tagVersion, ver,
-	)
+	// The project distributes binaries as GitHub Release ASSETS — the user
+	// pushes a tag, opens the Release on GitHub, and uploads the platform
+	// binaries as assets. That makes the asset URL inherently immutable:
+	// once a release is published, GitHub does not let an asset be replaced
+	// silently (a re-upload requires deleting the existing one, which is
+	// audited). This is strictly stronger than serving from master/release/.
+	base := fmt.Sprintf("https://github.com/mrthoabby/serverpilot/releases/download/%s", tagVersion)
 	binURL := fmt.Sprintf("%s/sp-%s-%s", base, osName, archName)
 	sumURL := binURL + ".sha256"
 

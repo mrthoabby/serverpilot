@@ -88,13 +88,16 @@ fetch_latest_version() {
         error "Neither curl nor wget found. Please install one of them."
     fi
 
-    VERSION="$($FETCHER "https://api.github.com/repos/${REPO}/tags?per_page=1" \
-        | grep '"name"' \
+    # Use /releases/latest — only formally PUBLISHED releases come back. A
+    # bare tag without a published Release will not be picked up, which is
+    # the correct behaviour for this project's distribution flow.
+    VERSION="$($FETCHER "https://api.github.com/repos/${REPO}/releases/latest" \
+        | grep '"tag_name"' \
         | head -1 \
-        | sed 's/.*"name": *"//;s/".*//')"
+        | sed 's/.*"tag_name": *"//;s/".*//')"
 
     if [ -z "$VERSION" ]; then
-        error "Could not determine the latest version. Check your network connection."
+        error "Could not determine the latest released version. Check your network connection or whether any release has been published."
     fi
 
     # Strict-validate the tag BEFORE letting it flow into a download URL.
@@ -102,7 +105,7 @@ fetch_latest_version() {
         error "GitHub returned an unexpected tag value; refusing to continue."
     fi
 
-    info "Latest version: $VERSION"
+    info "Latest published release: $VERSION"
 }
 
 # ---------------------------------------------------------------------------
@@ -110,13 +113,10 @@ fetch_latest_version() {
 # ---------------------------------------------------------------------------
 
 download_binary() {
-    # Pin downloads to the immutable TAG ref via raw.githubusercontent.com.
-    # GitHub serves raw blobs at any ref, so pinning the tag closes the
-    # "force-push to master replaces binaries" attack vector while preserving
-    # the project's existing release model (binaries committed under
-    # release/<version>/ in the repo).
-    VER_PATH="${VERSION#v}"
-    BASE_URL="https://raw.githubusercontent.com/${REPO}/${VERSION}/release/${VER_PATH}"
+    # Pin downloads to the published GitHub Release asset URL. Replacing
+    # a release asset on GitHub requires an explicit delete (auditable),
+    # so this URL is effectively immutable once published.
+    BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
     DOWNLOAD_URL="${BASE_URL}/${BIN_NAME}-${OS}-${ARCH}"
     SHA_URL="${BASE_URL}/${BIN_NAME}-${OS}-${ARCH}.sha256"
 

@@ -1556,9 +1556,7 @@ func (s *Server) handleLabelRemove(w http.ResponseWriter, r *http.Request) {
 
 // ── Version Check & Self-Update Handlers ──
 
-type githubTag struct {
-	Name string `json:"name"`
-}
+// (githubTag removed — fetchLatestTag now uses /releases/latest with githubReleaseLatest below.)
 
 type versionCheckResponse struct {
 	Current         string `json:"current"`
@@ -1681,10 +1679,17 @@ func secureHTTPClient(timeout time.Duration) *http.Client {
 	}
 }
 
-// fetchLatestTag gets the most recent tag from GitHub. Validates strictly.
+// githubReleaseLatest matches /repos/<owner>/<repo>/releases/latest.
+type githubReleaseLatest struct {
+	TagName string `json:"tag_name"`
+}
+
+// fetchLatestTag returns the published release tag. We probe /releases/latest
+// rather than /tags so the dashboard's update button only ever offers
+// versions that have been formally published (with binary assets attached).
 func fetchLatestTag() (string, error) {
 	client := secureHTTPClient(15 * time.Second)
-	resp, err := client.Get("https://api.github.com/repos/mrthoabby/serverpilot/tags?per_page=1")
+	resp, err := client.Get("https://api.github.com/repos/mrthoabby/serverpilot/releases/latest")
 	if err != nil {
 		return "", fmt.Errorf("HTTP request failed")
 	}
@@ -1696,17 +1701,17 @@ func fetchLatestTag() (string, error) {
 	}
 
 	limited := io.LimitReader(resp.Body, 256*1024)
-	var tags []githubTag
-	if err := json.NewDecoder(limited).Decode(&tags); err != nil {
+	var rel githubReleaseLatest
+	if err := json.NewDecoder(limited).Decode(&rel); err != nil {
 		return "", fmt.Errorf("failed to parse response")
 	}
-	if len(tags) == 0 {
-		return "", fmt.Errorf("no tags found in repository")
+	if rel.TagName == "" {
+		return "", fmt.Errorf("no published release found")
 	}
-	if !tagRegex.MatchString(tags[0].Name) {
+	if !tagRegex.MatchString(rel.TagName) {
 		return "", fmt.Errorf("refusing update: invalid tag format")
 	}
-	return tags[0].Name, nil
+	return rel.TagName, nil
 }
 
 // maxBinarySize caps the download size at 200 MB to prevent memory exhaustion.
@@ -1734,14 +1739,11 @@ func downloadAndReplace(tagVersion string) error {
 	archName := runtime.GOARCH
 
 	client := secureHTTPClient(5 * time.Minute)
-	// Pin to the immutable tag ref via raw.githubusercontent.com — same
-	// distribution path the project already uses, but a tag instead of master
-	// so a future force-push to master cannot replace the served binary.
-	ver := strings.TrimPrefix(tagVersion, "v")
-	base := fmt.Sprintf(
-		"https://raw.githubusercontent.com/mrthoabby/serverpilot/%s/release/%s",
-		tagVersion, ver,
-	)
+	// Pin to the published GitHub Release asset URL. The release flow is:
+	// tag from master → publish a Release on GitHub → upload binaries as
+	// release assets. The download URL is then inherently immutable per
+	// asset (replacing a published asset requires an explicit delete).
+	base := fmt.Sprintf("https://github.com/mrthoabby/serverpilot/releases/download/%s", tagVersion)
 	binURL := fmt.Sprintf("%s/sp-%s-%s", base, osName, archName)
 	sumURL := binURL + ".sha256"
 
