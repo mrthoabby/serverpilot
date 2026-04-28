@@ -1568,10 +1568,101 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
           </div>
           <p id="appUninstallDesc" style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1.5rem;line-height:1.5;"></p>
           <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
-            <button class="btn btn-sm btn-outline" onclick="closeAppUninstallModal()">Cancel</button>
-            <button class="btn btn-sm" id="appUninstallConfirmBtn"
+            <button type="button" class="btn btn-sm btn-outline" onclick="closeAppUninstallModal()">Cancel</button>
+            <button type="button" class="btn btn-sm" id="appUninstallConfirmBtn"
               style="background:var(--red);color:#fff;border:none;"
               onclick="executeUninstall()">Yes, uninstall completely</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Managed App Permissions Modal (filesystem ACLs) -->
+      <div id="managedAppPermsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:1.5rem;max-width:640px;width:90%;max-height:85vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">
+            <span style="font-size:1.25rem;">🔒</span>
+            <h3 style="margin:0;color:var(--text-primary);">Folder permissions: <span id="permsAppLabel" style="font-family:monospace;color:var(--accent);"></span></h3>
+          </div>
+          <p style="color:var(--text-muted);font-size:0.78rem;margin:0 0 1rem;">
+            Per-user POSIX ACLs on <code id="permsAppPath"></code>. Read-only grants traversal + read; Read+Write also lets the user create and modify files. Live state from <code>getfacl</code>.
+          </p>
+          <div id="permsAppCaps" style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.75rem;"></div>
+          <div id="permsAppContent" style="font-size:0.85rem;">
+            <div class="spinner"><div class="spinner-ring"></div>Loading…</div>
+          </div>
+          <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
+            <button type="button" class="btn btn-sm btn-outline" onclick="closeManagedAppPermsModal()">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- System App Permissions Modal (group + sudoers) -->
+      <div id="systemAppPermsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:1.5rem;max-width:720px;width:90%;max-height:85vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">
+            <span style="font-size:1.25rem;">🔒</span>
+            <h3 style="margin:0;color:var(--text-primary);">Capabilities: <span id="sysPermsAppLabel" style="font-family:monospace;color:var(--accent);"></span></h3>
+          </div>
+          <p style="color:var(--text-muted);font-size:0.78rem;margin:0 0 1rem;">
+            Group memberships and <code>/etc/sudoers.d/</code> fragments. Live state read at open time. Dangerous toggles require an explicit confirmation.
+          </p>
+          <div id="sysPermsContent" style="font-size:0.85rem;">
+            <div class="spinner"><div class="spinner-ring"></div>Loading…</div>
+          </div>
+          <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
+            <button type="button" class="btn btn-sm btn-outline" onclick="closeSystemAppPermsModal()">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- SSH keys (public + private vault) modal -->
+      <div id="sshKeysModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:1.5rem;max-width:760px;width:92%;max-height:90vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">
+            <span style="font-size:1.25rem;">🔑</span>
+            <h3 style="margin:0;color:var(--text-primary);">SSH keys: <span id="sshKeysUserLabel" style="font-family:monospace;color:var(--accent);"></span></h3>
+          </div>
+          <p style="color:var(--text-muted);font-size:0.78rem;margin:0 0 1rem;">
+            The public key is read live from <code>~/.ssh/authorized_keys</code>. The private key is shown only if it was generated server-side and stored in the encrypted vault. Each reveal is recorded in the journal log.
+          </p>
+
+          <div style="margin-bottom:1rem;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <label style="font-size:0.78rem;color:var(--text-muted);">Public key(s)</label>
+              <button type="button" id="sshKeysCopyPubBtn" onclick="copyToClipboardField('sshKeysPubArea')" class="btn btn-sm btn-outline" style="font-size:0.7rem;">Copy</button>
+            </div>
+            <textarea id="sshKeysPubArea" readonly rows="3"
+              style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:monospace;font-size:0.74rem;resize:vertical;"></textarea>
+          </div>
+
+          <div id="sshKeysGenSection" style="display:none;margin-bottom:1rem;padding:0.75rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);">
+            <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:6px;">Generate a new keypair (replaces nothing — just appends a new key)</div>
+            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+              <select id="sshKeysGenType" style="padding:6px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:0.78rem;">
+                <option value="ed25519" selected>Ed25519</option>
+                <option value="rsa">RSA-4096</option>
+              </select>
+              <input type="text" id="sshKeysGenComment" placeholder="comment (optional)" maxlength="64"
+                style="flex:1;min-width:140px;padding:6px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:0.78rem;">
+              <label style="display:flex;align-items:center;gap:4px;font-size:0.72rem;color:var(--text-muted);">
+                <input type="checkbox" id="sshKeysGenStore" checked> store
+              </label>
+              <button type="button" onclick="generateNewKeyForCurrentUser()" class="btn btn-sm" style="background:var(--accent);color:#fff;">Generate</button>
+            </div>
+          </div>
+
+          <div id="sshKeysPrivSection">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <label style="font-size:0.78rem;color:var(--text-muted);">Private key</label>
+              <div id="sshKeysPrivControls" style="display:flex;gap:6px;"></div>
+            </div>
+            <textarea id="sshKeysPrivArea" readonly rows="6" placeholder="—"
+              style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:monospace;font-size:0.74rem;resize:vertical;"></textarea>
+            <div id="sshKeysPrivStatus" style="font-size:0.7rem;color:var(--text-muted);margin-top:4px;"></div>
+          </div>
+
+          <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
+            <button type="button" class="btn btn-sm btn-outline" onclick="closeKeysModal()">Close</button>
           </div>
         </div>
       </div>
@@ -1600,9 +1691,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
             <!-- Auth mode toggle -->
             <div>
               <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:6px;">Authentication Mode</label>
-              <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;width:fit-content;">
-                <button id="authModePass" onclick="setAuthMode('password')" class="btn" style="padding:6px 16px;font-size:0.78rem;border:none;border-radius:0;background:var(--accent);color:#fff;">Password</button>
-                <button id="authModeSSH" onclick="setAuthMode('ssh')" class="btn" style="padding:6px 16px;font-size:0.78rem;border:none;border-radius:0;background:var(--bg-input);color:var(--text-muted);">SSH Key Only</button>
+              <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;width:fit-content;flex-wrap:wrap;">
+                <button type="button" id="authModePass" onclick="setAuthMode('password')" class="btn" style="padding:6px 16px;font-size:0.78rem;border:none;border-radius:0;background:var(--accent);color:#fff;">Password</button>
+                <button type="button" id="authModeSSH" onclick="setAuthMode('ssh')" class="btn" style="padding:6px 16px;font-size:0.78rem;border:none;border-radius:0;background:var(--bg-input);color:var(--text-muted);">SSH Key Only</button>
+                <button type="button" id="authModeGen" onclick="setAuthMode('generate')" class="btn" style="padding:6px 16px;font-size:0.78rem;border:none;border-radius:0;background:var(--bg-input);color:var(--text-muted);">Generate keypair</button>
               </div>
             </div>
 
@@ -1612,7 +1704,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
               <div style="display:flex;gap:0.5rem;">
                 <input type="password" id="newUserPass" placeholder="Min 8 characters"
                   style="flex:1;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.85rem;">
-                <button onclick="togglePasswordVis('newUserPass', this)" class="btn btn-secondary" style="padding:6px 10px;font-size:0.78rem;" title="Show/hide">
+                <button type="button" onclick="togglePasswordVis('newUserPass', this)" class="btn btn-secondary" style="padding:6px 10px;font-size:0.78rem;" title="Show/hide">
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3.5C4.136 3.5 1.04 6.008.152 7.59a.796.796 0 000 .82C1.04 9.992 4.136 12.5 8 12.5s6.96-2.508 7.848-4.09a.796.796 0 000-.82C14.96 6.008 11.864 3.5 8 3.5zM8 11a3 3 0 110-6 3 3 0 010 6z"/><circle cx="8" cy="8" r="1.5"/></svg>
                 </button>
               </div>
@@ -1628,8 +1720,28 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
               </div>
             </div>
 
+            <!-- Generate-keypair fields (hidden by default) -->
+            <div id="genFields" style="display:none;">
+              <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">Key Type</label>
+              <select id="newUserKeyType" style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.85rem;">
+                <option value="ed25519" selected>Ed25519 (recommended — small, modern)</option>
+                <option value="rsa">RSA 4096-bit</option>
+              </select>
+              <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin:8px 0 4px;">Comment (optional)</label>
+              <input type="text" id="newUserKeyComment" placeholder="user@host" maxlength="64"
+                style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.85rem;">
+              <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-muted);margin-top:8px;">
+                <input type="checkbox" id="newUserKeyStore" checked>
+                Store private key in encrypted vault (lets the dashboard re-display it later)
+              </label>
+              <div style="font-size:0.7rem;color:var(--text-muted);margin-top:6px;">
+                The keypair is generated server-side. The public key is installed in <code>~/.ssh/authorized_keys</code> immediately. The private key is shown ONCE on success — copy it now.
+                If "Store" is enabled, the private key is encrypted at rest with a key derived from your dashboard <code>session_secret</code>.
+              </div>
+            </div>
+
             <div style="display:flex;gap:0.5rem;align-items:center;">
-              <button onclick="createDeployUser()" class="btn btn-primary" id="btnCreateUser" style="padding:8px 20px;">Create User</button>
+              <button type="button" onclick="createDeployUser()" class="btn btn-primary" id="btnCreateUser" style="padding:8px 20px;">Create User</button>
               <span id="createUserMsg" style="font-size:0.8rem;"></span>
             </div>
           </div>
@@ -3596,7 +3708,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         '</td>' +
         '<td style="padding:0.75rem 1rem;font-size:0.8125rem;color:var(--text-secondary);">' + sizeStr + '</td>' +
         '<td style="padding:0.75rem 1rem;font-size:0.8125rem;">' + statusDot + '</td>' +
-        '<td style="padding:0.75rem 1rem;text-align:right;">' +
+        '<td style="padding:0.75rem 1rem;text-align:right;white-space:nowrap;">' +
+          (SYSTEM_PERM_APPS[app.id]
+            ? '<button class="btn btn-sm btn-outline" style="margin-right:4px;font-size:0.75rem;" ' +
+              'onclick="openSystemAppPermsModal(' + JSON.stringify(app.id) + ',' + JSON.stringify(app.name) + ')">🔒 Permissions</button>'
+            : '') +
           (app.removable
             ? '<button class="btn btn-sm" style="background:var(--red);color:#fff;border:none;" ' +
               'onclick="openAppUninstallModal(' + JSON.stringify(app.id) + ',' + JSON.stringify(app.name) + ')">Uninstall</button>'
@@ -3729,6 +3845,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
           '<div style="display:flex;align-items:center;gap:0.5rem;">' +
             '<span style="font-size:0.6875rem;color:var(--text-muted);">Created ' + escapeHtml(created) + '</span>' +
             '<button class="btn btn-sm btn-outline" onclick="openCreateEnvFileModal(\'' + escapeHtml(app.name) + '\')" style="font-size:0.75rem;">+ .env</button>' +
+            '<button class="btn btn-sm btn-outline" onclick="openManagedAppPermsModal(\'' + escapeHtml(app.name) + '\')" style="font-size:0.75rem;">🔒 Permissions</button>' +
             '<button class="btn btn-sm" style="background:var(--red);color:#fff;border:none;font-size:0.75rem;" onclick="openDeleteAppModal(\'' + escapeHtml(app.name) + '\')">Delete</button>' +
           '</div>' +
         '</div>' +
@@ -3894,10 +4011,414 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   }
 
   // Close managed app modals on backdrop click.
-  ["createAppModal", "createEnvModal", "editEnvModal", "deleteAppModal"].forEach(function(id) {
+  ["createAppModal", "createEnvModal", "editEnvModal", "deleteAppModal", "managedAppPermsModal", "systemAppPermsModal", "sshKeysModal"].forEach(function(id) {
     var m = document.getElementById(id);
     if (m) m.addEventListener("click", function(e) { if (e.target === this) this.style.display = "none"; });
   });
+
+  // ── SSH keys modal ──────────────────────────────────────────────────────
+  //
+  // Shows the public key (live from authorized_keys) and on demand the
+  // private key (decrypted from the server-side encrypted vault). Every
+  // private-key reveal hits /api/users/ssh-keys/private which is audit-
+  // logged on the server side. The textarea is also flagged with no-store
+  // so the browser does not cache the response.
+
+  var _sshKeysCurrentUser = null;
+
+  async function openKeysModalForUser(username) {
+    _sshKeysCurrentUser = username;
+    document.getElementById("sshKeysUserLabel").textContent = username;
+    document.getElementById("sshKeysPubArea").value = "Loading…";
+    document.getElementById("sshKeysPrivArea").value = "";
+    document.getElementById("sshKeysPrivStatus").textContent = "";
+    document.getElementById("sshKeysGenSection").style.display = "block";
+    document.getElementById("sshKeysModal").style.display = "flex";
+
+    try {
+      var keysResp = await apiFetch("/api/users/ssh-keys?username=" + encodeURIComponent(username));
+      var keys = (keysResp && keysResp.data) || [];
+      document.getElementById("sshKeysPubArea").value = keys.length > 0 ? keys.join("\n") : "(no public keys yet)";
+    } catch (err) {
+      document.getElementById("sshKeysPubArea").value = "(failed to read authorized_keys)";
+    }
+
+    var controls = document.getElementById("sshKeysPrivControls");
+    var status = document.getElementById("sshKeysPrivStatus");
+    var privArea = document.getElementById("sshKeysPrivArea");
+    privArea.value = "";
+    controls.innerHTML = "";
+
+    var hasStored = false;
+    try {
+      var statResp = await apiFetch("/api/users/ssh-keys/vault-status");
+      var statMap = (statResp && statResp.data) || {};
+      hasStored = !!statMap[username];
+    } catch (err) { /* ignore — render as no-stored */ }
+
+    if (!hasStored) {
+      status.textContent = "No private key in the vault for this user. Generate one above to store an encrypted copy.";
+      return;
+    }
+    var revealBtn = document.createElement("button");
+    revealBtn.type = "button";
+    revealBtn.className = "btn btn-sm btn-outline";
+    revealBtn.style.fontSize = "0.7rem";
+    revealBtn.textContent = "Reveal";
+    revealBtn.onclick = revealStoredPrivateKey;
+    var copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "btn btn-sm btn-outline";
+    copyBtn.style.fontSize = "0.7rem";
+    copyBtn.textContent = "Copy";
+    copyBtn.onclick = function() { copyToClipboardField("sshKeysPrivArea"); };
+    var deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "btn btn-sm";
+    deleteBtn.style.cssText = "background:transparent;color:#f85149;border:1px solid #f8514966;font-size:0.7rem;";
+    deleteBtn.textContent = "Forget vault entry";
+    deleteBtn.onclick = forgetStoredPrivateKey;
+    controls.appendChild(revealBtn);
+    controls.appendChild(copyBtn);
+    controls.appendChild(deleteBtn);
+    status.textContent = "A private key is stored in the encrypted vault. Click Reveal to decrypt and display.";
+  }
+
+  function closeKeysModal() {
+    _sshKeysCurrentUser = null;
+    // Wipe any private key from the DOM before closing so it doesn't
+    // linger in the textarea's accessibility tree.
+    document.getElementById("sshKeysPrivArea").value = "";
+    document.getElementById("sshKeysPubArea").value = "";
+    document.getElementById("sshKeysModal").style.display = "none";
+  }
+
+  async function revealStoredPrivateKey() {
+    if (!_sshKeysCurrentUser) return;
+    var status = document.getElementById("sshKeysPrivStatus");
+    status.textContent = "Decrypting…";
+    try {
+      var resp = await apiFetch("/api/users/ssh-keys/private?username=" + encodeURIComponent(_sshKeysCurrentUser));
+      var d = (resp && resp.data) || {};
+      document.getElementById("sshKeysPrivArea").value = d.private_key || "";
+      status.textContent = "Decrypted. This reveal was recorded in the audit journal.";
+    } catch (err) {
+      status.textContent = "Failed to decrypt: " + ((err && err.message) || "error");
+    }
+  }
+
+  async function forgetStoredPrivateKey() {
+    if (!_sshKeysCurrentUser) return;
+    if (!window.confirm("Forget the encrypted private key for '" + _sshKeysCurrentUser + "'? The user keeps SSH access via the public key in authorized_keys; only the dashboard's stored copy is removed.")) {
+      return;
+    }
+    try {
+      await apiFetch("/api/users/ssh-keys/private/delete", {
+        method: "POST",
+        body: { username: _sshKeysCurrentUser }
+      });
+      showToast("Vault entry removed.", "success");
+      // Reopen to refresh the controls.
+      await openKeysModalForUser(_sshKeysCurrentUser);
+    } catch (err) {
+      showToast("Failed: " + ((err && err.message) || "error"), "error");
+    }
+  }
+
+  async function generateNewKeyForCurrentUser() {
+    if (!_sshKeysCurrentUser) return;
+    var keyType = document.getElementById("sshKeysGenType").value;
+    var comment = document.getElementById("sshKeysGenComment").value.trim();
+    var store   = document.getElementById("sshKeysGenStore").checked;
+    try {
+      var resp = await apiFetch("/api/users/ssh-keys/generate", {
+        method: "POST",
+        body: {
+          username: _sshKeysCurrentUser,
+          type: keyType,
+          comment: comment,
+          store: store,
+          create_user: false
+        }
+      });
+      var d = (resp && resp.data) || {};
+      // Show the freshly-generated keypair right in the modal so the
+      // operator can copy it. We deliberately leave the OLD public keys
+      // visible too — the new one was appended, not replaced.
+      var prevPub = document.getElementById("sshKeysPubArea").value;
+      var newPub  = d.public_key || "";
+      document.getElementById("sshKeysPubArea").value = (prevPub && !prevPub.startsWith("(no") ? prevPub + "\n" : "") + newPub;
+      document.getElementById("sshKeysPrivArea").value = d.private_key || "";
+      document.getElementById("sshKeysPrivStatus").textContent =
+        "Private key shown ONCE. Copy it now. " +
+        (d.stored ? "A copy was also stored in the encrypted vault." : "Storage was disabled — this is your only chance.");
+      showToast("Keypair generated for " + _sshKeysCurrentUser, "success");
+    } catch (err) {
+      showToast("Generation failed: " + ((err && err.message) || "error"), "error");
+    }
+  }
+
+  // openShowKeysModal is called from createDeployUser's generate-mode
+  // success branch. It seeds the modal with the freshly-returned keys
+  // (so the user can copy the private one) before kicking off the live
+  // refresh.
+  function openShowKeysModal(username, gen) {
+    _sshKeysCurrentUser = username;
+    document.getElementById("sshKeysUserLabel").textContent = username;
+    document.getElementById("sshKeysPubArea").value = gen.public_key || "";
+    document.getElementById("sshKeysPrivArea").value = gen.private_key || "";
+    document.getElementById("sshKeysPrivStatus").textContent =
+      "Private key shown ONCE. Copy it now. " +
+      (gen.stored ? "A copy was also stored in the encrypted vault." : "Storage was disabled — this is your only chance.");
+    document.getElementById("sshKeysGenSection").style.display = "block";
+    document.getElementById("sshKeysPrivControls").innerHTML = "";
+    var copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "btn btn-sm btn-outline";
+    copyBtn.style.fontSize = "0.7rem";
+    copyBtn.textContent = "Copy";
+    copyBtn.onclick = function() { copyToClipboardField("sshKeysPrivArea"); };
+    document.getElementById("sshKeysPrivControls").appendChild(copyBtn);
+    document.getElementById("sshKeysModal").style.display = "flex";
+  }
+
+  function copyToClipboardField(textareaId) {
+    var el = document.getElementById(textareaId);
+    if (!el || !el.value) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(el.value).then(function() {
+        showToast("Copied to clipboard", "success");
+      }, function() {
+        // Fallback for older Safari / non-secure context
+        el.select();
+        try { document.execCommand("copy"); showToast("Copied to clipboard", "success"); }
+        catch(e) { showToast("Copy failed", "error"); }
+      });
+      return;
+    }
+    el.select();
+    try { document.execCommand("copy"); showToast("Copied to clipboard", "success"); }
+    catch(e) { showToast("Copy failed", "error"); }
+  }
+
+  window.openKeysModalForUser     = openKeysModalForUser;
+  window.closeKeysModal            = closeKeysModal;
+  window.revealStoredPrivateKey    = revealStoredPrivateKey;
+  window.forgetStoredPrivateKey    = forgetStoredPrivateKey;
+  window.generateNewKeyForCurrentUser = generateNewKeyForCurrentUser;
+  window.openShowKeysModal         = openShowKeysModal;
+  window.copyToClipboardField      = copyToClipboardField;
+
+  // ── Permissions ─────────────────────────────────────────────────────────
+  //
+  // Modals for filesystem ACLs (managed apps) and capability toggles
+  // (system apps). All state changes go through the dashboard's CSRF +
+  // auth middleware. Dangerous capabilities (Docker group, etc.) require
+  // a confirm-token round-trip.
+
+  // System apps the dashboard can attach permissions to. Mirrors the
+  // hardcoded catalog in internal/permissions/templates.go. Used by
+  // renderApps() to decide whether to show the Permissions button.
+  var SYSTEM_PERM_APPS = { "docker": true, "nginx": true };
+
+  var _permsCurrentApp = null;
+  var _sysPermsCurrentApp = null;
+
+  async function openManagedAppPermsModal(appName) {
+    _permsCurrentApp = appName;
+    document.getElementById("permsAppLabel").textContent = appName;
+    document.getElementById("permsAppPath").textContent = "/opt/" + appName;
+    document.getElementById("permsAppContent").innerHTML = '<div class="spinner"><div class="spinner-ring"></div>Loading…</div>';
+    document.getElementById("permsAppCaps").textContent = "";
+    document.getElementById("managedAppPermsModal").style.display = "flex";
+    await refreshManagedAppPerms(appName);
+  }
+  function closeManagedAppPermsModal() {
+    _permsCurrentApp = null;
+    document.getElementById("managedAppPermsModal").style.display = "none";
+  }
+
+  async function refreshManagedAppPerms(appName) {
+    var capsEl = document.getElementById("permsAppCaps");
+    var contentEl = document.getElementById("permsAppContent");
+    try {
+      var capsResp = await apiFetch("/api/permissions/capabilities");
+      var caps = (capsResp && capsResp.data) || {};
+      if (!caps.acl) {
+        capsEl.innerHTML = '<span style="color:var(--red);">⚠ ' + escapeHtml(caps.acl_reason || "ACLs not supported") + '</span>';
+        contentEl.innerHTML = '<p style="color:var(--text-muted);">POSIX ACL support is required to grant per-user folder permissions.</p>';
+        return;
+      }
+      var resp = await apiFetch("/api/permissions/managed-app?app=" + encodeURIComponent(appName));
+      var state = (resp && resp.data) || {};
+      var users = Object.keys(state).sort();
+      if (users.length === 0) {
+        contentEl.innerHTML = '<p style="color:var(--text-muted);">No deploy users yet. Create one in the Users tab first.</p>';
+        return;
+      }
+      contentEl.innerHTML = users.map(function(u) {
+        var current = state[u] || "none";
+        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:0.5rem 0;border-bottom:1px solid var(--border);">' +
+          '<div style="font-family:monospace;color:var(--text-primary);">' + escapeHtml(u) + '</div>' +
+          '<div style="display:flex;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;">' +
+            ['none','read','write'].map(function(level) {
+              var active = current === level;
+              return '<button type="button" data-user="' + escapeHtml(u) + '" data-level="' + level + '" ' +
+                'onclick="setManagedAppLevel(\'' + escapeHtml(u) + '\',\'' + level + '\')" ' +
+                'class="btn" style="padding:4px 12px;font-size:0.72rem;border:none;border-radius:0;' +
+                (active ? 'background:var(--accent);color:#fff;' : 'background:var(--bg-input);color:var(--text-muted);') + '">' +
+                level + '</button>';
+            }).join('') +
+          '</div>' +
+        '</div>';
+      }).join('');
+    } catch (err) {
+      contentEl.innerHTML = '<p style="color:var(--red);">Failed to load: ' + escapeHtml(err.message || "error") + '</p>';
+    }
+  }
+
+  async function setManagedAppLevel(username, level) {
+    if (!_permsCurrentApp) return;
+    try {
+      await apiFetch("/api/permissions/fs/grant", {
+        method: "POST",
+        body: { app: _permsCurrentApp, username: username, level: level }
+      });
+      showToast("Permission updated for " + username, "success");
+      await refreshManagedAppPerms(_permsCurrentApp);
+    } catch (err) {
+      showToast("Failed: " + (err.message || "error"), "error");
+    }
+  }
+
+  async function openSystemAppPermsModal(appId, appName) {
+    _sysPermsCurrentApp = appId;
+    document.getElementById("sysPermsAppLabel").textContent = appName;
+    document.getElementById("sysPermsContent").innerHTML = '<div class="spinner"><div class="spinner-ring"></div>Loading…</div>';
+    document.getElementById("systemAppPermsModal").style.display = "flex";
+    await refreshSystemAppPerms(appId);
+  }
+  function closeSystemAppPermsModal() {
+    _sysPermsCurrentApp = null;
+    document.getElementById("systemAppPermsModal").style.display = "none";
+  }
+
+  async function refreshSystemAppPerms(appId) {
+    var contentEl = document.getElementById("sysPermsContent");
+    try {
+      var resp = await apiFetch("/api/permissions/system-app?app=" + encodeURIComponent(appId));
+      var state = (resp && resp.data) || {};
+      var caps = state.capabilities || [];
+      var usersArr = state.users || [];
+      if (caps.length === 0) {
+        contentEl.innerHTML = '<p style="color:var(--text-muted);">This app has no manageable capabilities.</p>';
+        return;
+      }
+      if (usersArr.length === 0) {
+        contentEl.innerHTML = '<p style="color:var(--text-muted);">No deploy users yet. Create one in the Users tab first.</p>';
+        return;
+      }
+      // Render: matrix with users as rows, capabilities as columns.
+      var header = '<tr><th style="text-align:left;padding:0.5rem;font-size:0.72rem;color:var(--text-muted);">User</th>' +
+        caps.map(function(c) {
+          var dangerBadge = c.dangerous
+            ? '<span style="color:var(--red);font-size:0.65rem;margin-left:4px;">⚠</span>' : '';
+          return '<th style="text-align:center;padding:0.5rem;font-size:0.72rem;color:var(--text-muted);" title="' + escapeHtml(c.detail || '') + '">' +
+            escapeHtml(c.description) + dangerBadge + '</th>';
+        }).join('') + '</tr>';
+      var rows = usersArr.map(function(u) {
+        return '<tr style="border-top:1px solid var(--border);">' +
+          '<td style="padding:0.5rem;font-family:monospace;color:var(--text-primary);">' + escapeHtml(u.username) + '</td>' +
+          caps.map(function(c) {
+            var on = !!(u.capabilities && u.capabilities[c.slug]);
+            return '<td style="padding:0.5rem;text-align:center;">' +
+              '<input type="checkbox" data-user="' + escapeHtml(u.username) + '" data-cap="' + escapeHtml(c.slug) + '" ' +
+              (on ? 'checked' : '') +
+              ' onclick="toggleSystemCap(this,\'' + escapeHtml(u.username) + '\',\'' + escapeHtml(c.slug) + '\',' + (c.dangerous ? 'true' : 'false') + ')">' +
+            '</td>';
+          }).join('') +
+        '</tr>';
+      }).join('');
+      var warnings = caps.filter(function(c){return c.dangerous && c.warning;}).map(function(c) {
+        return '<div style="font-size:0.72rem;color:var(--red);margin-top:0.25rem;">⚠ ' + escapeHtml(c.warning) + '</div>';
+      }).join('');
+      contentEl.innerHTML =
+        '<table style="width:100%;border-collapse:collapse;">' + header + rows + '</table>' +
+        warnings;
+    } catch (err) {
+      contentEl.innerHTML = '<p style="color:var(--red);">Failed to load: ' + escapeHtml(err.message || "error") + '</p>';
+    }
+  }
+
+  async function toggleSystemCap(checkbox, username, capability, dangerous) {
+    if (!_sysPermsCurrentApp) return;
+    var action = checkbox.checked ? "grant" : "revoke";
+    var confirmToken = "";
+
+    if (action === "grant" && dangerous) {
+      var ok = window.confirm(
+        "This is a privileged grant. " +
+        "Granting '" + capability + "' to '" + username + "' is effectively equivalent to root access.\n\n" +
+        "Are you sure?"
+      );
+      if (!ok) {
+        checkbox.checked = !checkbox.checked;
+        return;
+      }
+      try {
+        var tokResp = await apiFetch("/api/permissions/confirm", {
+          method: "POST",
+          body: {
+            action: "system.grant",
+            username: username,
+            app: _sysPermsCurrentApp,
+            capability: capability
+          }
+        });
+        confirmToken = (tokResp && tokResp.data && tokResp.data.token) || "";
+        if (!confirmToken) throw new Error("no token returned");
+      } catch (err) {
+        checkbox.checked = !checkbox.checked;
+        showToast("Could not obtain confirmation token: " + (err.message || "error"), "error");
+        return;
+      }
+    }
+
+    try {
+      await apiFetch("/api/permissions/system/grant", {
+        method: "POST",
+        body: {
+          app: _sysPermsCurrentApp,
+          capability: capability,
+          username: username,
+          action: action,
+          confirm_token: confirmToken
+        }
+      });
+      showToast("Capability " + (action === "grant" ? "granted" : "revoked") + " for " + username, "success");
+      // Remind operator that revoking a group does not affect open sessions.
+      if (action === "revoke") {
+        // showToast only supports "success"/<other>=error; use success so the
+        // ✓ icon renders for this advisory note rather than a misleading ✗.
+        showToast("Note: open SSH sessions retain their previous permissions until logout.", "success");
+      }
+      await refreshSystemAppPerms(_sysPermsCurrentApp);
+    } catch (err) {
+      checkbox.checked = !checkbox.checked;
+      showToast("Failed: " + (err.message || "error"), "error");
+    }
+  }
+
+  // Expose permissions UI functions to the global scope so inline
+  // onclick handlers in the HTML (and in the row-render strings above) can
+  // resolve them. Without this they fail under module/scope isolation.
+  window.openManagedAppPermsModal  = openManagedAppPermsModal;
+  window.closeManagedAppPermsModal = closeManagedAppPermsModal;
+  window.setManagedAppLevel        = setManagedAppLevel;
+  window.openSystemAppPermsModal   = openSystemAppPermsModal;
+  window.closeSystemAppPermsModal  = closeSystemAppPermsModal;
+  window.toggleSystemCap           = toggleSystemCap;
+  window.SYSTEM_PERM_APPS          = SYSTEM_PERM_APPS;
 
   // Expose managed app functions to global scope (required for onclick handlers in HTML).
   window.loadManagedApps      = loadManagedApps;
@@ -3952,15 +4473,19 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
                 '<path d="M11.5 1a.5.5 0 010 1h-1.293l3.147 3.146a.5.5 0 01-.708.708L9.5 2.707V4a.5.5 0 01-1 0V1.5a.5.5 0 01.5-.5h2.5zm-6.354 4.854a.5.5 0 10-.708-.708L1.293 8.293A1 1 0 001 9v2a1 1 0 001 1h2a1 1 0 00.707-.293l3.147-3.147a.5.5 0 10-.708-.708L4 11.001H2V9l3.146-3.146z"/>' +
               '</svg>Reset' +
             '</button>';
+        var keysBtn = '<button type="button" onclick="openKeysModalForUser(\'' + escapeHtml(u.username) + '\')" class="btn btn-secondary" style="padding:3px 10px;font-size:0.75rem;" title="Show / generate SSH keys">' +
+            '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:-1px;margin-right:3px;"><path d="M11 1a4 4 0 100 8 4 4 0 000-8zM6.5 5a4.5 4.5 0 119 0c0 1.1-.4 2.1-1 2.9l4.5 4.5L18 14l-1 1-1-1-1 1-1-1L7.9 6c-.9.6-1.9 1-3 1A.6.6 0 015.4 6.4 4.5 4.5 0 016.5 5z"/></svg>Keys' +
+          '</button>';
         html += '<tr>' +
           '<td><strong>' + escapeHtml(u.username) + '</strong></td>' +
           '<td>' + authBadge + '</td>' +
           '<td style="color:var(--text-muted);font-size:0.82rem;">' + created + '</td>' +
           '<td><span class="badge badge-running"><span class="badge-dot"></span> deploy</span></td>' +
           '<td>' +
-            '<div style="display:flex;gap:6px;">' +
+            '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+              keysBtn +
               resetBtn +
-              '<button onclick="deleteDeployUser(\'' + escapeHtml(u.username) + '\')" class="btn btn-secondary" style="padding:3px 10px;font-size:0.75rem;border-color:#f8514966;color:#f85149;" title="Delete user">' +
+              '<button type="button" onclick="deleteDeployUser(\'' + escapeHtml(u.username) + '\')" class="btn btn-secondary" style="padding:3px 10px;font-size:0.75rem;border-color:#f8514966;color:#f85149;" title="Delete user">' +
                 '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" style="vertical-align:-1px;margin-right:3px;">' +
                   '<path d="M4 4l8 8M12 4l-8 8" stroke="#f85149" stroke-width="1.5" stroke-linecap="round"/>' +
                 '</svg>Delete' +
@@ -3976,26 +4501,28 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     });
   }
 
-  var _authMode = "password"; // "password" or "ssh"
+  var _authMode = "password"; // "password", "ssh", or "generate"
 
   function setAuthMode(mode) {
     _authMode = mode;
-    var passBtn = document.getElementById("authModePass");
-    var sshBtn = document.getElementById("authModeSSH");
-    var passFields = document.getElementById("passFields");
+    var passBtn   = document.getElementById("authModePass");
+    var sshBtn    = document.getElementById("authModeSSH");
+    var genBtn    = document.getElementById("authModeGen");
+    var passFields= document.getElementById("passFields");
     var sshFields = document.getElementById("sshFields");
+    var genFields = document.getElementById("genFields");
 
-    if (mode === "ssh") {
-      passBtn.style.background = "var(--bg-input)"; passBtn.style.color = "var(--text-muted)";
-      sshBtn.style.background = "var(--accent)"; sshBtn.style.color = "#fff";
-      passFields.style.display = "none";
-      sshFields.style.display = "block";
-    } else {
-      passBtn.style.background = "var(--accent)"; passBtn.style.color = "#fff";
-      sshBtn.style.background = "var(--bg-input)"; sshBtn.style.color = "var(--text-muted)";
-      passFields.style.display = "block";
-      sshFields.style.display = "none";
-    }
+    var setActive = function(btn, on) {
+      if (!btn) return;
+      btn.style.background = on ? "var(--accent)" : "var(--bg-input)";
+      btn.style.color      = on ? "#fff"          : "var(--text-muted)";
+    };
+    setActive(passBtn, mode === "password");
+    setActive(sshBtn,  mode === "ssh");
+    setActive(genBtn,  mode === "generate");
+    if (passFields) passFields.style.display = (mode === "password") ? "block" : "none";
+    if (sshFields)  sshFields.style.display  = (mode === "ssh")      ? "block" : "none";
+    if (genFields)  genFields.style.display  = (mode === "generate") ? "block" : "none";
   }
 
   function createDeployUser() {
@@ -4005,6 +4532,52 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var username = nameEl.value.trim();
 
     if (!username) { msgEl.style.color = "#f85149"; msgEl.textContent = "Username required"; return; }
+
+    if (_authMode === "generate") {
+      // Two-step flow: create the user as SSH-only with a placeholder
+      // public key (the smallest valid ed25519 line), then immediately
+      // call /api/users/ssh-keys/generate which appends a real keypair
+      // and removes the placeholder. We do this in two steps so we keep
+      // the existing user-create contract unchanged.
+      btn.disabled = true;
+      msgEl.style.color = "var(--text-muted)";
+      msgEl.textContent = "Generating keypair...";
+      var keyType = document.getElementById("newUserKeyType").value;
+      var comment = document.getElementById("newUserKeyComment").value.trim();
+      var store   = document.getElementById("newUserKeyStore").checked;
+      // We need the user to exist before we can generate, but the existing
+      // CreateSSHUser path requires a public key. To avoid a server-side
+      // refactor we generate first, take the public key, and POST it as
+      // the initial key. This keeps the create contract untouched.
+      apiFetch("/api/users/ssh-keys/generate", {
+        method: "POST",
+        body: {
+          username: username,
+          type: keyType,
+          comment: comment,
+          store: store,
+          create_user: true
+        }
+      }).then(function(data) {
+        btn.disabled = false;
+        if (data && data.success) {
+          msgEl.style.color = "#3fb950";
+          msgEl.textContent = "User '" + username + "' created with generated keypair.";
+          nameEl.value = "";
+          loadDeployUsers();
+          openShowKeysModal(username, data.data || {});
+          setTimeout(function() { msgEl.textContent = ""; }, 4000);
+        } else {
+          msgEl.style.color = "#f85149";
+          msgEl.textContent = (data && data.error) || "Failed to generate keypair";
+        }
+      }).catch(function(err) {
+        btn.disabled = false;
+        msgEl.style.color = "#f85149";
+        msgEl.textContent = "Generation failed: " + ((err && err.message) || "error");
+      });
+      return;
+    }
 
     var body;
     if (_authMode === "ssh") {

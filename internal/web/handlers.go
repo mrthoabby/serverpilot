@@ -32,6 +32,7 @@ import (
 	"github.com/mrthoabby/serverpilot/internal/labels"
 	"github.com/mrthoabby/serverpilot/internal/mapper"
 	"github.com/mrthoabby/serverpilot/internal/nginx"
+	"github.com/mrthoabby/serverpilot/internal/permissions"
 	"github.com/mrthoabby/serverpilot/internal/portalloc"
 	"github.com/mrthoabby/serverpilot/internal/sysinfo"
 	"github.com/mrthoabby/serverpilot/internal/templates"
@@ -3173,6 +3174,11 @@ func (s *Server) handleDeployUserDelete(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Wipe any vault entry for this user — the convenience copy of the
+	// private key is meaningless without the user, and leaving stale
+	// entries grows the attack surface.
+	users.PurgeStoredPrivateKey(req.Username)
+
 	log.Printf("deploy-user-delete: removed user %q", req.Username)
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
 		"username": req.Username,
@@ -3435,4 +3441,428 @@ func (s *Server) handleCasesDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("cases-delete: deleted id=%s", req.ID)
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{"id": req.ID}})
+}
+
+// ── Permissions ──────────────────────────────────────────────────────────
+//
+// Per-user permission management for managed apps (filesystem ACLs) and
+// installed system apps (group membership + sudoers fragments). All
+// state-changing endpoints are POST and therefore covered by the global
+// CSRF middleware. Dangerous capabilities (Docker group, future sudoers)
+// require a single-use confirm token issued by /api/permissions/confirm.
+//
+// Source of truth is the LIVE system (getfacl / /etc/group / /etc/sudoers.d/),
+// not the audit log. The audit log records every transition so an admin
+// can always see who granted what and when, even if someone later removed
+// the grant outside the dashboard.
+
+// permissionsService is initialised lazily on first use because it depends
+// on the users / apps packages being fully loaded. listManagedUsers and
+// the app-managed callbacks are wired here.
+var permissionsService *permissions.Service
+
+func (s *Server) getPermissions() *permissions.Service {
+	if permissionsService != nil {
+		return permissionsService
+	}
+	permissionsService = permissions.NewService(
+		func(username string) bool {
+			for _, u := range users.ListUsers() {
+				if u.Username == username {
+					return true
+				}
+			}
+			return false
+		},
+		func(app string) bool {
+			for _, a := range apps.ListApps() {
+				if a.Name == app {
+					return true
+				}
+			}
+			return false
+		},
+	)
+	return permissionsService
+}
+
+// listManagedDeployUsers is the helper passed to permissions.Service so it
+// does not import internal/users (which would create a cycle).
+func listManagedDeployUsers() []string {
+	out := []string{}
+	for _, u := range users.ListUsers() {
+		out = append(out, u.Username)
+	}
+	return out
+}
+
+// handlePermissionsCapabilities reports which primitives are available on
+// the host so the UI can disable controls with a clear reason.
+func (s *Server) handlePermissionsCapabilities(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	caps := s.getPermissions().Capabilities()
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: caps})
+}
+
+// handlePermissionsManagedApp returns the live FS ACL state for /opt/<app>
+// projected over the managed deploy users.
+//   GET /api/permissions/managed-app?app=<name>
+func (s *Server) handlePermissionsManagedApp(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	app := strings.TrimSpace(r.URL.Query().Get("app"))
+	if app == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "app is required"})
+		return
+	}
+	state, err := s.getPermissions().FSStateForApp(app, listManagedDeployUsers)
+	if err != nil {
+		log.Printf("permissions/managed-app: %v", err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "failed to read permissions"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: state})
+}
+
+// handlePermissionsSystemApps lists every system app the dashboard knows
+// how to manage permissions for (currently Docker + Nginx).
+func (s *Server) handlePermissionsSystemApps(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: permissions.SystemAppDefinitions()})
+}
+
+// handlePermissionsSystemApp returns the live state for a single system app.
+//   GET /api/permissions/system-app?app=docker
+func (s *Server) handlePermissionsSystemApp(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	app := strings.TrimSpace(r.URL.Query().Get("app"))
+	if app == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "app is required"})
+		return
+	}
+	state, err := s.getPermissions().GetSystemAppState(app, listManagedDeployUsers)
+	if err != nil {
+		log.Printf("permissions/system-app: %v", err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "failed to read permissions"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: state})
+}
+
+// handlePermissionsConfirm issues a single-use confirmation token for a
+// dangerous operation. Body: {"action","username","app","capability"}.
+func (s *Server) handlePermissionsConfirm(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	var req struct {
+		Action     string `json:"action"`
+		Username   string `json:"username"`
+		App        string `json:"app"`
+		Capability string `json:"capability"`
+	}
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	token, ttl, err := s.getPermissions().IssueConfirmToken(req.Action, req.Username, req.App, req.Capability)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]interface{}{
+		"token":   token,
+		"ttl_sec": int(ttl.Seconds()),
+	}})
+}
+
+// handlePermissionsFSGrant grants/changes a per-user FS ACL on a managed
+// app directory. Body: {"app","username","level":"none|read|write"}.
+// `level: "none"` is the explicit revoke path; we accept it here so the
+// UI uses a single endpoint for the radio toggle.
+func (s *Server) handlePermissionsFSGrant(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	var req struct {
+		App      string `json:"app"`
+		Username string `json:"username"`
+		Level    string `json:"level"`
+	}
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	actor := s.actorFromRequest(r)
+	level := permissions.Level(req.Level)
+	if !level.Valid() {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid level"})
+		return
+	}
+	if err := s.getPermissions().GrantFS(actor, req.Username, req.App, level); err != nil {
+		log.Printf("permissions/fs-grant: %v", err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "permission change failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true})
+}
+
+// handlePermissionsSystemGrant flips a system-app capability for a user.
+// Body: {"app","capability","username","action":"grant|revoke","confirm_token"?}.
+func (s *Server) handlePermissionsSystemGrant(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	var req struct {
+		App          string `json:"app"`
+		Capability   string `json:"capability"`
+		Username     string `json:"username"`
+		Action       string `json:"action"` // "grant" or "revoke"
+		ConfirmToken string `json:"confirm_token"`
+	}
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	if req.Action != "grant" && req.Action != "revoke" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "action must be grant or revoke"})
+		return
+	}
+
+	svc := s.getPermissions()
+
+	// Confirm-token gate: only required for grants of `dangerous`
+	// capabilities. Revokes never require confirmation — the UX must let
+	// admins reduce privilege without friction.
+	if req.Action == "grant" && permissions.IsCapabilityDangerous(req.Capability) {
+		fullAction := "system.grant"
+		if err := svc.ValidateAndConsumeConfirmToken(fullAction, req.Username, req.App, req.Capability, req.ConfirmToken); err != nil {
+			writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+			return
+		}
+	}
+
+	actor := s.actorFromRequest(r)
+	var err error
+	if req.Action == "grant" {
+		err = svc.GrantSystemCapability(actor, req.App, req.Capability, req.Username)
+	} else {
+		err = svc.RevokeSystemCapability(actor, req.App, req.Capability, req.Username)
+	}
+	if err != nil {
+		log.Printf("permissions/system-%s: %v", req.Action, err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "permission change failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true})
+}
+
+// handlePermissionsAudit returns the recent audit log entries.
+//   GET /api/permissions/audit?limit=100
+func (s *Server) handlePermissionsAudit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	limit := 100
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 1000 {
+			limit = n
+		}
+	}
+	entries, err := s.getPermissions().AuditTail(limit)
+	if err != nil {
+		log.Printf("permissions/audit: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to read audit log"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: entries})
+}
+
+// actorFromRequest extracts the dashboard admin's username from the
+// session cookie. Used to attribute audit entries. Falls back to "admin"
+// if the cookie is somehow missing — should never happen because all
+// permissions endpoints sit behind authMiddleware.
+func (s *Server) actorFromRequest(r *http.Request) string {
+	cookie, err := r.Cookie(sessionCookieName)
+	if err != nil {
+		return "admin"
+	}
+	if username, ok := s.sessionStore.ValidateSession(cookie.Value); ok {
+		return username
+	}
+	return "admin"
+}
+
+// ── SSH keypair generation + private-key vault ──────────────────────────
+//
+// Three endpoints:
+//   POST   /api/users/ssh-keys/generate  → generate keypair, install
+//          public into authorized_keys, optionally store private encrypted
+//   GET    /api/users/ssh-keys/private?username=<u> → decrypt + return
+//   POST   /api/users/ssh-keys/private/delete → remove vault entry only
+//
+// All three sit behind authMiddleware AND CSRFMiddleware. The private-key
+// fetch carries explicit no-store cache headers and emits an audit log
+// entry every time so any abuse is post-hoc visible.
+
+// keyGenerationRequest is the JSON body for generation.
+type keyGenerationRequest struct {
+	Username   string `json:"username"`
+	Type       string `json:"type"`        // "ed25519" or "rsa"
+	Comment    string `json:"comment"`     // optional, validated server-side
+	Store      bool   `json:"store"`       // false = show once, do not persist
+	CreateUser bool   `json:"create_user"` // true → create the user as SSH-only if it doesn't exist
+}
+
+// handleDeployUserGenerateKey runs ssh-keygen for an existing managed
+// deploy user, installs the public key, and (if requested) stores the
+// private key in the encrypted vault. Returns the keypair ONCE — the UI
+// shows it, the operator copies it, the page reload loses the response.
+func (s *Server) handleDeployUserGenerateKey(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	var req keyGenerationRequest
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	req.Username = strings.TrimSpace(req.Username)
+	req.Type = strings.TrimSpace(strings.ToLower(req.Type))
+	req.Comment = strings.TrimSpace(req.Comment)
+
+	if req.Username == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "username is required"})
+		return
+	}
+	if req.Type == "" {
+		req.Type = "ed25519"
+	}
+
+	if s.config == nil || s.config.SessionSecret == "" {
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "server misconfigured: missing session secret"})
+		return
+	}
+
+	gen, err := users.GenerateAndStoreSSHKey(req.Username, req.Type, req.Comment, s.config.SessionSecret, req.Store, req.CreateUser)
+	if err != nil {
+		// Do NOT echo err.Error() back if it could leak internal hints —
+		// users.GenerateAndStoreSSHKey already returns sanitized messages.
+		log.Printf("deploy-user-keygen: failed for %q: %v", req.Username, err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+
+	actor := s.actorFromRequest(r)
+	log.Printf("deploy-user-keygen: actor=%q user=%q type=%s stored=%v fp=%s",
+		sanitizeLogField(actor, 64), sanitizeLogField(req.Username, 64),
+		gen.Type, gen.Stored, sanitizeLogField(gen.Fingerprint, 80))
+
+	// The private key is in `gen.PrivateKey`. We MUST send a no-store /
+	// no-cache response so neither the browser nor any intermediate proxy
+	// (we only allow nginx in production but defence in depth) caches it.
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: gen})
+}
+
+// handleDeployUserPrivateKey returns the decrypted private key from the
+// vault. Audit-logged on every successful read.
+//   GET /api/users/ssh-keys/private?username=<u>
+func (s *Server) handleDeployUserPrivateKey(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	username := strings.TrimSpace(r.URL.Query().Get("username"))
+	if username == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "username is required"})
+		return
+	}
+	if s.config == nil || s.config.SessionSecret == "" {
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "server misconfigured"})
+		return
+	}
+
+	priv, err := users.LoadStoredPrivateKey(username, s.config.SessionSecret)
+	if err != nil {
+		log.Printf("deploy-user-keyfetch: actor=%q user=%q error=%v",
+			sanitizeLogField(s.actorFromRequest(r), 64),
+			sanitizeLogField(username, 64), err)
+		writeJSON(w, http.StatusNotFound, apiResponse{Error: "private key not available"})
+		return
+	}
+
+	// Audit log on success — the line below is the only forensic trail
+	// that an admin viewed the private key. Keep it terse, structured,
+	// and impossible to disable from the UI.
+	actor := s.actorFromRequest(r)
+	log.Printf("deploy-user-keyfetch: actor=%q user=%q result=ok bytes=%d",
+		sanitizeLogField(actor, 64), sanitizeLogField(username, 64), len(priv))
+
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
+		"username":    username,
+		"private_key": priv,
+	}})
+}
+
+// handleDeployUserPrivateKeyDelete removes a vault entry without touching
+// authorized_keys. The user retains SSH access via the public key already
+// installed; only the convenience copy of the private key is removed.
+//   POST /api/users/ssh-keys/private/delete  body: {"username":"..."}
+func (s *Server) handleDeployUserPrivateKeyDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	var req struct {
+		Username string `json:"username"`
+	}
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	if err := users.DeleteStoredPrivateKey(strings.TrimSpace(req.Username)); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+	log.Printf("deploy-user-keyfetch-delete: actor=%q user=%q",
+		sanitizeLogField(s.actorFromRequest(r), 64), sanitizeLogField(req.Username, 64))
+	writeJSON(w, http.StatusOK, apiResponse{Success: true})
+}
+
+// handleDeployUserKeyVaultStatus reports whether the vault contains an
+// entry for each managed user. The UI uses this to decide which user
+// rows render the "Reveal private key" button.
+//   GET /api/users/ssh-keys/vault-status
+func (s *Server) handleDeployUserKeyVaultStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	out := map[string]bool{}
+	for _, u := range users.ListUsers() {
+		out[u.Username] = users.HasStoredPrivateKey(u.Username)
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: out})
 }

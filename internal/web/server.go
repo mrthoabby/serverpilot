@@ -89,6 +89,11 @@ func (s *Server) Start() error {
 	mux.Handle("/api/users/delete", s.authMiddleware(http.HandlerFunc(s.handleDeployUserDelete)))
 	mux.Handle("/api/users/ssh-keys", s.authMiddleware(http.HandlerFunc(s.handleDeployUserSSHKeys)))
 	mux.Handle("/api/users/ssh-keys/add", s.authMiddleware(http.HandlerFunc(s.handleDeployUserAddSSHKey)))
+	// Server-side SSH keypair generation + encrypted vault for re-display.
+	mux.Handle("/api/users/ssh-keys/generate", s.authMiddleware(http.HandlerFunc(s.handleDeployUserGenerateKey)))
+	mux.Handle("/api/users/ssh-keys/private", s.authMiddleware(http.HandlerFunc(s.handleDeployUserPrivateKey)))
+	mux.Handle("/api/users/ssh-keys/private/delete", s.authMiddleware(http.HandlerFunc(s.handleDeployUserPrivateKeyDelete)))
+	mux.Handle("/api/users/ssh-keys/vault-status", s.authMiddleware(http.HandlerFunc(s.handleDeployUserKeyVaultStatus)))
 
 	// Google Cloud Firewall (conditional — only works if gcloud is installed).
 	mux.Handle("/api/gcloud/status", s.authMiddleware(http.HandlerFunc(s.handleGCloudStatus)))
@@ -114,6 +119,18 @@ func (s *Server) Start() error {
 	mux.Handle("/api/cases/create", s.authMiddleware(http.HandlerFunc(s.handleCasesCreate)))
 	mux.Handle("/api/cases/update", s.authMiddleware(http.HandlerFunc(s.handleCasesUpdate)))
 	mux.Handle("/api/cases/delete", s.authMiddleware(http.HandlerFunc(s.handleCasesDelete)))
+
+	// Permissions — per-user grants on managed app folders + system apps.
+	// Every endpoint is behind authMiddleware AND CSRFMiddleware. Dangerous
+	// grants additionally require a single-use confirm token (see handler).
+	mux.Handle("/api/permissions/capabilities", s.authMiddleware(http.HandlerFunc(s.handlePermissionsCapabilities)))
+	mux.Handle("/api/permissions/managed-app", s.authMiddleware(http.HandlerFunc(s.handlePermissionsManagedApp)))
+	mux.Handle("/api/permissions/system-apps", s.authMiddleware(http.HandlerFunc(s.handlePermissionsSystemApps)))
+	mux.Handle("/api/permissions/system-app", s.authMiddleware(http.HandlerFunc(s.handlePermissionsSystemApp)))
+	mux.Handle("/api/permissions/confirm", s.authMiddleware(http.HandlerFunc(s.handlePermissionsConfirm)))
+	mux.Handle("/api/permissions/fs/grant", s.authMiddleware(http.HandlerFunc(s.handlePermissionsFSGrant)))
+	mux.Handle("/api/permissions/system/grant", s.authMiddleware(http.HandlerFunc(s.handlePermissionsSystemGrant)))
+	mux.Handle("/api/permissions/audit", s.authMiddleware(http.HandlerFunc(s.handlePermissionsAudit)))
 
 	// Static files.
 	mux.Handle("/static/", http.FileServer(http.FS(staticFiles)))
