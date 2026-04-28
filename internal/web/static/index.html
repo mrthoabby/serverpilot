@@ -4209,6 +4209,43 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   window.openShowKeysModal         = openShowKeysModal;
   window.copyToClipboardField      = copyToClipboardField;
 
+  // Inline `onclick="..."` handlers in HTML resolve names via the global
+  // scope; functions defined inside this IIFE are NOT visible to them
+  // unless we explicitly attach them to `window`. Without these exports
+  // every onclick that calls one of these throws ReferenceError silently.
+  //
+  // This block is the ONE place where every name used by an inline onclick
+  // gets re-exported. Adding a new onclick="myFn()" in HTML must come with
+  // a `window.myFn = myFn;` line below — otherwise the click is a no-op.
+  window.setAuthMode             = setAuthMode;
+  window.createDeployUser        = createDeployUser;
+  window.togglePasswordVis       = togglePasswordVis;
+  window.openAddKeyModal         = openAddKeyModal;
+  window.openResetModal          = openResetModal;
+  window.closeResetModal         = closeResetModal;
+  window.submitResetPassword     = submitResetPassword;
+  window.deleteDeployUser        = deleteDeployUser;
+  window.loadDeployUsers         = loadDeployUsers;
+  // Apps tab.
+  window.loadApps                = loadApps;
+  window.openAppUninstallModal   = openAppUninstallModal;
+  window.closeAppUninstallModal  = closeAppUninstallModal;
+  window.executeUninstall        = executeUninstall;
+  // GCP firewall.
+  window.loadFirewallRules       = loadFirewallRules;
+  window.openFirewallPort        = openFirewallPort;
+  window.closeFirewallRule       = closeFirewallRule;
+
+  // The Cases tab lives in a SEPARATE IIFE further down the file. It calls
+  // `apiFetch`, `esc`, `escapeHtml`, and `showToast` by bare name, which
+  // means it expects to find them in the global scope. Re-export here so
+  // that second IIFE can resolve them. (CSP-compatible: no eval, no
+  // dynamic Function() — purely property assignment.)
+  window.apiFetch          = apiFetch;
+  window.esc               = esc;
+  window.escapeHtml        = escapeHtml;
+  window.showToast         = showToast;
+
   // ── Permissions ─────────────────────────────────────────────────────────
   //
   // Modals for filesystem ACLs (managed apps) and capability toggles
