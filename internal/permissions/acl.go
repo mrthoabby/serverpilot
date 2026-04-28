@@ -127,7 +127,11 @@ func (s *Service) ListFSGrants(app string) ([]FSGrant, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "/usr/bin/getfacl", "-c", "--", dir).Output()
+	getfacl := getfaclPath()
+	if getfacl == "" {
+		return nil, ErrACLNotSupported
+	}
+	out, err := exec.CommandContext(ctx, getfacl, "-c", "--", dir).Output()
 	if err != nil {
 		return nil, FormatExecError("getfacl", err)
 	}
@@ -189,11 +193,15 @@ func aclSpecForLevel(username string, level Level) (access, def string) {
 // behaviour and matches what an operator expects when granting access to
 // "the contents of /opt/<app>".
 func runSetFACL(dir string, args ...string) error {
+	setfacl := setfaclPath()
+	if setfacl == "" {
+		return ErrACLNotSupported
+	}
 	full := append([]string{}, args...)
 	full = append(full, "--", dir)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "/usr/bin/setfacl", full...)
+	cmd := exec.CommandContext(ctx, setfacl, full...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		// Do not bubble stderr into API errors — see FormatExecError.
 		_ = out
@@ -208,10 +216,14 @@ func runSetFACL(dir string, args ...string) error {
 // with "Invalid argument" — we treat that as success too (idempotent
 // revoke).
 func runSetFACLRemove(dir, username string) error {
+	setfacl := setfaclPath()
+	if setfacl == "" {
+		return ErrACLNotSupported
+	}
 	full := []string{"-R", "-x", "u:" + username, "-x", "d:u:" + username, "--", dir}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "/usr/bin/setfacl", full...).CombinedOutput()
+	out, err := exec.CommandContext(ctx, setfacl, full...).CombinedOutput()
 	if err == nil {
 		return nil
 	}

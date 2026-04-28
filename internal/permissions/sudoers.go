@@ -118,7 +118,11 @@ func (s *Service) GrantSudoers(actor, username, ruleSlug string) error {
 	// sudo system-wide.
 	visudoCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := exec.CommandContext(visudoCtx, "/usr/sbin/visudo", "-c", "-f", tmpPath).Run(); err != nil {
+	visudo := visudoPath()
+	if visudo == "" {
+		return errors.New("visudo not available")
+	}
+	if err := exec.CommandContext(visudoCtx, visudo, "-c", "-f", tmpPath).Run(); err != nil {
 		_ = s.audit(actor, "sudoers.grant", auditScopeSudoers, username, "", ruleSlug, "validation_failed", err)
 		return errors.New("sudoers fragment failed visudo validation")
 	}
