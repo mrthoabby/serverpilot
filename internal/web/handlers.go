@@ -27,6 +27,7 @@ import (
 	"github.com/mrthoabby/serverpilot/internal/apps"
 	"github.com/mrthoabby/serverpilot/internal/auth"
 	"github.com/mrthoabby/serverpilot/internal/cases"
+	"github.com/mrthoabby/serverpilot/internal/dbquery"
 	"github.com/mrthoabby/serverpilot/internal/deps"
 	"github.com/mrthoabby/serverpilot/internal/docker"
 	"github.com/mrthoabby/serverpilot/internal/labels"
@@ -4024,4 +4025,260 @@ func (s *Server) handleDeployUserKeyVaultStatus(w http.ResponseWriter, r *http.R
 		out[u.Username] = users.HasStoredPrivateKey(u.Username)
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: out})
+}
+
+// ── Database query module ───────────────────────────────────────────────
+//
+// Endpoints (all behind authMiddleware + CSRFMiddleware):
+//   GET    /api/db/connections           list saved connections (no DSN)
+//   POST   /api/db/connections           create or update a connection
+//   POST   /api/db/connections/test      ping a saved connection
+//   POST   /api/db/connections/delete    remove a connection
+//   POST   /api/db/query                 execute a SQL query
+//   GET    /api/db/audit                 tail of the dbquery audit log
+//
+// The DSN is only ever in flight in the body of the create/update POST
+// (HTTPS protects in transit). At rest it is encrypted AES-256-GCM with
+// a key derived from session_secret. The dashboard never returns the
+// DSN once stored — operators who need it back have to delete + recreate.
+
+var dbqueryService = dbquery.NewService()
+
+func (s *Server) requireSessionSecret() (string, error) {
+	if s.config == nil || s.config.SessionSecret == "" {
+		return "", fmt.Errorf("server misconfigured: missing session_secret")
+	}
+	return s.config.SessionSecret, nil
+}
+
+func (s *Server) handleDBConnectionsList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	conns, err := dbqueryService.ListConnections()
+	if err != nil {
+		log.Printf("db/connections list: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to list connections"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: conns})
+}
+
+func (s *Server) handleDBConnectionsSave(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	var in dbquery.SaveConnectionInput
+	if err := jsonDecode(r, &in); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	secret, err := s.requireSessionSecret()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: err.Error()})
+		return
+	}
+	saved, err := dbqueryService.SaveConnection(in, secret)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+	log.Printf("db/connection-save: actor=%q name=%q engine=%q id=%q",
+		sanitizeLogField(s.actorFromRequest(r), 64),
+		sanitizeLogField(saved.Name, 64),
+		string(saved.Engine), saved.ID)
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: saved})
+}
+
+func (s *Server) handleDBConnectionsDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	if err := dbqueryService.DeleteConnection(req.ID); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+	log.Printf("db/connection-delete: actor=%q id=%q",
+		sanitizeLogField(s.actorFromRequest(r), 64), sanitizeLogField(req.ID, 64))
+	writeJSON(w, http.StatusOK, apiResponse{Success: true})
+}
+
+func (s *Server) handleDBConnectionsTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	secret, err := s.requireSessionSecret()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: err.Error()})
+		return
+	}
+	actor := s.actorFromRequest(r)
+	testErr := dbqueryService.TestConnection(req.ID, secret)
+	entry := dbquery.AuditEntry{
+		Actor:        actor,
+		ConnectionID: req.ID,
+		Action:       "test",
+		Result:       "ok",
+	}
+	if testErr != nil {
+		entry.Result = "error"
+		entry.Error = testErr.Error()
+	}
+	dbquery.Audit(entry)
+	if testErr != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: testErr.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{"message": "connection ok"}})
+}
+
+func (s *Server) handleDBQuery(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	var req struct {
+		ConnectionID string `json:"connection_id"`
+		SQL          string `json:"sql"`
+	}
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	secret, err := s.requireSessionSecret()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: err.Error()})
+		return
+	}
+
+	actor := s.actorFromRequest(r)
+	result, runErr := dbqueryService.ExecuteQuery(req.ConnectionID, secret, req.SQL)
+
+	entry := dbquery.AuditEntry{
+		Actor:        actor,
+		ConnectionID: req.ConnectionID,
+		Action:       "execute",
+		QuerySHA256:  dbquery.HashQuery(req.SQL),
+		QueryBytes:   len(req.SQL),
+	}
+	if runErr != nil {
+		entry.Result = "error"
+		entry.Error = runErr.Error()
+	} else {
+		entry.Result = "ok"
+		entry.DurationMS = result.DurationMS
+		entry.RowsReturned = len(result.Rows)
+		entry.RowsAffected = result.RowsAffected
+		if result.Truncated {
+			entry.Result = "truncated"
+		}
+	}
+	dbquery.Audit(entry)
+
+	if runErr != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: runErr.Error()})
+		return
+	}
+	// Cache-Control: no-store — query results may contain PII.
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+	w.Header().Set("Pragma", "no-cache")
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: result})
+}
+
+// handleDBCellUpdate runs a single-cell UPDATE built from the
+// CellUpdateInput body. Identifiers are validated against the live
+// catalogue server-side; values flow as parameterised arguments. Audit
+// log records actor + sha256(SQL pattern + new value + PK values).
+func (s *Server) handleDBCellUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	var in dbquery.CellUpdateInput
+	if err := jsonDecode(r, &in); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	secret, err := s.requireSessionSecret()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: err.Error()})
+		return
+	}
+
+	actor := s.actorFromRequest(r)
+	result, runErr := dbqueryService.ApplyCellUpdate(in, secret)
+
+	// Build a deterministic audit hash that includes the table, column,
+	// PK values, and new value. The SQL pattern itself is identifier-
+	// only (no value content) so it's safe to include alongside.
+	auditPayload := fmt.Sprintf("%s|%s|%s|%v|%v",
+		in.Schema, in.Table, in.Column, in.NewValue, in.PKValues)
+	entry := dbquery.AuditEntry{
+		Actor:        actor,
+		ConnectionID: in.ConnectionID,
+		Action:       "cell_update",
+		QuerySHA256:  dbquery.HashQuery(auditPayload),
+		QueryBytes:   len(auditPayload),
+	}
+	if runErr != nil {
+		entry.Result = "error"
+		entry.Error = runErr.Error()
+	} else {
+		entry.Result = "ok"
+		entry.DurationMS = result.DurationMS
+		entry.RowsAffected = result.RowsAffected
+	}
+	dbquery.Audit(entry)
+
+	if runErr != nil {
+		// We may have a partial result (e.g. zero-rows-matched returns
+		// both an error and a SQLPattern for the UI to log). Surface
+		// the SQL pattern through the error envelope's Data field.
+		var data interface{}
+		if result != nil {
+			data = result
+		}
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: runErr.Error(), Data: data})
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+	w.Header().Set("Pragma", "no-cache")
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: result})
+}
+
+func (s *Server) handleDBAudit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	limit := 100
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 1000 {
+			limit = n
+		}
+	}
+	entries, err := dbquery.AuditTail(limit)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to read audit log"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: entries})
 }

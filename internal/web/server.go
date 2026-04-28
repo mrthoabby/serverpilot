@@ -89,6 +89,16 @@ func (s *Server) Start() error {
 	mux.Handle("/api/users/import", s.authMiddleware(http.HandlerFunc(s.handleDeployUserImport)))
 	mux.Handle("/api/users/system", s.authMiddleware(http.HandlerFunc(s.handleSystemUsersList)))
 	mux.Handle("/api/users/groups/toggle", s.authMiddleware(http.HandlerFunc(s.handleSystemUserGroupToggle)))
+
+	// Database query module — saved connections (DSN encrypted in vault),
+	// query runner with timeouts and result caps, audit log.
+	mux.Handle("/api/db/connections", s.authMiddleware(http.HandlerFunc(s.handleDBConnectionsList)))
+	mux.Handle("/api/db/connections/save", s.authMiddleware(http.HandlerFunc(s.handleDBConnectionsSave)))
+	mux.Handle("/api/db/connections/delete", s.authMiddleware(http.HandlerFunc(s.handleDBConnectionsDelete)))
+	mux.Handle("/api/db/connections/test", s.authMiddleware(http.HandlerFunc(s.handleDBConnectionsTest)))
+	mux.Handle("/api/db/query", s.authMiddleware(http.HandlerFunc(s.handleDBQuery)))
+	mux.Handle("/api/db/cell-update", s.authMiddleware(http.HandlerFunc(s.handleDBCellUpdate)))
+	mux.Handle("/api/db/audit", s.authMiddleware(http.HandlerFunc(s.handleDBAudit)))
 	mux.Handle("/api/users/reset-password", s.authMiddleware(http.HandlerFunc(s.handleDeployUserResetPassword)))
 	mux.Handle("/api/users/delete", s.authMiddleware(http.HandlerFunc(s.handleDeployUserDelete)))
 	mux.Handle("/api/users/ssh-keys", s.authMiddleware(http.HandlerFunc(s.handleDeployUserSSHKeys)))
