@@ -3737,6 +3737,20 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
   }
 
+  // attrJSON serialises a JS value into a string safe to embed inside an
+  // HTML attribute that uses double-quote delimiters (the common case for
+  // inline onclick handlers below). Plain JSON.stringify would emit the
+  // string with literal `"` characters that collide with the attribute's
+  // own delimiter and silently truncate the handler. Using the HTML
+  // entity &quot; lets the browser decode it back to `"` when parsing the
+  // attribute, restoring the intended JS expression. Side benefit: this
+  // also escapes any user-controlled string values defensively (e.g. an
+  // app name containing a `"` cannot break out of the attribute or inject
+  // additional onclick code — closes a latent XSS path on this row).
+  function attrJSON(v) {
+    return JSON.stringify(v).replace(/"/g, "&quot;");
+  }
+
   function renderApps(apps) {
     var el = document.getElementById("appsContent");
     if (!el) return;
@@ -3771,11 +3785,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         '<td style="padding:0.75rem 1rem;text-align:right;white-space:nowrap;">' +
           (SYSTEM_PERM_APPS[app.id]
             ? '<button class="btn btn-sm btn-outline" style="margin-right:4px;font-size:0.75rem;" ' +
-              'onclick="openSystemAppPermsModal(' + JSON.stringify(app.id) + ',' + JSON.stringify(app.name) + ')">🔒 Permissions</button>'
+              'onclick="openSystemAppPermsModal(' + attrJSON(app.id) + ',' + attrJSON(app.name) + ')">🔒 Permissions</button>'
             : '') +
           (app.removable
             ? '<button class="btn btn-sm" style="background:var(--red);color:#fff;border:none;" ' +
-              'onclick="openAppUninstallModal(' + JSON.stringify(app.id) + ',' + JSON.stringify(app.name) + ')">Uninstall</button>'
+              'onclick="openAppUninstallModal(' + attrJSON(app.id) + ',' + attrJSON(app.name) + ')">Uninstall</button>'
             : '<span style="color:var(--text-muted);font-size:0.75rem;">protected</span>') +
         '</td>' +
         '</tr>';
