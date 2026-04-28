@@ -181,9 +181,18 @@ func CreateApp(name string) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// Create a default .env file with 0600 (owner-only read/write for secrets).
+	// Create a default .env file with mode 0660. The owner is root (the
+	// daemon) and the group is whatever the parent dir's group is (root
+	// unless the dir has setgid). The 0660 mode is critical when the
+	// parent directory has a POSIX default ACL: the kernel uses the mode's
+	// GROUP bits as the ACL mask. Mode 0600 sets mask to ---, which would
+	// silently neutralise every named ACL entry inherited from the dir
+	// (e.g., the deploy user grant). Mode 0660 leaves mask=rw so named
+	// grants from the default ACL actually take effect.
+	// We do NOT widen access via traditional UNIX perms — without an ACL,
+	// only root (owner) and root group can rw, which is the same as 0600.
 	envPath := filepath.Join(absPath, ".env")
-	if err := os.WriteFile(envPath, []byte("# Environment variables for "+name+"\n"), 0600); err != nil {
+	if err := os.WriteFile(envPath, []byte("# Environment variables for "+name+"\n"), 0o660); err != nil {
 		// Rollback: remove the directory.
 		_ = os.RemoveAll(absPath)
 		return fmt.Errorf("failed to create default .env: %w", err)
@@ -304,9 +313,12 @@ func CreateEnvFile(appName, prefix string) (string, error) {
 		return "", fmt.Errorf("file '%s' already exists in %s", fileName, appName)
 	}
 
-	// Create with restrictive permissions (0600 — owner read/write only).
+	// Mode 0660 (see CreateApp comment) so the dir's default ACL mask
+	// stays at rw and named ACL grants from filesystem permissions
+	// actually work. 0600 would zero the ACL mask and silently lock out
+	// every deploy user the operator granted access to.
 	header := "# " + fileName + " for " + appName + "\n"
-	if err := os.WriteFile(filePath, []byte(header), 0600); err != nil {
+	if err := os.WriteFile(filePath, []byte(header), 0o660); err != nil {
 		return "", fmt.Errorf("failed to create file: %w", err)
 	}
 
@@ -438,8 +450,10 @@ func SaveEnvFilePlaintext(appName, fileName, content string) error {
 	}
 
 	// Atomic write: temp file then rename.
+	// Mode 0660 — see CreateApp comment. With default ACL on the parent
+	// dir, this keeps the ACL mask at rw so named grants take effect.
 	tmpPath := filePath + ".tmp"
-	if err := os.WriteFile(tmpPath, []byte(content), 0600); err != nil {
+	if err := os.WriteFile(tmpPath, []byte(content), 0o660); err != nil {
 		return fmt.Errorf("failed to write temp file: %w", err)
 	}
 	if err := os.Rename(tmpPath, filePath); err != nil {
@@ -482,8 +496,9 @@ func SaveEnvFile(appName, fileName, encryptedContent string) error {
 	}
 
 	// Atomic write: write to temp file, then rename.
+	// Mode 0660 — see CreateApp comment for the ACL-mask reasoning.
 	tmpPath := filePath + ".tmp"
-	if err := os.WriteFile(tmpPath, plaintext, 0600); err != nil {
+	if err := os.WriteFile(tmpPath, plaintext, 0o660); err != nil {
 		return fmt.Errorf("failed to write temp file: %w", err)
 	}
 	if err := os.Rename(tmpPath, filePath); err != nil {
