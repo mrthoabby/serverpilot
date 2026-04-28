@@ -1688,29 +1688,65 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
               <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px;">Lowercase letters, numbers, hyphens, underscores. Must start with a letter.</div>
             </div>
 
-            <!-- Auth mode toggle -->
+            <!-- Auth mode toggle. Default is "Generate keypair" — the dashboard
+                 creates the keypair server-side and shows the private key once,
+                 which is what 95% of operators want for CI/CD use. The other two
+                 modes (Password, SSH Key Only) remain available for the cases
+                 where they're needed. -->
             <div>
               <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:6px;">Authentication Mode</label>
               <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;width:fit-content;flex-wrap:wrap;">
-                <button type="button" id="authModePass" onclick="setAuthMode('password')" class="btn" style="padding:6px 16px;font-size:0.78rem;border:none;border-radius:0;background:var(--accent);color:#fff;">Password</button>
-                <button type="button" id="authModeSSH" onclick="setAuthMode('ssh')" class="btn" style="padding:6px 16px;font-size:0.78rem;border:none;border-radius:0;background:var(--bg-input);color:var(--text-muted);">SSH Key Only</button>
-                <button type="button" id="authModeGen" onclick="setAuthMode('generate')" class="btn" style="padding:6px 16px;font-size:0.78rem;border:none;border-radius:0;background:var(--bg-input);color:var(--text-muted);">Generate keypair</button>
+                <button type="button" id="authModeGen"  onclick="setAuthMode('generate')" class="btn" style="padding:6px 16px;font-size:0.78rem;border:none;border-radius:0;background:var(--accent);color:#fff;">Generate keypair</button>
+                <button type="button" id="authModeSSH"  onclick="setAuthMode('ssh')"      class="btn" style="padding:6px 16px;font-size:0.78rem;border:none;border-radius:0;background:var(--bg-input);color:var(--text-muted);">Paste public key</button>
+                <button type="button" id="authModePass" onclick="setAuthMode('password')" class="btn" style="padding:6px 16px;font-size:0.78rem;border:none;border-radius:0;background:var(--bg-input);color:var(--text-muted);">Password</button>
               </div>
             </div>
 
-            <!-- Password fields (shown by default) -->
-            <div id="passFields">
-              <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">Password</label>
-              <div style="display:flex;gap:0.5rem;">
-                <input type="password" id="newUserPass" placeholder="Min 8 characters"
-                  style="flex:1;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.85rem;">
-                <button type="button" onclick="togglePasswordVis('newUserPass', this)" class="btn btn-secondary" style="padding:6px 10px;font-size:0.78rem;" title="Show/hide">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3.5C4.136 3.5 1.04 6.008.152 7.59a.796.796 0 000 .82C1.04 9.992 4.136 12.5 8 12.5s6.96-2.508 7.848-4.09a.796.796 0 000-.82C14.96 6.008 11.864 3.5 8 3.5zM8 11a3 3 0 110-6 3 3 0 010 6z"/><circle cx="8" cy="8" r="1.5"/></svg>
-                </button>
+            <!-- Generate-keypair fields (DEFAULT mode). Shows just a short
+                 explanation by default; the optional knobs (key type, comment,
+                 vault storage) live inside an <details> expander so the form
+                 stays "username-only" for the common case. Sane defaults:
+                 ed25519, comment auto-derived from the username, store enabled
+                 so the operator can re-view the key from the Keys modal. -->
+            <div id="genFields">
+              <div style="font-size:0.78rem;color:var(--text-muted);line-height:1.5;background:var(--bg-input);padding:10px 12px;border-radius:6px;border:1px solid var(--border);">
+                <strong style="color:var(--text-primary);">What happens when you click Create:</strong><br>
+                The server generates a fresh Ed25519 keypair, locks the user's
+                password (SSH-key login only), installs the public key in
+                <code>~/.ssh/authorized_keys</code>, and shows you the private
+                key <strong>once</strong>. Copy that private key into your CI
+                provider's secrets (e.g. GitHub Actions
+                <code>SSH_PRIVATE_KEY</code>).
               </div>
+              <details style="margin-top:8px;">
+                <summary style="font-size:0.74rem;color:var(--text-muted);cursor:pointer;user-select:none;">Advanced options</summary>
+                <div style="margin-top:8px;padding-left:4px;border-left:2px solid var(--border);padding-left:10px;">
+                  <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">Key Type</label>
+                  <select id="newUserKeyType" style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.85rem;">
+                    <option value="ed25519" selected>Ed25519 (recommended — small, modern)</option>
+                    <option value="rsa">RSA 4096-bit</option>
+                  </select>
+                  <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin:8px 0 4px;">Comment (optional)</label>
+                  <input type="text" id="newUserKeyComment" placeholder="defaults to <username>@serverpilot" maxlength="64"
+                    style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.85rem;">
+                  <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-muted);margin-top:8px;">
+                    <input type="checkbox" id="newUserKeyStore" checked>
+                    Store private key in encrypted vault (re-viewable from the Keys modal)
+                  </label>
+                  <div style="font-size:0.7rem;color:var(--text-muted);margin-top:6px;">
+                    Vault storage encrypts the key at rest with AES-256-GCM (key
+                    derived from your dashboard <code>session_secret</code> via
+                    HKDF-SHA256). Untick if you want the key to be visible only
+                    once, with no recoverable copy on this server.
+                  </div>
+                </div>
+              </details>
             </div>
 
-            <!-- SSH Key fields (hidden by default) -->
+            <!-- SSH Key fields (paste public). Hidden until the operator picks
+                 this mode. Used when the keypair was generated externally
+                 (e.g. by the developer's laptop) and only the public side
+                 should ever touch the dashboard. -->
             <div id="sshFields" style="display:none;">
               <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">SSH Public Key</label>
               <textarea id="newUserSSHKey" rows="3" placeholder="ssh-ed25519 AAAA... user@machine"
@@ -1720,23 +1756,20 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
               </div>
             </div>
 
-            <!-- Generate-keypair fields (hidden by default) -->
-            <div id="genFields" style="display:none;">
-              <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">Key Type</label>
-              <select id="newUserKeyType" style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.85rem;">
-                <option value="ed25519" selected>Ed25519 (recommended — small, modern)</option>
-                <option value="rsa">RSA 4096-bit</option>
-              </select>
-              <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin:8px 0 4px;">Comment (optional)</label>
-              <input type="text" id="newUserKeyComment" placeholder="user@host" maxlength="64"
-                style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.85rem;">
-              <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-muted);margin-top:8px;">
-                <input type="checkbox" id="newUserKeyStore" checked>
-                Store private key in encrypted vault (lets the dashboard re-display it later)
-              </label>
-              <div style="font-size:0.7rem;color:var(--text-muted);margin-top:6px;">
-                The keypair is generated server-side. The public key is installed in <code>~/.ssh/authorized_keys</code> immediately. The private key is shown ONCE on success — copy it now.
-                If "Store" is enabled, the private key is encrypted at rest with a key derived from your dashboard <code>session_secret</code>.
+            <!-- Password fields. Hidden by default — kept for the rare case
+                 where a deploy user genuinely needs interactive login with
+                 a typed password. SSH-key auth is strictly preferred. -->
+            <div id="passFields" style="display:none;">
+              <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">Password</label>
+              <div style="display:flex;gap:0.5rem;">
+                <input type="password" id="newUserPass" placeholder="Min 8 characters"
+                  style="flex:1;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.85rem;">
+                <button type="button" onclick="togglePasswordVis('newUserPass', this)" class="btn btn-secondary" style="padding:6px 10px;font-size:0.78rem;" title="Show/hide">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3.5C4.136 3.5 1.04 6.008.152 7.59a.796.796 0 000 .82C1.04 9.992 4.136 12.5 8 12.5s6.96-2.508 7.848-4.09a.796.796 0 000-.82C14.96 6.008 11.864 3.5 8 3.5zM8 11a3 3 0 110-6 3 3 0 010 6z"/><circle cx="8" cy="8" r="1.5"/></svg>
+                </button>
+              </div>
+              <div style="font-size:0.7rem;color:var(--text-muted);margin-top:4px;">
+                Password authentication is supported but discouraged. Prefer "Generate keypair" or "Paste public key" for any user that will be used by automation.
               </div>
             </div>
 
@@ -4538,7 +4571,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     });
   }
 
-  var _authMode = "password"; // "password", "ssh", or "generate"
+  // Default mode is "generate" — the simplest and safest path for CI/CD.
+  // The form ships ready to receive just a username and emit a private key.
+  var _authMode = "generate"; // "password", "ssh", or "generate"
 
   function setAuthMode(mode) {
     _authMode = mode;
@@ -4571,17 +4606,21 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (!username) { msgEl.style.color = "#f85149"; msgEl.textContent = "Username required"; return; }
 
     if (_authMode === "generate") {
-      // Two-step flow: create the user as SSH-only with a placeholder
-      // public key (the smallest valid ed25519 line), then immediately
-      // call /api/users/ssh-keys/generate which appends a real keypair
-      // and removes the placeholder. We do this in two steps so we keep
-      // the existing user-create contract unchanged.
       btn.disabled = true;
       msgEl.style.color = "var(--text-muted)";
       msgEl.textContent = "Generating keypair...";
-      var keyType = document.getElementById("newUserKeyType").value;
-      var comment = document.getElementById("newUserKeyComment").value.trim();
-      var store   = document.getElementById("newUserKeyStore").checked;
+
+      // Sane defaults if the operator doesn't expand "Advanced options".
+      // Reading from the DOM with fallbacks lets the form work even when
+      // the <details> is collapsed (which in some legacy browsers may
+      // skip rendering its children) AND keeps the simple flow
+      // "username only -> private key" working without surprises.
+      var keyTypeEl = document.getElementById("newUserKeyType");
+      var commentEl = document.getElementById("newUserKeyComment");
+      var storeEl   = document.getElementById("newUserKeyStore");
+      var keyType = keyTypeEl ? keyTypeEl.value : "ed25519";
+      var comment = commentEl ? commentEl.value.trim() : "";
+      var store   = storeEl ? storeEl.checked : true;
       // We need the user to exist before we can generate, but the existing
       // CreateSSHUser path requires a public key. To avoid a server-side
       // refactor we generate first, take the public key, and POST it as
