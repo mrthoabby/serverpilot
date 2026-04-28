@@ -3144,6 +3144,131 @@ func (s *Server) handleDeployUserCreate(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+// handleSystemUsersList returns all non-system OS users with their groups
+// and a "managed" flag indicating whether they're in the dashboard's
+// managed-users registry. Read-only — used by the System Users panel.
+func (s *Server) handleSystemUsersList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	list, err := users.ListSystemUsers()
+	if err != nil {
+		log.Printf("system-users-list: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to enumerate users"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]interface{}{
+		"users":             list,
+		"manageable_groups": users.AllowedManageableGroups(),
+	}})
+}
+
+// handleSystemUserGroupToggle adds or removes a user from one of the
+// allowlisted groups (currently `deploy` and `docker`). Body:
+//   {"username":"...", "group":"deploy", "action":"add"|"remove"}
+// Dangerous groups (Docker) require a confirm token, mirroring the
+// existing system-app permissions flow.
+func (s *Server) handleSystemUserGroupToggle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	var req struct {
+		Username     string `json:"username"`
+		Group        string `json:"group"`
+		Action       string `json:"action"`
+		ConfirmToken string `json:"confirm_token"`
+	}
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	req.Username = strings.TrimSpace(req.Username)
+	req.Group = strings.TrimSpace(req.Group)
+	req.Action = strings.TrimSpace(req.Action)
+	if req.Username == "" || req.Group == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "username and group are required"})
+		return
+	}
+	if req.Action != "add" && req.Action != "remove" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "action must be add or remove"})
+		return
+	}
+
+	// Dangerous groups require confirm-token on ADD only. Revokes never
+	// require a confirmation — UX must let admins reduce privilege fast.
+	allowed := users.AllowedManageableGroups()
+	meta, ok := allowed[req.Group]
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "group not manageable"})
+		return
+	}
+	if req.Action == "add" && meta.Dangerous {
+		if err := s.getPermissions().ValidateAndConsumeConfirmToken(
+			"groups.add", req.Username, "", req.Group, req.ConfirmToken,
+		); err != nil {
+			writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+			return
+		}
+	}
+
+	if err := users.SetGroupMembership(req.Username, req.Group, req.Action == "add"); err != nil {
+		log.Printf("system-user-group-toggle: actor=%q user=%q group=%q action=%q error=%v",
+			sanitizeLogField(s.actorFromRequest(r), 64),
+			sanitizeLogField(req.Username, 64),
+			sanitizeLogField(req.Group, 32),
+			req.Action, err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "group change failed"})
+		return
+	}
+	log.Printf("system-user-group-toggle: actor=%q user=%q group=%q action=%q result=ok",
+		sanitizeLogField(s.actorFromRequest(r), 64),
+		sanitizeLogField(req.Username, 64),
+		sanitizeLogField(req.Group, 32),
+		req.Action)
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
+		"username": req.Username,
+		"group":    req.Group,
+		"action":   req.Action,
+	}})
+}
+
+// handleDeployUserImport registers an existing OS user as a managed
+// deploy user and adds them to the `deploy` group. Body: {"username":"..."}.
+// Idempotent at the group-add level (gpasswd notices a re-add); not at
+// the registry level (refuses to import an already-managed user).
+func (s *Server) handleDeployUserImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	var req struct {
+		Username string `json:"username"`
+	}
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	req.Username = strings.TrimSpace(req.Username)
+	if req.Username == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "username is required"})
+		return
+	}
+	if err := users.ImportExistingUser(req.Username); err != nil {
+		log.Printf("deploy-user-import: failed for %q: %v", req.Username, err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+	log.Printf("deploy-user-import: actor=%q user=%q",
+		sanitizeLogField(s.actorFromRequest(r), 64),
+		sanitizeLogField(req.Username, 64))
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
+		"username": req.Username,
+		"message":  fmt.Sprintf("User '%s' imported and added to deploy group", req.Username),
+	}})
+}
+
 // handleDeployUserResetPassword resets the password for a managed deploy user.
 // POST body: {"username": "ci-deploy", "password": "newpass456"}
 func (s *Server) handleDeployUserResetPassword(w http.ResponseWriter, r *http.Request) {

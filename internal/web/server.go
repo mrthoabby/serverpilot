@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mrthoabby/serverpilot/internal/auth"
+	"github.com/mrthoabby/serverpilot/internal/portalloc"
 	"github.com/mrthoabby/serverpilot/internal/sysinfo"
 )
 
@@ -85,6 +86,9 @@ func (s *Server) Start() error {
 	// Deploy users.
 	mux.Handle("/api/users", s.authMiddleware(http.HandlerFunc(s.handleDeployUsers)))
 	mux.Handle("/api/users/create", s.authMiddleware(http.HandlerFunc(s.handleDeployUserCreate)))
+	mux.Handle("/api/users/import", s.authMiddleware(http.HandlerFunc(s.handleDeployUserImport)))
+	mux.Handle("/api/users/system", s.authMiddleware(http.HandlerFunc(s.handleSystemUsersList)))
+	mux.Handle("/api/users/groups/toggle", s.authMiddleware(http.HandlerFunc(s.handleSystemUserGroupToggle)))
 	mux.Handle("/api/users/reset-password", s.authMiddleware(http.HandlerFunc(s.handleDeployUserResetPassword)))
 	mux.Handle("/api/users/delete", s.authMiddleware(http.HandlerFunc(s.handleDeployUserDelete)))
 	mux.Handle("/api/users/ssh-keys", s.authMiddleware(http.HandlerFunc(s.handleDeployUserSSHKeys)))
@@ -143,6 +147,15 @@ func (s *Server) Start() error {
 	// CSRFMiddleware enforces an Origin/Referer check on state-changing requests
 	// (CWE-352); BodyLimit caps POST payloads at 1 MB to prevent memory exhaustion.
 	handler := RecoveryMiddleware(LoggingMiddleware(s.SecurityMiddleware(s.CSRFMiddleware(s.ClientHeaderMiddleware(BodyLimitMiddleware(mux))))))
+
+	// Provision /var/lib/serverpilot once, while we have root, so that
+	// later `sp port` invocations from non-root deploy users (CI/CD
+	// scripts) find the directory ready with the correct setgid + group
+	// ownership. Failure is non-fatal: dashboard can still come up; only
+	// non-root sp port would fail until the operator re-runs as root.
+	if err := portalloc.EnsureSetup(); err != nil {
+		log.Printf("portalloc: setup warning: %v (sp port may need root until /var/lib/serverpilot exists)", err)
+	}
 
 	// Start the background memory history collector (snapshots every 5 min).
 	sysinfo.StartHistoryCollector()

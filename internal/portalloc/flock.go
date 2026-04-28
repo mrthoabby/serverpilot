@@ -18,7 +18,11 @@ import (
 //   - The lock file lives inside a root-owned 0700 directory (see baseDir),
 //     so non-root users cannot create or rename inside it.
 func lockFile(path string) (unlock func(), err error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
+	// 0660 instead of 0600 so any user in the `deploy` group can acquire
+	// the cross-process lock when running `sp port` non-root. Group is
+	// inherited from the parent directory (setgid). Defense-in-depth
+	// against symlink attacks remains via O_NOFOLLOW.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o660)
 	if err != nil {
 		return nil, err
 	}

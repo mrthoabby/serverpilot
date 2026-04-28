@@ -1792,6 +1792,22 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         </div>
       </div>
 
+      <!-- System Users — every OS user (UID >= 1000) and their groups.
+           Lets the operator toggle membership of dashboard-managed groups
+           (deploy, docker) without dropping to a shell. -->
+      <div class="card" style="margin-top:1rem;">
+        <div class="card-header">
+          <h2>System Users</h2>
+          <button type="button" onclick="loadSystemUsers()" class="btn btn-secondary" style="padding:4px 12px;font-size:0.78rem;">Refresh</button>
+        </div>
+        <div style="padding:0.75rem 1rem 0.5rem;font-size:0.78rem;color:var(--text-muted);">
+          All non-system users on this host. Toggle a checkbox to add or remove the user from a managed group. Adding to <code>docker</code> is a privileged grant and requires explicit confirmation.
+        </div>
+        <div id="systemUsersContent">
+          <div class="spinner"><div class="spinner-ring"></div>Loading…</div>
+        </div>
+      </div>
+
       <!-- Google Cloud Firewall (shown only if gcloud is available) -->
       <div id="gcloudSection" style="display:none;margin-top:1rem;">
         <div class="card">
@@ -2247,7 +2263,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     mappings:   function() { return loadMappings(); },
     resources:  function() { return loadResources(); },
     apps:       function() { loadManagedApps(); return loadApps(); },  // no auto-refresh for apps
-    users:      function() { return loadDeployUsers(); },
+    users:      function() { loadSystemUsers(); return loadDeployUsers(); },
     cases:      function() { return loadCases(); },
     settings:   function() { return loadSettings(); }
   };
@@ -4300,6 +4316,8 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   window.submitResetPassword     = submitResetPassword;
   window.deleteDeployUser        = deleteDeployUser;
   window.loadDeployUsers         = loadDeployUsers;
+  window.loadSystemUsers         = loadSystemUsers;
+  window.toggleSystemUserGroup   = toggleSystemUserGroup;
   // Apps tab.
   window.loadApps                = loadApps;
   window.openAppUninstallModal   = openAppUninstallModal;
@@ -4654,6 +4672,128 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   window.submitDeleteApp      = submitDeleteApp;
 
   // ── Deploy Users ──
+
+  // ── System Users panel ──────────────────────────────────────────────────
+  // Lists all OS users (UID >= 1000) with their groups, plus toggles for
+  // each group the dashboard is willing to manage (currently `deploy` and
+  // `docker`). All toggles go through /api/users/groups/toggle which
+  // re-validates the group against the server-side allowlist; the UI is
+  // purely a renderer.
+
+  var _systemUsersManageableGroups = {};
+
+  function loadSystemUsers() {
+    var wrap = document.getElementById("systemUsersContent");
+    if (!wrap) return;
+    wrap.innerHTML = '<div class="spinner"><div class="spinner-ring"></div>Loading…</div>';
+    apiFetch("/api/users/system").then(function(resp) {
+      if (!resp || !resp.success) {
+        wrap.innerHTML = '<div class="empty-state"><p>Error loading system users</p></div>';
+        return;
+      }
+      var data = resp.data || {};
+      var list = data.users || [];
+      _systemUsersManageableGroups = data.manageable_groups || {};
+      renderSystemUsers(list);
+    }).catch(function(err) {
+      wrap.innerHTML = '<div class="empty-state"><p>Error loading system users: ' + escapeHtml((err && err.message) || "error") + '</p></div>';
+    });
+  }
+
+  function renderSystemUsers(list) {
+    var wrap = document.getElementById("systemUsersContent");
+    if (!wrap) return;
+    if (!Array.isArray(list) || list.length === 0) {
+      wrap.innerHTML = '<div class="empty-state"><p>No regular users found on this host.</p></div>';
+      return;
+    }
+    var groupSlugs = Object.keys(_systemUsersManageableGroups).sort();
+
+    var headerCols = '<th>User</th><th style="width:70px;">UID</th><th>Member of</th>' +
+      groupSlugs.map(function(g) {
+        var meta = _systemUsersManageableGroups[g] || {};
+        var dangerBadge = meta.dangerous ? '<span style="color:var(--red);font-size:0.65rem;margin-left:4px;">⚠</span>' : '';
+        return '<th style="text-align:center;width:90px;" title="' + escapeHtml(meta.description || "") + '">' +
+          escapeHtml(g) + dangerBadge +
+        '</th>';
+      }).join('') +
+      '<th style="width:60px;">Status</th>';
+
+    var rows = list.map(function(u) {
+      var memberChips = (u.groups || []).map(function(g) {
+        var isManaged = _systemUsersManageableGroups[g] !== undefined;
+        var bg = isManaged ? "var(--accent)" : "var(--bg-input)";
+        var fg = isManaged ? "#fff" : "var(--text-muted)";
+        return '<span style="display:inline-block;padding:1px 7px;border-radius:999px;background:' + bg + ';color:' + fg + ';font-size:0.66rem;font-family:monospace;margin:1px 2px;">' + escapeHtml(g) + '</span>';
+      }).join('');
+      var toggles = groupSlugs.map(function(g) {
+        var meta = _systemUsersManageableGroups[g] || {};
+        var on = (u.groups || []).indexOf(g) !== -1;
+        return '<td style="text-align:center;">' +
+          '<input type="checkbox" ' + (on ? 'checked' : '') + ' ' +
+          'onclick="toggleSystemUserGroup(this,&quot;' + escapeHtml(u.username) + '&quot;,&quot;' + escapeHtml(g) + '&quot;,' + (meta.dangerous ? 'true' : 'false') + ')">' +
+        '</td>';
+      }).join('');
+      var managedBadge = u.managed
+        ? '<span style="background:#1a3a2a;color:#3fb950;padding:1px 6px;border-radius:4px;font-size:0.66rem;">managed</span>'
+        : '<span style="background:#2a2a2a;color:var(--text-muted);padding:1px 6px;border-radius:4px;font-size:0.66rem;">external</span>';
+      return '<tr>' +
+        '<td><strong style="font-family:monospace;">' + escapeHtml(u.username) + '</strong></td>' +
+        '<td style="font-family:monospace;color:var(--text-muted);font-size:0.78rem;">' + u.uid + '</td>' +
+        '<td>' + (memberChips || '<span style="color:var(--text-muted);font-size:0.72rem;">—</span>') + '</td>' +
+        toggles +
+        '<td>' + managedBadge + '</td>' +
+      '</tr>';
+    }).join('');
+
+    wrap.innerHTML = '<div class="table-wrap"><table><thead><tr>' + headerCols + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  // toggleSystemUserGroup is the click handler on each toggle. Mirrors the
+  // confirm-token dance from toggleSystemCap: dangerous grants need a
+  // round-trip to /api/permissions/confirm before /api/users/groups/toggle.
+  async function toggleSystemUserGroup(checkbox, username, group, dangerous) {
+    var action = checkbox.checked ? "add" : "remove";
+    var confirmToken = "";
+
+    if (action === "add" && dangerous) {
+      var ok = window.confirm(
+        "Adding '" + username + "' to the '" + group + "' group is a privileged grant " +
+        "(effectively root for the docker group).\n\nAre you sure?"
+      );
+      if (!ok) {
+        checkbox.checked = !checkbox.checked;
+        return;
+      }
+      try {
+        var tokResp = await apiFetch("/api/permissions/confirm", {
+          method: "POST",
+          body: { action: "groups.add", username: username, app: "", capability: group }
+        });
+        confirmToken = (tokResp && tokResp.data && tokResp.data.token) || "";
+        if (!confirmToken) throw new Error("no token returned");
+      } catch (err) {
+        checkbox.checked = !checkbox.checked;
+        showToast("Could not obtain confirmation token: " + (err.message || "error"), "error");
+        return;
+      }
+    }
+
+    try {
+      await apiFetch("/api/users/groups/toggle", {
+        method: "POST",
+        body: { username: username, group: group, action: action, confirm_token: confirmToken }
+      });
+      showToast(username + (action === "add" ? " added to " : " removed from ") + group, "success");
+      if (action === "remove") {
+        showToast("Note: open SSH sessions retain their previous groups until logout.", "success");
+      }
+      await loadSystemUsers();
+    } catch (err) {
+      checkbox.checked = !checkbox.checked;
+      showToast("Failed: " + (err.message || "error"), "error");
+    }
+  }
 
   function loadDeployUsers() {
     var wrap = document.getElementById("usersContent");
