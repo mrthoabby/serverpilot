@@ -178,14 +178,28 @@ type CellUpdateInput struct {
 	Column       string                 `json:"column"`        // the column to update
 	NewValue     interface{}            `json:"new_value"`     // any JSON value; null → SQL NULL
 	PKValues     map[string]interface{} `json:"pk_values"`     // every PK column → its value
+	// ExpectedValues, when non-empty, snapshots the entire row as the
+	// operator saw it at SELECT time. The UPDATE's WHERE clause is
+	// extended with `col IS NOT DISTINCT FROM $N` for every column in
+	// the snapshot — i.e. classic Compare-And-Set / optimistic
+	// concurrency control. If anyone else modified ANY column on the
+	// row in the meantime, the UPDATE affects 0 rows and the handler
+	// returns a concurrent-modification error so the operator refreshes.
+	// Columns whose type doesn't support equality (e.g. json, xml) are
+	// silently skipped from the CAS — only the comparable subset
+	// participates.
+	ExpectedValues map[string]interface{} `json:"expected_values,omitempty"`
 }
 
 // CellUpdateResult reports the outcome of a single-cell UPDATE.
 type CellUpdateResult struct {
-	RowsAffected int64       `json:"rows_affected"`
-	DurationMS   int64       `json:"duration_ms"`
-	NewValue     interface{} `json:"new_value,omitempty"` // re-fetched from the DB
-	SQLPattern   string      `json:"sql_pattern"`         // identifiers quoted, values as $N
+	RowsAffected   int64       `json:"rows_affected"`
+	DurationMS     int64       `json:"duration_ms"`
+	NewValue       interface{} `json:"new_value,omitempty"` // re-fetched from the DB
+	SQLPattern     string      `json:"sql_pattern"`         // identifiers quoted, values as $N
+	CASColumnCount int         `json:"cas_column_count,omitempty"` // # cols included in the CAS WHERE (informational)
+	CASSkipped     []string    `json:"cas_skipped,omitempty"`      // columns excluded from CAS due to non-comparable type
+	ConflictKind   string      `json:"conflict_kind,omitempty"`    // "deleted" | "modified" when rows_affected = 0
 }
 
 // identRegex restricts schema/table/column names to safe SQL identifiers.
@@ -294,14 +308,76 @@ func (s *Service) ApplyCellUpdate(in CellUpdateInput, sessionSecret string) (*Ce
 		pkTypes[c] = t
 	}
 
+	// 3c. Resolve types for every column in the CAS snapshot. Skip:
+	//   - PK columns (already in the WHERE)
+	//   - non-comparable types (json without -b, xml) — they cannot
+	//     participate in an equality predicate without a custom cast,
+	//     which we don't try to synthesise; postgres would refuse and
+	//     crash the whole UPDATE.
+	casPlan := casPlan{
+		candidates: map[string]bool{},
+		types:      map[string]string{},
+	}
+	expectedKeys := make([]string, 0, len(in.ExpectedValues))
+	for k := range in.ExpectedValues {
+		if _, isPK := pkTypes[k]; isPK {
+			continue
+		}
+		if !identRegex.MatchString(k) {
+			return nil, errors.New("invalid expected column identifier")
+		}
+		if err := assertColumnExists(ctx, db, in.Schema, in.Table, k); err != nil {
+			return nil, err
+		}
+		t, err := columnDataType(ctx, db, in.Schema, in.Table, k)
+		if err != nil {
+			return nil, err
+		}
+		if !columnTypeRegex.MatchString(t) {
+			return nil, errors.New("expected column type not safe for cast")
+		}
+		baseType := strings.ToLower(strings.TrimSpace(strings.SplitN(t, "(", 2)[0]))
+		if nonComparableTypes[baseType] {
+			casPlan.skipped = append(casPlan.skipped, k)
+			continue
+		}
+		casPlan.candidates[k] = true
+		casPlan.types[k] = t
+		expectedKeys = append(expectedKeys, k)
+	}
+	sort.Strings(expectedKeys)
+	casPlan.orderedComparable = expectedKeys
+
 	// 4. Build the SQL with quoted identifiers, parameter placeholders,
 	// and per-column casts derived from the catalogue.
 	args := []interface{}{coerceForDriver(in.NewValue)}
-	whereParts := make([]string, 0, len(pkNames))
-	for i, c := range pkNames {
-		whereParts = append(whereParts, fmt.Sprintf("%s = $%d::%s", quoteIdent(c), i+2, pkTypes[c]))
+	paramIdx := 2 // $1 is reserved for the new value
+	whereParts := make([]string, 0, len(pkNames)+len(casPlan.types))
+
+	// PKs first — these are required.
+	for _, c := range pkNames {
+		whereParts = append(whereParts, fmt.Sprintf("%s = $%d::%s", quoteIdent(c), paramIdx, pkTypes[c]))
 		args = append(args, coerceForDriver(in.PKValues[c]))
+		paramIdx++
 	}
+
+	// CAS predicates for the remaining (comparable, non-PK) columns.
+	// Stable iteration via the sorted list inside casPlan so the SQL
+	// pattern is deterministic in audit logs.
+	casUsed := make([]string, 0, len(casPlan.types))
+	for _, c := range casPlan.orderedComparable {
+		t, ok := casPlan.types[c]
+		if !ok {
+			continue
+		}
+		// IS NOT DISTINCT FROM is NULL-safe equality; required because
+		// the row's NULL columns must match the snapshot's NULLs too.
+		whereParts = append(whereParts, fmt.Sprintf("%s IS NOT DISTINCT FROM $%d::%s", quoteIdent(c), paramIdx, t))
+		args = append(args, coerceForDriver(in.ExpectedValues[c]))
+		paramIdx++
+		casUsed = append(casUsed, c)
+	}
+
 	stmt := fmt.Sprintf(
 		"UPDATE %s.%s SET %s = $1::%s WHERE %s",
 		quoteIdent(in.Schema),
@@ -321,13 +397,27 @@ func (s *Service) ApplyCellUpdate(in CellUpdateInput, sessionSecret string) (*Ce
 	duration := time.Since(start).Milliseconds()
 
 	if rows == 0 {
-		// 0-rows usually means the PK didn't match anything — concurrency
-		// or stale data on the operator's screen. Surface explicitly.
+		// 0 rows can mean two things: (a) the PK no longer exists
+		// (someone deleted the row), or (b) the PK exists but at
+		// least one column we expected to be unchanged isn't (CAS
+		// conflict). A short follow-up SELECT distinguishes them so
+		// the operator gets a precise message.
+		conflictKind := "deleted"
+		if pkStillExists(ctx, db, in.Schema, in.Table, pkNames, pkTypes, in.PKValues) {
+			conflictKind = "modified"
+		}
+		msg := "no row matched the primary key — the row appears to have been deleted; refresh to confirm"
+		if conflictKind == "modified" {
+			msg = "row was modified concurrently (one or more columns changed since you opened it). Refresh and try again."
+		}
 		return &CellUpdateResult{
-			RowsAffected: 0,
-			DurationMS:   duration,
-			SQLPattern:   stmt,
-		}, errors.New("no row matched the primary key — refresh and try again (the row may have been deleted or the PK changed)")
+			RowsAffected:   0,
+			DurationMS:     duration,
+			SQLPattern:     stmt,
+			CASColumnCount: len(casUsed),
+			CASSkipped:     casPlan.skipped,
+			ConflictKind:   conflictKind,
+		}, errors.New(msg)
 	}
 	if rows > 1 {
 		// Should be impossible because we required the PK columns; but if
@@ -364,11 +454,53 @@ func (s *Service) ApplyCellUpdate(in CellUpdateInput, sessionSecret string) (*Ce
 	}
 
 	return &CellUpdateResult{
-		RowsAffected: rows,
-		DurationMS:   duration,
-		NewValue:     newVal,
-		SQLPattern:   stmt,
+		RowsAffected:   rows,
+		DurationMS:     duration,
+		NewValue:       newVal,
+		SQLPattern:     stmt,
+		CASColumnCount: len(casUsed),
+		CASSkipped:     casPlan.skipped,
 	}, nil
+}
+
+// ── CAS planning + reachability check ───────────────────────────────────
+
+// nonComparableTypes lists postgres types that don't have a built-in
+// equality operator. `json` (without the -b suffix) is the most common
+// offender — operators must use `jsonb` if they want comparable JSON.
+// `xml` similarly lacks `=`. Any column of these types is silently
+// skipped from the CAS WHERE.
+var nonComparableTypes = map[string]bool{
+	"json": true,
+	"xml":  true,
+}
+
+type casPlan struct {
+	candidates        map[string]bool   // columns whose types we still need to look up
+	types             map[string]string // resolved type per column (after lookup)
+	orderedComparable []string          // CAS columns in stable order for SQL building
+	skipped           []string          // columns excluded due to non-comparable type
+}
+
+
+// pkStillExists checks whether a row with the given PK is still present.
+// Used to distinguish "concurrent modification" (CAS conflict, but the
+// row exists) from "deleted" (PK no longer points to anything).
+func pkStillExists(ctx context.Context, db *sql.DB, schema, table string,
+	pkNames []string, pkTypes map[string]string, pkValues map[string]interface{}) bool {
+	parts := make([]string, 0, len(pkNames))
+	args := make([]interface{}, 0, len(pkNames))
+	for i, c := range pkNames {
+		parts = append(parts, fmt.Sprintf("%s = $%d::%s", quoteIdent(c), i+1, pkTypes[c]))
+		args = append(args, coerceForDriver(pkValues[c]))
+	}
+	q := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s.%s WHERE %s)",
+		quoteIdent(schema), quoteIdent(table), strings.Join(parts, " AND "))
+	var ok bool
+	if err := db.QueryRowContext(ctx, q, args...).Scan(&ok); err != nil {
+		return false
+	}
+	return ok
 }
 
 // columnDataType returns the canonical postgres type of a column as

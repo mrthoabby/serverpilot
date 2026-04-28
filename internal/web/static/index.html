@@ -5173,25 +5173,40 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var meta = _dbLastResult.editable;
     var col = _dbLastResult.columns[colIdx];
 
-    // Build the pk_values map by reading the current row's PK columns.
+    // Build pk_values + expected_values from the row snapshot we
+    // currently have on screen. expected_values is everything the
+    // operator saw at SELECT time; the server uses it for an
+    // optimistic-concurrency CAS so the UPDATE only applies if NO
+    // column in the row was modified concurrently. The cell being
+    // edited is included with its ORIGINAL value (pre-edit) so we
+    // also detect if the same cell raced with another writer.
     var pkValues = {};
+    var expectedValues = {};
+    var pkSet = {};
+    for (var k = 0; k < meta.primary_key.length; k++) {
+      pkSet[meta.primary_key[k].toLowerCase()] = true;
+    }
     for (var i = 0; i < _dbLastResult.columns.length; i++) {
       var c = _dbLastResult.columns[i];
-      if (meta.primary_key.indexOf(c) !== -1 || meta.primary_key.indexOf(c.toLowerCase()) !== -1) {
-        pkValues[c] = _dbLastResult.rows[rowIdx][i];
+      var v = _dbLastResult.rows[rowIdx][i];
+      if (pkSet[c.toLowerCase()]) {
+        pkValues[c] = v;
+      } else {
+        // Snapshot ALL non-PK columns including the one being edited
+        // (with its ORIGINAL value — newVal is the future value, not
+        // part of the CAS).
+        expectedValues[c] = v;
       }
     }
 
-    // Treat empty string + the literal "NULL" as SQL NULL only when
-    // the cell was previously null. Otherwise keep an empty string as
-    // an empty string. This avoids surprising "I cleared the input,
-    // is that NULL or ''?" — explicit only when the original was null.
+    // Treat empty string as SQL NULL only when the original was null.
+    // Otherwise '' stays ''.
     var sendVal = newVal;
     if (newVal === "" && _dbLastResult.rows[rowIdx][colIdx] === null) {
       sendVal = null;
     }
 
-    dbLog("info", 'UPDATE "' + meta.schema + '"."' + meta.table + '" SET "' + col + '" = $1 WHERE PK …');
+    dbLog("info", 'UPDATE "' + meta.schema + '"."' + meta.table + '" SET "' + col + '" = $1 WHERE PK + CAS(' + Object.keys(expectedValues).length + ' cols) …');
     try {
       var resp = await apiFetch("/api/db/cell-update", {
         method: "POST",
@@ -5201,18 +5216,30 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
           table: meta.table,
           column: col,
           new_value: sendVal,
-          pk_values: pkValues
+          pk_values: pkValues,
+          expected_values: expectedValues
         }
       });
       var d = (resp && resp.data) || {};
-      // Update local state so re-render shows the canonical value.
       _dbLastResult.rows[rowIdx][colIdx] = (d.new_value !== undefined) ? d.new_value : sendVal;
       renderDBResultEditable(_dbLastResult);
-      dbLog("ok", '1 row updated in ' + (d.duration_ms || 0) + ' ms · ' + (d.sql_pattern || ''));
+      var skippedNote = (d.cas_skipped && d.cas_skipped.length)
+        ? ' · CAS skipped: ' + d.cas_skipped.join(", ")
+        : '';
+      dbLog("ok", '1 row updated in ' + (d.duration_ms || 0) + ' ms · CAS(' + (d.cas_column_count || 0) + ' cols)' + skippedNote);
     } catch (err) {
-      // Rollback the visual edit and surface the error.
+      // Rollback the visual edit and surface the error. The server
+      // distinguishes "deleted" vs "modified concurrently" via the
+      // conflict_kind field in the response Data — apiFetch only
+      // bubbles up the message string, but we can hint based on its
+      // text content.
       renderDBResultEditable(_dbLastResult);
-      dbLog("error", (err && err.message) || "cell update failed");
+      var msg = (err && err.message) || "cell update failed";
+      var level = "error";
+      if (msg.indexOf("modified concurrently") !== -1) {
+        level = "warn"; // not really our error — someone else's edit raced us
+      }
+      dbLog(level, msg);
     }
   }
 
