@@ -88,8 +88,8 @@ type Service struct {
 // fakes without needing setfacl / visudo on the test host.
 type DependenciesProbe interface {
 	HasACL(mountTarget string) bool // setfacl present AND filesystem mounted with acl
-	HasVisudo() bool                // /usr/sbin/visudo
-	HasGpasswd() bool               // /usr/bin/gpasswd
+	HasVisudo() bool                // visudo binary present
+	HasGpasswd() bool               // gpasswd binary present
 }
 
 // NewService returns a Service wired against the live system. The two
@@ -129,14 +129,18 @@ func (s *Service) validateManagedApp(app string) error {
 type defaultProbe struct{}
 
 func (defaultProbe) HasACL(mountTarget string) bool {
-	if _, err := exec.LookPath("/usr/bin/setfacl"); err != nil {
+	if setfaclPath() == "" {
+		return false
+	}
+	getfacl := getfaclPath()
+	if getfacl == "" {
 		return false
 	}
 	// Try a getfacl on the target — if the kernel/fs combination does not
 	// support ACLs, getfacl returns an error. We probe rather than parse
 	// /proc/mounts because mount option discovery is brittle (bind mounts,
 	// remounts, btrfs subvolumes). Probe is canonical.
-	out, err := exec.Command("/usr/bin/getfacl", "--", mountTarget).CombinedOutput()
+	out, err := exec.Command(getfacl, "--", mountTarget).CombinedOutput()
 	if err != nil {
 		return false
 	}
@@ -145,15 +149,9 @@ func (defaultProbe) HasACL(mountTarget string) bool {
 	return len(out) > 0
 }
 
-func (defaultProbe) HasVisudo() bool {
-	_, err := exec.LookPath("/usr/sbin/visudo")
-	return err == nil
-}
+func (defaultProbe) HasVisudo() bool { return visudoPath() != "" }
 
-func (defaultProbe) HasGpasswd() bool {
-	_, err := exec.LookPath("/usr/sbin/gpasswd")
-	return err == nil
-}
+func (defaultProbe) HasGpasswd() bool { return gpasswdPath() != "" }
 
 // SystemCapabilities reports which permission primitives are available on
 // the host. Called at startup AND on every settings page render so the UI
@@ -185,13 +183,7 @@ type extendedProbe interface {
 }
 
 func (defaultProbe) HasACLTools() bool {
-	if _, err := exec.LookPath("/usr/bin/setfacl"); err != nil {
-		return false
-	}
-	if _, err := exec.LookPath("/usr/bin/getfacl"); err != nil {
-		return false
-	}
-	return true
+	return setfaclPath() != "" && getfaclPath() != ""
 }
 
 // FilesystemSupportsACL probes the filesystem holding `path` for ACL
@@ -202,7 +194,11 @@ func (defaultProbe) HasACLTools() bool {
 // remounts, btrfs subvolumes).
 func (defaultProbe) FilesystemSupportsACL(path string) (bool, string) {
 	target := path
-	out, err := exec.Command("/usr/bin/getfacl", "--", path).CombinedOutput()
+	getfacl := getfaclPath()
+	if getfacl == "" {
+		return false, target
+	}
+	out, err := exec.Command(getfacl, "--", path).CombinedOutput()
 	if err == nil && len(out) > 0 {
 		return true, target
 	}

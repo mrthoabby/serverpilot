@@ -71,7 +71,8 @@ func (s *Service) GrantGroup(actor, username, group string) error {
 	if _, ok := allowedGroups[group]; !ok {
 		return fmt.Errorf("group %q is not in the allowlist — refusing to grant", group)
 	}
-	if !s.deps.HasGpasswd() {
+	gpasswdResolved := gpasswdPath()
+	if gpasswdResolved == "" {
 		return errors.New("gpasswd not available")
 	}
 
@@ -80,7 +81,7 @@ func (s *Service) GrantGroup(actor, username, group string) error {
 	// "grant" as desired-state.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "/usr/sbin/gpasswd", "-a", "--", username, group)
+	cmd := exec.CommandContext(ctx, gpasswdResolved, "-a", "--", username, group)
 	if err := cmd.Run(); err != nil {
 		_ = s.audit(actor, "group.grant", auditScopeGroup, username, group, "", "error", err)
 		return FormatExecError("gpasswd add", err)
@@ -109,13 +110,14 @@ func (s *Service) RevokeGroup(actor, username, group string) error {
 	if _, ok := allowedGroups[group]; !ok {
 		return fmt.Errorf("group %q is not in the allowlist", group)
 	}
-	if !s.deps.HasGpasswd() {
+	gpasswdResolved := gpasswdPath()
+	if gpasswdResolved == "" {
 		return errors.New("gpasswd not available")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "/usr/sbin/gpasswd", "-d", "--", username, group)
+	cmd := exec.CommandContext(ctx, gpasswdResolved, "-d", "--", username, group)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		// gpasswd exits 3 when the user is not a member. Treat as success.
