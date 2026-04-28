@@ -1305,9 +1305,21 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
             <hr style="border-color:var(--border);margin:0.75rem 0;">
             <!-- Top processes sub-section -->
             <div>
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;flex-wrap:wrap;gap:0.5rem;">
                 <h3 style="font-size:0.85rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Top procesos por RAM (RSS)</h3>
-                <span id="memProcLoadingMsg" style="font-size:0.75rem;color:var(--text-muted);"></span>
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <label style="font-size:0.7rem;color:var(--text-muted);">Filtrar:</label>
+                  <select id="memProcFilter" onchange="rerenderMemProcRows()"
+                    style="padding:3px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-size:0.74rem;">
+                    <option value="all" selected>Todos</option>
+                    <option value="monitored">Monitorizados (cualquier container)</option>
+                    <option value="unmonitored">No monitorizados</option>
+                    <!-- Per-container options are appended dynamically
+                         when the API response reports container PIDs.
+                         Each gets value="container:<name>". -->
+                  </select>
+                  <span id="memProcLoadingMsg" style="font-size:0.72rem;color:var(--text-muted);"></span>
+                </div>
               </div>
               <div style="overflow-x:auto;">
                 <table id="memProcTable" style="width:100%;border-collapse:collapse;font-size:0.82rem;">
@@ -6485,8 +6497,145 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
   // ── Memory Detail Panel ──
 
-  // Known monitored process names (to flag them in the table).
+  // Known monitored process names (to flag them in the table) — host
+  // services that the dashboard considers part of its own surface even
+  // when they're not running inside a docker container.
   var MONITORED_NAMES = { "serverpilot": true, "nginx": true, "docker": true, "dockerd": true, "containerd": true, "postgres": true, "redis-server": true, "node": true };
+
+  // _lastMemTopProcesses caches the last /api/system/memory-detail
+  // response so the filter dropdown can re-render without a re-fetch.
+  // _knownContainersFromProcs is the set of container names that
+  // appeared in the most recent response — used to refresh the per-
+  // container filter options dynamically.
+  var _lastMemTopProcesses = [];
+  var _knownContainersFromProcs = {};
+
+  // procIsMonitored returns the operator-friendly classification for a
+  // single process. Three states:
+  //   { kind: "container", label: "monitorizado-<container>" }
+  //   { kind: "host",      label: "monitoreado" }   (host service in MONITORED_NAMES)
+  //   { kind: "none",      label: "no monitoreado" }
+  function procIsMonitored(p) {
+    if (p.container) {
+      return { kind: "container", container: p.container, label: "monitorizado-" + p.container };
+    }
+    if (MONITORED_NAMES[p.name]) {
+      return { kind: "host", label: "monitoreado" };
+    }
+    return { kind: "none", label: "no monitoreado" };
+  }
+
+  // rebuildMemProcContainerFilterOptions populates the filter <select>
+  // with one entry per container that currently has at least one process
+  // in the top RSS list. Idempotent. Removes stale options that no
+  // longer correspond to any process in the cache (e.g. a container
+  // that was stopped between refreshes).
+  function rebuildMemProcContainerFilterOptions() {
+    var sel = document.getElementById("memProcFilter");
+    if (!sel) return;
+    var prev = sel.value;
+    var newSet = {};
+    _lastMemTopProcesses.forEach(function(p) {
+      if (p.container) newSet[p.container] = true;
+    });
+    _knownContainersFromProcs = newSet;
+    // Drop existing container:* options.
+    var keep = [];
+    for (var i = 0; i < sel.options.length; i++) {
+      var v = sel.options[i].value;
+      if (v.indexOf("container:") !== 0) keep.push({ v: v, t: sel.options[i].text });
+    }
+    sel.innerHTML = "";
+    keep.forEach(function(o) {
+      var opt = document.createElement("option");
+      opt.value = o.v; opt.textContent = o.t;
+      sel.appendChild(opt);
+    });
+    var names = Object.keys(newSet).sort();
+    names.forEach(function(n) {
+      var opt = document.createElement("option");
+      opt.value = "container:" + n;
+      opt.textContent = "Solo container — " + n;
+      sel.appendChild(opt);
+    });
+    // Restore the previous selection if still applicable; otherwise reset to All.
+    var stillExists = false;
+    for (var j = 0; j < sel.options.length; j++) {
+      if (sel.options[j].value === prev) { stillExists = true; break; }
+    }
+    sel.value = stillExists ? prev : "all";
+  }
+
+  // rerenderMemProcRows applies the current filter against the cached
+  // _lastMemTopProcesses and rebuilds the table. Called when the filter
+  // changes AND when a fresh response arrives. The cached list lets us
+  // avoid hitting the API just to filter.
+  function rerenderMemProcRows() {
+    var tbody = document.getElementById("memProcBody");
+    var sel = document.getElementById("memProcFilter");
+    if (!tbody) return;
+    var filter = sel ? sel.value : "all";
+
+    var rows = "";
+    var rendered = 0;
+    _lastMemTopProcesses.forEach(function(p) {
+      var status = procIsMonitored(p);
+      // Apply filter.
+      var matchesFilter = false;
+      if (filter === "all") matchesFilter = true;
+      else if (filter === "monitored") matchesFilter = status.kind !== "none";
+      else if (filter === "unmonitored") matchesFilter = status.kind === "none";
+      else if (filter.indexOf("container:") === 0) {
+        matchesFilter = status.kind === "container" && status.container === filter.slice("container:".length);
+      }
+      if (!matchesFilter) return;
+
+      var typeLabel;
+      if (status.kind === "container") {
+        // Cyan-on-dark for "this PID belongs to a docker container we know about".
+        typeLabel = '<span style="background:#0d3a4a;color:#5db4d4;padding:1px 6px;border-radius:3px;font-size:0.7rem;" title="PID belongs to docker container ' + escapeHtml(status.container) + '">monitorizado-' + escapeHtml(status.container) + '</span>';
+      } else if (status.kind === "host") {
+        typeLabel = '<span style="background:#1f4822;color:#3fb950;padding:1px 6px;border-radius:3px;font-size:0.7rem;">monitoreado</span>';
+      } else {
+        typeLabel = '<span style="background:#3b2800;color:#d29922;padding:1px 6px;border-radius:3px;font-size:0.7rem;">no monitoreado</span>';
+      }
+      var stateColor = p.state === "S" ? "#3fb950" : p.state === "R" ? "#58a6ff" : "#8b949e";
+      // Kill button only on "no monitoreado" — never offer to kill a
+      // container's PID from this view (operators should manage
+      // containers via docker stop), and never offer to kill a host
+      // service like nginx or postgres.
+      var killBtn = (status.kind === "none") ?
+        '<button onclick="killProcess(' + p.pid + ', \'' + escapeHtml(p.name) + '\', this)" ' +
+        'style="background:none;border:1px solid #f8514966;color:#f85149;border-radius:4px;padding:2px 7px;font-size:0.72rem;cursor:pointer;transition:all 0.15s;" ' +
+        'onmouseenter="this.style.background=\'#f8514922\'" onmouseleave="this.style.background=\'none\'" ' +
+        'title="Enviar SIGTERM al proceso">' +
+        '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" style="vertical-align:-1px;margin-right:2px;">' +
+        '<path d="M4 4l8 8M12 4l-8 8" stroke="#f85149" stroke-width="1.5" stroke-linecap="round"/>' +
+        '</svg>Kill</button>' : '';
+      rows += '<tr style="border-bottom:1px solid var(--border);">' +
+        '<td style="padding:5px 8px;color:var(--text-muted);font-family:monospace;">' + p.pid + '</td>' +
+        '<td style="padding:5px 8px;font-weight:500;">' + escapeHtml(p.name) + '</td>' +
+        '<td style="padding:5px 8px;">' +
+          '<div style="display:flex;align-items:center;gap:6px;">' +
+            '<div style="width:80px;height:6px;background:var(--border);border-radius:3px;overflow:hidden;">' +
+              '<div style="height:100%;background:#f85149;border-radius:3px;width:' + Math.min(100, p.rss_mb / 5) + '%;"></div>' +
+            '</div>' +
+            p.rss_mb.toFixed(1) +
+          '</div>' +
+        '</td>' +
+        '<td style="padding:5px 8px;color:' + stateColor + ';font-family:monospace;">' + escapeHtml(p.state || "?") + '</td>' +
+        '<td style="padding:5px 8px;">' + typeLabel + '</td>' +
+        '<td style="padding:5px 8px;text-align:center;">' + killBtn + '</td>' +
+        '</tr>';
+      rendered++;
+    });
+    if (rendered === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="padding:10px;color:var(--text-muted);">Sin procesos que coincidan con el filtro.</td></tr>';
+    } else {
+      tbody.innerHTML = rows;
+    }
+  }
+  window.rerenderMemProcRows = rerenderMemProcRows;
 
   window.closeMemDetail = function() {
     var panel = document.getElementById("memDetailPanel");
@@ -6607,42 +6756,16 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         }
 
         if (!detail.top_processes || detail.top_processes.length === 0) {
-          if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="padding:10px;color:var(--text-muted);">Sin datos de procesos</td></tr>';
+          if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="padding:10px;color:var(--text-muted);">Sin datos de procesos</td></tr>';
           return;
         }
 
-        var rows = "";
-        detail.top_processes.forEach(function(p) {
-          var isMonitored = MONITORED_NAMES[p.name] || false;
-          var typeLabel = isMonitored
-            ? '<span style="background:#1f4822;color:#3fb950;padding:1px 6px;border-radius:3px;font-size:0.7rem;">monitoreado</span>'
-            : '<span style="background:#3b2800;color:#d29922;padding:1px 6px;border-radius:3px;font-size:0.7rem;">no monitoreado</span>';
-          var stateColor = p.state === "S" ? "#3fb950" : p.state === "R" ? "#58a6ff" : "#8b949e";
-          var killBtn = isMonitored ? '' :
-            '<button onclick="killProcess(' + p.pid + ', \'' + escapeHtml(p.name) + '\', this)" ' +
-            'style="background:none;border:1px solid #f8514966;color:#f85149;border-radius:4px;padding:2px 7px;font-size:0.72rem;cursor:pointer;transition:all 0.15s;" ' +
-            'onmouseenter="this.style.background=\'#f8514922\'" onmouseleave="this.style.background=\'none\'" ' +
-            'title="Enviar SIGTERM al proceso">' +
-            '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" style="vertical-align:-1px;margin-right:2px;">' +
-            '<path d="M4 4l8 8M12 4l-8 8" stroke="#f85149" stroke-width="1.5" stroke-linecap="round"/>' +
-            '</svg>Kill</button>';
-          rows += '<tr style="border-bottom:1px solid var(--border);">' +
-            '<td style="padding:5px 8px;color:var(--text-muted);font-family:monospace;">' + p.pid + '</td>' +
-            '<td style="padding:5px 8px;font-weight:500;">' + escapeHtml(p.name) + '</td>' +
-            '<td style="padding:5px 8px;">' +
-              '<div style="display:flex;align-items:center;gap:6px;">' +
-                '<div style="width:80px;height:6px;background:var(--border);border-radius:3px;overflow:hidden;">' +
-                  '<div style="height:100%;background:#f85149;border-radius:3px;width:' + Math.min(100, p.rss_mb / 5) + '%;"></div>' +
-                '</div>' +
-                p.rss_mb.toFixed(1) +
-              '</div>' +
-            '</td>' +
-            '<td style="padding:5px 8px;color:' + stateColor + ';font-family:monospace;">' + escapeHtml(p.state || "?") + '</td>' +
-            '<td style="padding:5px 8px;">' + typeLabel + '</td>' +
-            '<td style="padding:5px 8px;text-align:center;">' + killBtn + '</td>' +
-            '</tr>';
-        });
-        if (tbody) tbody.innerHTML = rows;
+        // Cache the response so the filter dropdown can re-render
+        // without re-fetching, and refresh the per-container option list
+        // based on which containers actually show in the top RSS list.
+        _lastMemTopProcesses = detail.top_processes.slice();
+        rebuildMemProcContainerFilterOptions();
+        rerenderMemProcRows();
       })
       .catch(function() {
         if (loadMsg) loadMsg.textContent = "Error al cargar procesos";

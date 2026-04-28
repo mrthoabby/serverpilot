@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"runtime/debug"
 	"sort"
@@ -958,11 +959,18 @@ func DiskTopFiles(root string, limit int) ([]DiskTopFile, error) {
 }
 
 // ProcessMemInfo holds memory usage for a single system process.
+//
+// Container is non-empty when the PID belongs to a running Docker
+// container — derived by reading /proc/<pid>/cgroup and matching against
+// the dashboard's view of `docker ps`. The UI renders this as
+// "monitorizado-<container>" so operators don't see "no monitorizado"
+// next to PIDs that do belong to containers they're tracking.
 type ProcessMemInfo struct {
-	PID   int     `json:"pid"`
-	Name  string  `json:"name"`
-	RssMB float64 `json:"rss_mb"`
-	State string  `json:"state"`
+	PID       int     `json:"pid"`
+	Name      string  `json:"name"`
+	RssMB     float64 `json:"rss_mb"`
+	State     string  `json:"state"`
+	Container string  `json:"container,omitempty"`
 }
 
 // MemoryDetail breaks down where RAM is actually going.
@@ -1094,13 +1102,18 @@ func CollectMemoryDetail() *MemoryDetail {
 	if len(procs) < limit {
 		limit = len(procs)
 	}
+	// Build a cid → name map ONCE per refresh, then look up each top
+	// process. /proc/<pid>/cgroup parsing is cheap; the docker ps shell-
+	// out costs <100ms and gets cached for the same memDetailTTL.
+	cidToName := containerIDToName()
 	result := make([]ProcessMemInfo, limit)
 	for i := 0; i < limit; i++ {
 		result[i] = ProcessMemInfo{
-			PID:   procs[i].pid,
-			Name:  procs[i].name,
-			RssMB: math.Round(procs[i].rssMB*10) / 10,
-			State: procs[i].state,
+			PID:       procs[i].pid,
+			Name:      procs[i].name,
+			RssMB:     math.Round(procs[i].rssMB*10) / 10,
+			State:     procs[i].state,
+			Container: containerNameForPID(procs[i].pid, cidToName),
 		}
 	}
 	detail.TopProcesses = result
@@ -1109,6 +1122,83 @@ func CollectMemoryDetail() *MemoryDetail {
 	memDetailTime = time.Now()
 	releaseMemory()
 	return detail
+}
+
+// dockerCgroupRegex matches both cgroup v1 (e.g. "12:pids:/docker/<id>")
+// and cgroup v2 ("0::/system.slice/docker-<id>.scope") styles, plus
+// systemd-managed slices like "system.slice/docker-<id>.scope" inside
+// nested cgroup namespaces.
+var dockerCgroupRegex = regexp.MustCompile(`docker[/-]([0-9a-f]{12,64})`)
+
+// containerNameForPID resolves a PID to a Docker container name by
+// reading /proc/<pid>/cgroup. Returns "" for non-container PIDs (host
+// processes, kthreads, processes that exited mid-scan).
+//
+// Defences in this helper:
+//   - O_NOFOLLOW-equivalent: we use a fixed /proc/<pid>/cgroup path.
+//     /proc files are special and not symlink-followable in a malicious
+//     way (the kernel synthesises them).
+//   - Bounded read: cgroup files are tiny (<2 KB); we read at most 8 KB.
+//   - Regex limited to hex container IDs — no shell-meta values can leak.
+func containerNameForPID(pid int, idToName map[string]string) string {
+	if len(idToName) == 0 {
+		return ""
+	}
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", pid))
+	if err != nil {
+		return ""
+	}
+	if len(data) > 8192 {
+		data = data[:8192]
+	}
+	m := dockerCgroupRegex.FindSubmatch(data)
+	if m == nil {
+		return ""
+	}
+	cid := string(m[1])
+	// Try both the full cid and the short (12-char) form. docker ps
+	// formats vary across versions; we populate both keys in the map.
+	if name, ok := idToName[cid]; ok {
+		return name
+	}
+	if len(cid) >= 12 {
+		if name, ok := idToName[cid[:12]]; ok {
+			return name
+		}
+	}
+	return ""
+}
+
+// containerIDToName returns the live `docker ps` mapping (full ID + short
+// ID → container name). Caller is expected to call this once per refresh
+// cycle. On any failure (docker daemon down, daemon unreachable to this
+// process) it returns an empty map and the top-processes view degrades
+// gracefully to "no monitorizado" rather than failing.
+//
+// We invoke /usr/bin/docker with a strict argv so the docker socket is
+// hit directly; no shell, no environment manipulation.
+func containerIDToName() map[string]string {
+	out := map[string]string{}
+	cmd := exec.Command("/usr/bin/docker", "ps", "--no-trunc",
+		"--format", "{{.ID}} {{.Names}}")
+	cmd.Stderr = io.Discard
+	stdout, err := cmd.Output()
+	if err != nil {
+		return out
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(stdout)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		full := fields[0]
+		name := fields[1]
+		out[full] = name
+		if len(full) >= 12 {
+			out[full[:12]] = name
+		}
+	}
+	return out
 }
 
 // DeletePaths deletes the specified file/directory paths.

@@ -866,7 +866,15 @@ func (s *Server) handleDiskTopFiles(w http.ResponseWriter, r *http.Request) {
 	if root == "" {
 		root = "/"
 	}
-	cleanRoot, err := safeBrowsePath(root)
+	// disk-top-files needs a more permissive validator than safeBrowsePath
+	// because the natural starting point for "biggest files on this server"
+	// is "/". We accept any absolute path (after Clean) that is NOT under
+	// the scan blocklist (/proc, /sys, /dev, /run — all noise + sensitive).
+	// The output of this endpoint is just a list of file paths and sizes,
+	// which the operator could already obtain via SSH + find; the blocklist
+	// is here to keep find from spinning forever on /proc and to refuse
+	// the few subtrees where mere path enumeration leaks ephemeral state.
+	cleanRoot, err := safeScanPath(root)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid path"})
 		return
@@ -1189,6 +1197,15 @@ func writeJSON(w http.ResponseWriter, statusCode int, data interface{}) {
 //     allowed subtree.
 
 var browseAllowlist = []string{
+	// "/" is allowed ONLY as an exact match — isWithinAllowlist's
+	// prefix check is `p == root || HasPrefix(p, root + "/")`, so for
+	// root="/" the second branch becomes HasPrefix(p, "//") which never
+	// matches a normal path. The effect is: the operator can request the
+	// disk-top-files / disk-detail endpoints over the whole filesystem
+	// (find -xdev keeps it on the root filesystem anyway), but cannot
+	// use "/" as a backdoor to read e.g. /etc/shadow — anything under
+	// "/" still has to go through one of the specific entries below.
+	"/",
 	"/var/log",
 	"/var/lib/docker",
 	"/var/cache",
@@ -1210,6 +1227,44 @@ func isWithinAllowlist(p string, allow []string) bool {
 		}
 	}
 	return false
+}
+
+// scanBlocklist enumerates path prefixes that are NEVER scanned by
+// "find" / "du"-style endpoints. These are either kernel-virtual
+// filesystems (/proc, /sys) where enumeration spins forever and leaks
+// transient state, or runtime tmpfs (/run, /dev) that's noisy and may
+// expose service tokens via name patterns.
+var scanBlocklist = []string{
+	"/proc",
+	"/sys",
+	"/dev",
+	"/run",
+	"/boot",
+}
+
+// safeScanPath validates a path for whole-tree scanning operations like
+// disk-top-files. More permissive than safeBrowsePath: ANY absolute
+// path is accepted as long as it doesn't fall under scanBlocklist and
+// doesn't contain "..". The output of these endpoints is just file
+// paths + sizes, so the security boundary is "do not let `find` walk
+// /proc" rather than "do not let the operator see /etc/foo exists".
+func safeScanPath(raw string) (string, error) {
+	if raw == "" {
+		return "", errors.New("empty path")
+	}
+	if !filepath.IsAbs(raw) {
+		return "", errors.New("not absolute")
+	}
+	clean := filepath.Clean(raw)
+	if strings.Contains(clean, "..") {
+		return "", errors.New("traversal")
+	}
+	for _, blk := range scanBlocklist {
+		if clean == blk || strings.HasPrefix(clean, blk+"/") {
+			return "", errors.New("path is in the scan blocklist")
+		}
+	}
+	return clean, nil
 }
 
 // safeBrowsePath validates a user-supplied browsing path: must be absolute,
