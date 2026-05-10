@@ -254,6 +254,45 @@ func (s *Server) handleContainers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: containers})
 }
 
+// containerIDRegex matches only lowercase-hex container IDs. Used to reject
+// shell metacharacters and unicode tricks before we ever hand the value to
+// `docker logs` (CWE-78). This is the same shape Docker returns from
+// `docker ps --no-trunc` (sha256 of the container, 64 hex chars), but we
+// allow any hex length up to 128 so short IDs also work.
+var containerIDRegex = regexp.MustCompile(`^[a-f0-9]{12,128}$`)
+
+// handleContainerLogs returns the last 10 log lines for a container.
+// Read-only → GET. Auth is enforced by the route mux.
+func (s *Server) handleContainerLogs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	if !containerIDRegex.MatchString(id) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid container id"})
+		return
+	}
+
+	logs, err := docker.GetContainerLogs(id, 10)
+	if err != nil {
+		// Detailed error stays server-side; client gets a generic message
+		// to avoid leaking internal docker errors (CWE-209).
+		log.Printf("container logs: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to read logs"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"logs": logs,
+			"tail": 10,
+		},
+	})
+}
+
 func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})

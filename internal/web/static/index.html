@@ -2297,6 +2297,19 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   </div>
 </div>
 
+<!-- Container Logs Modal -->
+<div class="modal-overlay" id="containerLogsModal">
+  <div class="modal progress-modal">
+    <h3>Container logs <span class="progress-domain" id="containerLogsTitle"></span></h3>
+    <p class="modal-sub">Last 10 lines from <code>docker logs --tail 10 --timestamps</code>.</p>
+    <pre class="progress-log" id="containerLogsBody" style="color:var(--text-secondary);"></pre>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-sm btn-outline" id="containerLogsRefreshBtn">Refresh</button>
+      <button type="button" class="btn btn-sm btn-primary" id="containerLogsCloseBtn">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Progress / Log Modal -->
 <div class="modal-overlay" id="progressModal">
   <div class="modal progress-modal">
@@ -2741,6 +2754,19 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       // Actions (based on label)
       var tdAct = document.createElement("td");
       tdAct.className = "actions-cell";
+
+      // Logs button — always available regardless of label/state.
+      var logsBtn = document.createElement("button");
+      logsBtn.className = "btn btn-sm btn-outline";
+      logsBtn.style.marginRight = "0.5rem";
+      setText(logsBtn, "Logs");
+      logsBtn.title = "View last 10 log lines";
+      (function(container) {
+        logsBtn.addEventListener("click", function() {
+          openContainerLogsModal(container);
+        });
+      })(c);
+      tdAct.appendChild(logsBtn);
 
       if (siteDomains[c.name]) {
         // Already has a site linked
@@ -3439,6 +3465,48 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     tw.appendChild(table);
     wrap.appendChild(tw);
   }
+
+  // ── Container Logs Modal ──
+  var containerLogsModal = document.getElementById("containerLogsModal");
+  var containerLogsBody  = document.getElementById("containerLogsBody");
+  var containerLogsTitle = document.getElementById("containerLogsTitle");
+  var _logsPendingContainer = null;
+
+  function closeContainerLogsModal() {
+    containerLogsModal.classList.remove("show");
+    _logsPendingContainer = null;
+  }
+
+  async function loadContainerLogs(container) {
+    // textContent is XSS-safe; we never inject raw HTML from the log payload.
+    containerLogsBody.textContent = "Loading…";
+    try {
+      // The id field comes from /api/containers (Docker --no-trunc), which is a
+      // pure hex sha. The server validates it again with a hex-only regex
+      // before handing it to `docker logs` (CWE-78 defence in depth).
+      var resp = await apiFetch("/api/containers/logs?id=" + encodeURIComponent(container.id));
+      var data = (resp && resp.data) ? resp.data : {};
+      var text = data.logs || "";
+      containerLogsBody.textContent = text.length ? text : "(no logs)";
+    } catch(err) {
+      containerLogsBody.textContent = "Failed to load logs: " + err.message;
+    }
+  }
+
+  function openContainerLogsModal(container) {
+    _logsPendingContainer = container;
+    setText(containerLogsTitle, container.name);
+    containerLogsModal.classList.add("show");
+    loadContainerLogs(container);
+  }
+
+  document.getElementById("containerLogsCloseBtn").addEventListener("click", closeContainerLogsModal);
+  document.getElementById("containerLogsRefreshBtn").addEventListener("click", function() {
+    if (_logsPendingContainer) loadContainerLogs(_logsPendingContainer);
+  });
+  containerLogsModal.addEventListener("click", function(e) {
+    if (e.target === containerLogsModal) closeContainerLogsModal();
+  });
 
   // ── Associate Site Modal ──
   var assocModal = document.getElementById("associateModal");
