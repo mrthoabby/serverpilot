@@ -2769,10 +2769,20 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       tdAct.appendChild(logsBtn);
 
       if (siteDomains[c.name]) {
-        // Already has a site linked
+        // Already has a site linked. The mapper detected a nginx site whose
+        // proxy_pass targets one of this container's published host ports,
+        // so showing the "Associate" button would be wrong (the user already
+        // associated it).
         var linked = document.createElement("span");
         linked.className = "badge badge-info";
-        setText(linked, "Site linked");
+        setText(linked, "Asociado");
+        // Show the domain on hover for context without cluttering the cell.
+        // setText / textContent paths keep this XSS-safe even if a malicious
+        // nginx config name somehow surfaced in the domain field.
+        var linkedDom = siteDomains[c.name];
+        if (typeof linkedDom === "string" && linkedDom) {
+          linked.title = "Sitio nginx asociado: " + linkedDom;
+        }
         tdAct.appendChild(linked);
         // If gd-app, show Deactivate button next to the badge
         if (currentLabel === "gd-app") {
@@ -3277,6 +3287,15 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       setText(document.getElementById("mappingCount"), String(total));
       renderMappings(wrap);
       updateTabTimestamp("mappings");
+      // Mappings load in parallel with containers — if containers finished
+      // first they rendered with an empty mappings.mapped (race condition)
+      // and showed "Associate" instead of "Asociado". Re-render now that we
+      // know the real state. textContent / DOM-API rendering paths used by
+      // renderContainers keep this XSS-safe.
+      if (containers && containers.length) {
+        var cWrap = document.getElementById("containersContent");
+        if (cWrap) renderContainers(cWrap);
+      }
     } catch(err) {
       wrap.innerHTML = "";
       var em = document.createElement("div");
