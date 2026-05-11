@@ -2303,9 +2303,12 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     <h3>Container logs <span class="progress-domain" id="containerLogsTitle"></span></h3>
     <p class="modal-sub">Last 10 lines from <code>docker logs --tail 10 --timestamps</code>.</p>
     <pre class="progress-log" id="containerLogsBody" style="color:var(--text-secondary);"></pre>
-    <div class="modal-actions">
-      <button type="button" class="btn btn-sm btn-outline" id="containerLogsRefreshBtn">Refresh</button>
-      <button type="button" class="btn btn-sm btn-primary" id="containerLogsCloseBtn">Close</button>
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button type="button" class="btn btn-sm btn-danger" id="containerLogsClearBtn">Limpiar logs</button>
+      <div style="display:flex; gap:0.5rem;">
+        <button type="button" class="btn btn-sm btn-outline" id="containerLogsRefreshBtn">Refresh</button>
+        <button type="button" class="btn btn-sm btn-primary" id="containerLogsCloseBtn">Close</button>
+      </div>
     </div>
   </div>
 </div>
@@ -3519,9 +3522,37 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     loadContainerLogs(container);
   }
 
+  async function clearContainerLogs(container) {
+    // apiFetch already sets Content-Type and the CSRF-relevant Origin header.
+    // The server enforces CSRFMiddleware on every state-changing request, so
+    // the POST below is rejected if the Origin/Referer doesn't match.
+    try {
+      await apiFetch("/api/containers/logs/clear", {
+        method: "POST",
+        body: { id: container.id }
+      });
+      showToast("Logs limpiados para " + container.name, "success");
+      // Re-fetch to confirm the cleared state in the modal.
+      loadContainerLogs(container);
+    } catch(err) {
+      showToast("No se pudieron limpiar los logs: " + err.message, "error");
+    }
+  }
+
   document.getElementById("containerLogsCloseBtn").addEventListener("click", closeContainerLogsModal);
   document.getElementById("containerLogsRefreshBtn").addEventListener("click", function() {
     if (_logsPendingContainer) loadContainerLogs(_logsPendingContainer);
+  });
+  document.getElementById("containerLogsClearBtn").addEventListener("click", function() {
+    if (!_logsPendingContainer) return;
+    var c = _logsPendingContainer;
+    // Destructive: confirm before truncating. Use the existing confirmAction
+    // modal so the look-and-feel matches every other destructive flow.
+    confirmAction(
+      "Limpiar logs",
+      "Esto vacía el archivo de logs de \"" + c.name + "\". Los registros previos no se pueden recuperar. ¿Continuar?",
+      function() { clearContainerLogs(c); }
+    );
   });
   containerLogsModal.addEventListener("click", function(e) {
     if (e.target === containerLogsModal) closeContainerLogsModal();

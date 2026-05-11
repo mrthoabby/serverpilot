@@ -293,6 +293,48 @@ func (s *Server) handleContainerLogs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// containerLogsClearRequest is the body schema for /api/containers/logs/clear.
+// Tag with DisallowUnknownFields (enforced by jsonDecode) so a future field
+// rename can't silently be smuggled in by a stale client.
+type containerLogsClearRequest struct {
+	ID string `json:"id"`
+}
+
+// handleContainerLogsClear truncates a container's log file. State-changing,
+// so POST + CSRFMiddleware (already wired in server.go on every protected
+// route). Returns 200 with no payload on success.
+func (s *Server) handleContainerLogsClear(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	var req containerLogsClearRequest
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	id := strings.TrimSpace(req.ID)
+	if !containerIDRegex.MatchString(id) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid container id"})
+		return
+	}
+
+	if err := docker.ClearContainerLogs(id); err != nil {
+		// Detailed error stays in server logs (CWE-209/CWE-532 — but the id
+		// itself is non-secret hex, fine to log).
+		log.Printf("clear container logs (id=%s): %v", id, err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to clear logs"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data:    map[string]string{"message": "logs cleared"},
+	})
+}
+
 func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})

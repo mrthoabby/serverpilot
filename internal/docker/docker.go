@@ -6,11 +6,19 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/mrthoabby/serverpilot/internal/deps"
 )
+
+// dockerContainersRoot is the directory under which Docker keeps per-container
+// state and json-file log files. ClearContainerLogs refuses to touch any path
+// outside of this prefix as a defense in depth against future Docker layout
+// changes or compromised state (CWE-22 path traversal).
+const dockerContainersRoot = "/var/lib/docker/containers/"
 
 // maxLogsBytes caps the per-call output of GetContainerLogs to keep memory and
 // JSON-encoding bounded even if a noisy container produces huge single lines.
@@ -252,6 +260,87 @@ func GetContainerLogs(id string, tail int) (string, error) {
 	}
 
 	return string(output), nil
+}
+
+// ClearContainerLogs truncates the container's log file so future calls to
+// `docker logs` start fresh. There is no native Docker command for this; the
+// portable trick is to truncate the json-file driver's LogPath in place
+// (Docker reopens it on the next write). Only json-file (and json-file-shaped)
+// drivers expose a LogPath — drivers like journald/fluentd return an empty
+// path and we refuse the operation rather than silently no-op.
+//
+// Security layers:
+//
+//   - Container ID is hex-only (rejects all shell metacharacters → CWE-78).
+//   - The log file path is read from `docker inspect`, not constructed by
+//     concatenating the id, so we honour Docker's own layout.
+//   - Path is canonicalised with EvalSymlinks and then checked to live under
+//     /var/lib/docker/containers/. This blocks an attacker (with the ability
+//     to plant symlinks under /var/lib/docker — root-only by default) from
+//     redirecting the truncate at, say, /etc/shadow.
+//   - The file is opened with O_NOFOLLOW to close the symlink-swap TOCTOU
+//     window between EvalSymlinks and Open.
+//   - Open is O_WRONLY|O_TRUNC with mode 0 (mode is ignored when the file
+//     already exists; we never create new files here).
+func ClearContainerLogs(id string) error {
+	if id == "" || len(id) > 128 {
+		return fmt.Errorf("invalid container ID format")
+	}
+	for _, c := range id {
+		if !((c >= 'a' && c <= 'f') || (c >= '0' && c <= '9')) {
+			return fmt.Errorf("invalid container ID format")
+		}
+	}
+
+	dockerBin, err := deps.DockerPath()
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Ask Docker for the canonical LogPath. Separate args, no shell.
+	inspect := exec.CommandContext(
+		ctx,
+		dockerBin,
+		"inspect",
+		"--format", "{{.LogPath}}",
+		"--",
+		id,
+	)
+	out, err := inspect.Output()
+	if err != nil {
+		return fmt.Errorf("failed to inspect container: %w", err)
+	}
+	logPath := strings.TrimSpace(string(out))
+	if logPath == "" {
+		// json-file driver not in use (e.g. journald, fluentd, syslog). We
+		// don't have a portable way to clear those, so be explicit instead
+		// of silently appearing to succeed.
+		return fmt.Errorf("container is not using a file-based log driver; cannot clear logs")
+	}
+
+	// Defense in depth: resolve symlinks before the prefix check, so a
+	// symlink trick under /var/lib/docker/containers/ can't escape the jail.
+	realPath, err := filepath.EvalSymlinks(logPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve log path: %w", err)
+	}
+	cleaned := filepath.Clean(realPath)
+	if !strings.HasPrefix(cleaned, dockerContainersRoot) {
+		return fmt.Errorf("log path is outside the docker containers directory")
+	}
+
+	// Open with O_NOFOLLOW to defeat any symlink swapped in between
+	// EvalSymlinks and Open. O_TRUNC zeroes the file in place — Docker keeps
+	// the same fd open for writes so subsequent log lines land at offset 0
+	// and `docker logs` then returns only the new content.
+	f, err := os.OpenFile(cleaned, os.O_WRONLY|os.O_TRUNC|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return fmt.Errorf("failed to truncate log file: %w", err)
+	}
+	return f.Close()
 }
 
 // Image represents a Docker image.

@@ -47,6 +47,7 @@ func (s *Server) Start() error {
 	mux.Handle("/api/logout", s.authMiddleware(http.HandlerFunc(s.handleLogout)))
 	mux.Handle("/api/containers", s.authMiddleware(http.HandlerFunc(s.handleContainers)))
 	mux.Handle("/api/containers/logs", s.authMiddleware(http.HandlerFunc(s.handleContainerLogs)))
+	mux.Handle("/api/containers/logs/clear", s.authMiddleware(http.HandlerFunc(s.handleContainerLogsClear)))
 	mux.Handle("/api/images", s.authMiddleware(http.HandlerFunc(s.handleImages)))
 	mux.Handle("/api/images/delete", s.authMiddleware(http.HandlerFunc(s.handleImagesDelete)))
 	mux.Handle("/api/sites", s.authMiddleware(http.HandlerFunc(s.handleSites)))
