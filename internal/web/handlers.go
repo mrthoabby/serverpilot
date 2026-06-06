@@ -35,6 +35,7 @@ import (
 	"github.com/mrthoabby/serverpilot/internal/nginx"
 	"github.com/mrthoabby/serverpilot/internal/permissions"
 	"github.com/mrthoabby/serverpilot/internal/portalloc"
+	"github.com/mrthoabby/serverpilot/internal/replicas"
 	"github.com/mrthoabby/serverpilot/internal/sysinfo"
 	"github.com/mrthoabby/serverpilot/internal/templates"
 	"github.com/mrthoabby/serverpilot/internal/users"
@@ -326,6 +327,139 @@ func (s *Server) handleContainerLogsClear(w http.ResponseWriter, r *http.Request
 		Success: true,
 		Data:    map[string]string{"message": "logs cleared"},
 	})
+}
+
+type replicaPreviewRequest struct {
+	ParentID string `json:"parent_id"`
+}
+
+func (s *Server) handleContainerReplicasList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+	list, err := replicas.List()
+	if err != nil {
+		log.Printf("container replicas list: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to list replicas"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: list})
+}
+
+func (s *Server) handleContainerReplicaPreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+	var req replicaPreviewRequest
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	req.ParentID = strings.TrimSpace(req.ParentID)
+	if req.ParentID == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "parent_id is required"})
+		return
+	}
+	preview, err := replicas.PreviewParent(req.ParentID)
+	if err != nil {
+		log.Printf("container replica preview: %v", err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "failed to inspect parent container"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: preview})
+}
+
+func (s *Server) handleContainerReplicaCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+	var req replicas.CreateRequest
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	s.streamReplicaOperation(w, "replica-create", func(progress replicas.Progress) (interface{}, error) {
+		return replicas.Create(req, progress)
+	})
+}
+
+func (s *Server) handleContainerReplicaSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+	var req replicas.SyncRequest
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	s.streamReplicaOperation(w, "replica-sync", func(progress replicas.Progress) (interface{}, error) {
+		return replicas.Sync(req, progress)
+	})
+}
+
+func (s *Server) handleContainerReplicaDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+	var req replicas.DeleteRequest
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	s.streamReplicaOperation(w, "replica-delete", func(progress replicas.Progress) (interface{}, error) {
+		return nil, replicas.Delete(req, progress)
+	})
+}
+
+func (s *Server) handleContainerReplicaUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+	var req replicas.UpdateRequest
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	rep, err := replicas.Update(req)
+	if err != nil {
+		log.Printf("replica-update: %v", err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "failed to update replica"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: rep})
+}
+
+func (s *Server) streamReplicaOperation(w http.ResponseWriter, stage string, run func(replicas.Progress) (interface{}, error)) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "streaming not supported"})
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	progress := func(line string) {
+		sseWriteLog(w, flusher, line)
+	}
+	sseWriteLog(w, flusher, "Starting container replica operation...")
+	data, err := run(progress)
+	if err != nil {
+		log.Printf("%s: %v", stage, err)
+		sseWriteLog(w, flusher, "ERROR: operation failed. Check journalctl -u serverpilot for details.")
+		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"operation failed"}`)
+		return
+	}
+	payload, _ := json.Marshal(map[string]interface{}{"success": true, "data": data})
+	sseWriteLog(w, flusher, "Replica operation completed.")
+	sseWriteEvent(w, flusher, "done", string(payload))
 }
 
 func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {

@@ -2285,6 +2285,58 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   </div>
 </div>
 
+<!-- Container Replica Modal -->
+<div class="modal-overlay" id="replicaModal">
+  <div class="modal" style="max-width: 720px;">
+    <h3>Create Replica</h3>
+    <p class="modal-sub" id="replicaModalSub">Clone a container into an independent replica.</p>
+    <form id="replicaForm">
+      <input type="hidden" id="replicaParentId">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+        <div class="form-group">
+          <label for="replicaName">Replica name</label>
+          <input type="text" id="replicaName" required placeholder="email-sender-blue">
+        </div>
+        <div class="form-group">
+          <label for="replicaAlias">Visible label</label>
+          <input type="text" id="replicaAlias" required placeholder="go-up">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+        <div class="form-group">
+          <label for="replicaTemplate">Nginx template</label>
+          <select id="replicaTemplate">
+            <option value="api">API</option>
+            <option value="nestjs">NestJS</option>
+            <option value="nextjs">Next.js</option>
+            <option value="frontend">Frontend / SPA</option>
+            <option value="minio">MinIO</option>
+            <option value="gd-app">GD-App</option>
+            <option value="back">Back / no publish</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="replicaHostPort">Host port</label>
+          <input type="number" id="replicaHostPort" min="1" max="65535" placeholder="auto">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Environment variables</label>
+        <div id="replicaEnvList" style="max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg-input);"></div>
+        <button type="button" class="btn btn-sm btn-outline" id="replicaAddEnvBtn" style="margin-top:8px;">Add env</button>
+      </div>
+      <div class="form-group">
+        <label>Independent data copies</label>
+        <div id="replicaMountSummary" style="font-size:0.76rem;color:var(--text-muted);line-height:1.45;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg-input);"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="replicaCancelBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="replicaSubmitBtn">Create Replica</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Confirm Modal -->
 <div class="modal-overlay" id="confirmModal">
   <div class="modal">
@@ -2514,6 +2566,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   var sites = [];
   var mappings = { mapped: [], unmappedContainers: [], orphanedSites: [] };
   var containerLabels = {}; // { containerName: "api"|"nestjs"|"back" }
+  var containerReplicas = [];
+  var _replicaPreview = null;
+  var _replicaMode = "create";
+  var _replicaSyncName = "";
   var images = [];
   var selectedImageIDs = {};
   var activeTab = "containers";
@@ -2659,6 +2715,16 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
   }
 
+  async function loadReplicas() {
+    try {
+      var resp = await apiFetch("/api/container-replicas");
+      containerReplicas = (resp && resp.data) ? resp.data : [];
+      if (!Array.isArray(containerReplicas)) containerReplicas = [];
+    } catch(e) {
+      containerReplicas = [];
+    }
+  }
+
   async function setContainerLabel(containerName, label) {
     try {
       await apiFetch("/api/labels/set", { method: "POST", body: { container_name: containerName, label: label } });
@@ -2684,7 +2750,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   async function loadContainers() {
     var wrap = document.getElementById("containersContent");
     try {
-      var results = await Promise.all([apiFetch("/api/containers"), loadLabels()]);
+      var results = await Promise.all([apiFetch("/api/containers"), loadLabels(), loadReplicas()]);
       var resp = results[0];
       containers = (resp && resp.data) ? resp.data : (Array.isArray(resp) ? resp : []);
       setText(document.getElementById("containerCount"), String(containers.length));
@@ -2707,6 +2773,39 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       d[m.container_name] = m.nginx_domain || true;
     });
     return d;
+  }
+
+  function replicasByParentName() {
+    var byParent = {};
+    containerReplicas.forEach(function(r) {
+      var p = r.parent_name || "";
+      if (!byParent[p]) byParent[p] = [];
+      byParent[p].push(r);
+    });
+    Object.keys(byParent).forEach(function(k) {
+      byParent[k].sort(function(a,b) { return String(a.name).localeCompare(String(b.name)); });
+    });
+    return byParent;
+  }
+
+  function replicaNameSet() {
+    var set = {};
+    containerReplicas.forEach(function(r) { if (r.name) set[r.name] = true; });
+    return set;
+  }
+
+  function containerForReplica(replica) {
+    return {
+      id: replica.container_id || "",
+      name: replica.name,
+      image: "",
+      status: replica.status || "",
+      ports: [{
+        host_port: String(replica.host_port || ""),
+        container_port: String(replica.container_port || ""),
+        protocol: replica.protocol || "tcp"
+      }]
+    };
   }
 
   function renderContainers(wrap) {
@@ -2736,7 +2835,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     table.appendChild(thead);
 
     var tbody = document.createElement("tbody");
+    var repsByParent = replicasByParentName();
+    var replicaNames = replicaNameSet();
     containers.forEach(function(c) {
+      if (replicaNames[c.name]) return;
       var tr = document.createElement("tr");
 
       // Name
@@ -2853,6 +2955,19 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       })(c);
       tdAct.appendChild(logsBtn);
 
+      var replicaBtn = document.createElement("button");
+      replicaBtn.className = "btn btn-sm btn-outline";
+      replicaBtn.style.marginRight = "0.5rem";
+      setText(replicaBtn, "Create replica");
+      replicaBtn.disabled = (repsByParent[c.name] || []).length >= 3;
+      replicaBtn.title = replicaBtn.disabled ? "Maximum 3 replicas reached" : "Clone this container into an independent replica";
+      (function(container) {
+        replicaBtn.addEventListener("click", function() {
+          openReplicaModal(container);
+        });
+      })(c);
+      tdAct.appendChild(replicaBtn);
+
       if (siteDomains[c.name]) {
         // Already has a site linked. The mapper detected a nginx site whose
         // proxy_pass targets one of this container's published host ports,
@@ -2963,11 +3078,306 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       tr.appendChild(tdAct);
 
       tbody.appendChild(tr);
+      (repsByParent[c.name] || []).forEach(function(replica) {
+        tbody.appendChild(renderReplicaRow(replica));
+      });
     });
     table.appendChild(tbody);
     tw.appendChild(table);
     wrap.appendChild(tw);
   }
+
+  function renderReplicaRow(replica) {
+    var tr = document.createElement("tr");
+    tr.style.background = "rgba(88,166,255,0.045)";
+
+    var tdName = document.createElement("td");
+    tdName.style.paddingLeft = "1.6rem";
+    var strong = document.createElement("strong");
+    setText(strong, (replica.name || "") + " \u2190 " + (replica.parent_name || ""));
+    tdName.appendChild(strong);
+    if (replica.alias) {
+      var alias = document.createElement("div");
+      alias.style.fontSize = "0.7rem";
+      alias.style.color = "var(--accent)";
+      setText(alias, "label: " + replica.alias + " · template: " + (replica.template_type || "back"));
+      tdName.appendChild(alias);
+    }
+    tr.appendChild(tdName);
+
+    var tdImg = document.createElement("td");
+    var sync = document.createElement("span");
+    sync.className = replica.outdated ? "badge badge-stopped" : "badge badge-running";
+    setText(sync, replica.outdated ? "Desactualizada" : "Sincronizada");
+    tdImg.appendChild(sync);
+    tr.appendChild(tdImg);
+
+    var tdStatus = document.createElement("td");
+    var badge = document.createElement("span");
+    badge.className = (replica.status === "running") ? "badge badge-running" : "badge badge-created";
+    var dot = document.createElement("span");
+    dot.className = "badge-dot";
+    badge.appendChild(dot);
+    badge.appendChild(document.createTextNode(" " + (replica.status || "unknown")));
+    tdStatus.appendChild(badge);
+    tr.appendChild(tdStatus);
+
+    var tdPorts = document.createElement("td");
+    var ptag = document.createElement("span");
+    ptag.className = "port-tag";
+    setText(ptag, String(replica.host_port || "?") + ":" + String(replica.container_port || "?") + "/" + (replica.protocol || "tcp"));
+    tdPorts.appendChild(ptag);
+    if (replica.domain) {
+      var dom = document.createElement("div");
+      dom.style.fontSize = "0.68rem";
+      dom.style.color = "var(--text-muted)";
+      setText(dom, replica.domain);
+      tdPorts.appendChild(dom);
+    }
+    tr.appendChild(tdPorts);
+
+    var tdLabel = document.createElement("td");
+    var chip = document.createElement("span");
+    chip.className = "label-badge label-badge-" + ((replica.template_type || "back").replace(/[^a-z-]/g, ""));
+    setText(chip, replica.alias || replica.template_type || "replica");
+    tdLabel.appendChild(chip);
+    tr.appendChild(tdLabel);
+
+    var tdAct = document.createElement("td");
+    tdAct.className = "actions-cell";
+
+    var logsBtn = document.createElement("button");
+    logsBtn.className = "btn btn-sm btn-outline";
+    logsBtn.style.marginRight = "0.5rem";
+    setText(logsBtn, "Logs");
+    logsBtn.disabled = !replica.container_id;
+    logsBtn.addEventListener("click", function() { openContainerLogsModal(containerForReplica(replica)); });
+    tdAct.appendChild(logsBtn);
+
+    var editBtn = document.createElement("button");
+    editBtn.className = "btn btn-sm btn-outline";
+    editBtn.style.marginRight = "0.5rem";
+    setText(editBtn, "Set label/template");
+    editBtn.addEventListener("click", function() { editReplicaMeta(replica); });
+    tdAct.appendChild(editBtn);
+
+    if ((replica.template_type || "back") !== "back") {
+      var assocBtn = document.createElement("button");
+      assocBtn.className = "btn btn-sm btn-primary";
+      assocBtn.style.marginRight = "0.5rem";
+      setText(assocBtn, replica.domain ? "Associated" : "Associate Site");
+      assocBtn.disabled = !!replica.domain;
+      assocBtn.addEventListener("click", function() {
+        openAssociateModal(containerForReplica(replica), replica.template_type || "api");
+      });
+      tdAct.appendChild(assocBtn);
+    }
+
+    var syncBtn = document.createElement("button");
+    syncBtn.className = "btn btn-sm btn-warning";
+    syncBtn.style.marginRight = "0.5rem";
+    setText(syncBtn, "Sync with parent");
+    syncBtn.addEventListener("click", function() { syncReplica(replica); });
+    tdAct.appendChild(syncBtn);
+
+    var delBtn = document.createElement("button");
+    delBtn.className = "btn btn-sm btn-danger";
+    setText(delBtn, "Delete");
+    delBtn.addEventListener("click", function() { deleteReplica(replica); });
+    tdAct.appendChild(delBtn);
+
+    tr.appendChild(tdAct);
+    return tr;
+  }
+
+  function envRow(key, value, sensitive) {
+    var row = document.createElement("div");
+    row.style.display = "grid";
+    row.style.gridTemplateColumns = "160px 1fr 64px";
+    row.style.gap = "6px";
+    row.style.marginBottom = "6px";
+    var k = document.createElement("input");
+    k.type = "text";
+    k.value = key || "";
+    k.placeholder = "KEY";
+    k.className = "replica-env-key";
+    var v = document.createElement("input");
+    v.type = sensitive ? "password" : "text";
+    v.value = value || "";
+    v.placeholder = "value";
+    v.className = "replica-env-value";
+    var toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "btn btn-sm btn-outline";
+    setText(toggle, sensitive ? "Show" : "Hide");
+    toggle.addEventListener("click", function() {
+      v.type = v.type === "password" ? "text" : "password";
+      setText(toggle, v.type === "password" ? "Show" : "Hide");
+    });
+    row.appendChild(k);
+    row.appendChild(v);
+    row.appendChild(toggle);
+    return row;
+  }
+
+  function renderReplicaEnv(env) {
+    var list = document.getElementById("replicaEnvList");
+    list.innerHTML = "";
+    (env || []).forEach(function(e) {
+      list.appendChild(envRow(e.key || "", e.value || "", !!e.sensitive));
+    });
+    if (!list.children.length) {
+      list.appendChild(envRow("", "", false));
+    }
+  }
+
+  function collectReplicaEnv() {
+    var rows = document.querySelectorAll("#replicaEnvList > div");
+    var env = [];
+    rows.forEach(function(row) {
+      var k = row.querySelector(".replica-env-key");
+      var v = row.querySelector(".replica-env-value");
+      var key = k ? k.value.trim() : "";
+      if (key) env.push(key + "=" + (v ? v.value : ""));
+    });
+    return env;
+  }
+
+  function renderReplicaMounts(mounts) {
+    var box = document.getElementById("replicaMountSummary");
+    box.innerHTML = "";
+    if (!mounts || !mounts.length) {
+      setText(box, "No persistent mounts detected. The replica will use the committed filesystem snapshot.");
+      return;
+    }
+    mounts.forEach(function(m) {
+      var line = document.createElement("div");
+      line.style.color = m.supported ? "var(--text-muted)" : "#f85149";
+      setText(line, (m.supported ? "✓ " : "⚠ ") + m.type + " " + m.destination + " will be copied into an independent replica folder");
+      box.appendChild(line);
+    });
+  }
+
+  async function openReplicaModal(container) {
+    try {
+      _replicaMode = "create";
+      _replicaSyncName = "";
+      var resp = await apiFetch("/api/container-replicas/preview", { method: "POST", body: { parent_id: container.id } });
+      _replicaPreview = (resp && resp.data) || {};
+      if (_replicaPreview.existing_replicas >= _replicaPreview.max_replicas) {
+        showToast("This container already has 3 replicas", "error");
+        return;
+      }
+      document.querySelector("#replicaModal h3").textContent = "Create Replica";
+      setText(document.getElementById("replicaModalSub"), "Clone \"" + container.name + "\" into an independent container.");
+      document.getElementById("replicaParentId").value = container.id;
+      document.getElementById("replicaName").value = container.name + "-replica-" + ((_replicaPreview.existing_replicas || 0) + 1);
+      document.getElementById("replicaName").disabled = false;
+      document.getElementById("replicaAlias").value = "replica";
+      document.getElementById("replicaAlias").disabled = false;
+      document.getElementById("replicaTemplate").value = _replicaPreview.template_type || "api";
+      document.getElementById("replicaTemplate").disabled = false;
+      document.getElementById("replicaHostPort").value = "";
+      document.getElementById("replicaHostPort").disabled = false;
+      setText(document.getElementById("replicaSubmitBtn"), "Create Replica");
+      renderReplicaEnv(_replicaPreview.env || []);
+      renderReplicaMounts(_replicaPreview.mounts || []);
+      document.getElementById("replicaModal").classList.add("show");
+    } catch(err) {
+      showToast("Failed to inspect parent: " + err.message, "error");
+    }
+  }
+
+  async function openReplicaSyncModal(replica) {
+    try {
+      _replicaMode = "sync";
+      _replicaSyncName = replica.name;
+      var parent = containers.find(function(c) { return c.name === replica.parent_name || c.id === replica.parent_id; });
+      var parentID = parent ? parent.id : replica.parent_id;
+      var resp = await apiFetch("/api/container-replicas/preview", { method: "POST", body: { parent_id: parentID } });
+      _replicaPreview = (resp && resp.data) || {};
+      document.querySelector("#replicaModal h3").textContent = "Sync Replica";
+      setText(document.getElementById("replicaModalSub"), "Reclone \"" + replica.name + "\" from parent \"" + replica.parent_name + "\" using blue-green replacement.");
+      document.getElementById("replicaParentId").value = parentID;
+      document.getElementById("replicaName").value = replica.name;
+      document.getElementById("replicaName").disabled = true;
+      document.getElementById("replicaAlias").value = replica.alias || "";
+      document.getElementById("replicaAlias").disabled = true;
+      document.getElementById("replicaTemplate").value = replica.template_type || "api";
+      document.getElementById("replicaTemplate").disabled = true;
+      document.getElementById("replicaHostPort").value = replica.host_port || "";
+      document.getElementById("replicaHostPort").disabled = true;
+      setText(document.getElementById("replicaSubmitBtn"), "Sync Replica");
+      renderReplicaEnv(_replicaPreview.env || []);
+      renderReplicaMounts(_replicaPreview.mounts || []);
+      document.getElementById("replicaModal").classList.add("show");
+    } catch(err) {
+      showToast("Failed to inspect parent: " + err.message, "error");
+    }
+  }
+
+  function syncReplica(replica) {
+    openReplicaSyncModal(replica);
+  }
+
+  function deleteReplica(replica) {
+    confirmAction("Delete Replica", "Remove replica " + replica.name + " and its independent data folder? Nginx sites are not deleted automatically.", function() {
+      runStreamedOperation("/api/container-replicas/delete", { name: replica.name }, "Deleting Replica", replica.name);
+    });
+  }
+
+  async function editReplicaMeta(replica) {
+    var alias = window.prompt("Visible label for " + replica.name, replica.alias || "");
+    if (!alias) return;
+    var template = window.prompt("Nginx template (api, nestjs, nextjs, frontend, minio, gd-app, back)", replica.template_type || "api");
+    if (!template) return;
+    try {
+      await apiFetch("/api/container-replicas/update", {
+        method: "POST",
+        body: { name: replica.name, alias: alias.trim(), template_type: template.trim() }
+      });
+      showToast("Replica metadata updated", "success");
+      await Promise.all([loadReplicas(), loadContainers()]);
+    } catch(err) {
+      showToast("Failed to update replica: " + err.message, "error");
+    }
+  }
+
+  document.getElementById("replicaAddEnvBtn").addEventListener("click", function() {
+    document.getElementById("replicaEnvList").appendChild(envRow("", "", false));
+  });
+
+  document.getElementById("replicaCancelBtn").addEventListener("click", function() {
+    document.getElementById("replicaModal").classList.remove("show");
+  });
+
+  document.getElementById("replicaModal").addEventListener("click", function(e) {
+    if (e.target === document.getElementById("replicaModal")) {
+      document.getElementById("replicaModal").classList.remove("show");
+    }
+  });
+
+  document.getElementById("replicaForm").addEventListener("submit", function(e) {
+    e.preventDefault();
+    var env = collectReplicaEnv();
+    document.getElementById("replicaModal").classList.remove("show");
+    if (_replicaMode === "sync") {
+      runStreamedOperation("/api/container-replicas/sync", {
+        name: _replicaSyncName,
+        env: env
+      }, "Syncing Replica", _replicaSyncName + " — blue-green replacement");
+      return;
+    }
+    var hostPortRaw = document.getElementById("replicaHostPort").value.trim();
+    runStreamedOperation("/api/container-replicas/create", {
+      parent_id: document.getElementById("replicaParentId").value,
+      name: document.getElementById("replicaName").value.trim(),
+      alias: document.getElementById("replicaAlias").value.trim(),
+      template_type: document.getElementById("replicaTemplate").value,
+      host_port: hostPortRaw ? parseInt(hostPortRaw, 10) : 0,
+      env: env
+    }, "Creating Replica", document.getElementById("replicaName").value.trim());
+  });
 
   // ── Sites ──
   async function loadSites() {
@@ -4138,6 +4548,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       try {
         var result = JSON.parse(data);
         finishProgress(result.success !== false, result.error || result.message || "", result.dependency_missing || null);
+        if (result.success !== false && lastStreamedUrl && lastStreamedUrl.indexOf("/api/container-replicas/") === 0) {
+          Promise.all([loadSites(), loadMappings(), loadContainers()]);
+        }
       } catch(e) {
         finishProgress(true, "");
       }
