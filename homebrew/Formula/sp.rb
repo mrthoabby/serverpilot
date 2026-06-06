@@ -1,26 +1,26 @@
 class Sp < Formula
   desc "Server management dashboard for Docker & Nginx"
   homepage "https://github.com/mrthoabby/serverpilot"
-  version "1.5.5"
+  version "1.5.6"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://raw.githubusercontent.com/mrthoabby/serverpilot/master/release/1.5.5/sp-darwin-arm64"
-      sha256 "f7bafea501e48d01e3676d4abcd8de03729bd30bcb3b3f75521e9a186df6716b"
+      url "https://raw.githubusercontent.com/mrthoabby/serverpilot/master/release/1.5.6/sp-darwin-arm64"
+      sha256 "630e0744b776032ca92632c78f29fe9e30b7bc185dd9197d1054fc82fd217ee0"
     else
-      url "https://raw.githubusercontent.com/mrthoabby/serverpilot/master/release/1.5.5/sp-darwin-amd64"
-      sha256 "d263c1ebe58bc967c855278bbe19ed1a63a72c386dbb60846f35eac4e51c78de"
+      url "https://raw.githubusercontent.com/mrthoabby/serverpilot/master/release/1.5.6/sp-darwin-amd64"
+      sha256 "1efe2d2ca7fcd6ff489be85f330420d5da0ac2ac994a188c3da3aa2e64fae4bc"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://raw.githubusercontent.com/mrthoabby/serverpilot/master/release/1.5.5/sp-linux-arm64"
-      sha256 "2c69e85eccbc7c51419b6a296fd0cfd86b232fc2373706743b9a59926f1e03b2"
+      url "https://raw.githubusercontent.com/mrthoabby/serverpilot/master/release/1.5.6/sp-linux-arm64"
+      sha256 "4077c7529840a9e73b0df86526c7e38d955f4f39f961dd6b8b2f86dd54a106ba"
     else
-      url "https://raw.githubusercontent.com/mrthoabby/serverpilot/master/release/1.5.5/sp-linux-amd64"
-      sha256 "9ce23a2cbfcba7d5ef34e56c62653a2a6d053858809038f6ae2d56bcb0ea2d23"
+      url "https://raw.githubusercontent.com/mrthoabby/serverpilot/master/release/1.5.6/sp-linux-amd64"
+      sha256 "e84683d04c69ec871bb056ed8d539fe5894d86be3ee830b36d89ce73b592c749"
     end
   end
 
