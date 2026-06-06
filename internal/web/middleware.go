@@ -35,8 +35,8 @@ const (
 )
 
 type loginAttemptState struct {
-	failures   int
-	first      time.Time
+	failures    int
+	first       time.Time
 	lockedUntil time.Time
 }
 
@@ -256,13 +256,13 @@ func (rw *responseWriter) Unwrap() http.ResponseWriter {
 // authMiddleware checks for a valid session cookie on protected routes.
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie(sessionCookieName)
-		if err != nil {
+		token, ok := s.currentSessionToken(r)
+		if !ok {
 			writeJSON(w, http.StatusUnauthorized, apiResponse{Error: "authentication required"})
 			return
 		}
 
-		_, valid := s.sessionStore.ValidateSession(cookie.Value)
+		_, valid := s.sessionStore.ValidateSession(token)
 		if !valid {
 			writeJSON(w, http.StatusUnauthorized, apiResponse{Error: "invalid or expired session"})
 			return

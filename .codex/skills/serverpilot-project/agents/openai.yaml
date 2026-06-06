@@ -1,0 +1,6 @@
+interface:
+  display_name: "ServerPilot Project"
+  short_description: "Compact ServerPilot repo operating guide"
+  default_prompt: "Use $serverpilot-project to make a safe, scoped ServerPilot change."
+policy:
+  allow_implicit_invocation: true

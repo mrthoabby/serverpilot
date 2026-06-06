@@ -3,6 +3,7 @@ package auth
 import (
 	"bufio"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -27,16 +28,45 @@ type Config struct {
 	Email           string `json:"email,omitempty"`
 	SSLEnabled      bool   `json:"ssl_enabled,omitempty"`
 	InsecureBlocked bool   `json:"insecure_blocked,omitempty"`
+	MFAEnabled      bool   `json:"mfa_enabled,omitempty"`
+	TOTPSecret      string `json:"totp_secret,omitempty"`
 }
 
 // sessionEntry holds a session token with its creation time for TTL expiration.
 type sessionEntry struct {
-	username  string
-	createdAt time.Time
+	id                string
+	username          string
+	createdAt         time.Time
+	lastSeenAt        time.Time
+	reauthenticatedAt time.Time
+	ip                string
+	userAgent         string
 }
 
-// sessionMaxAge is the server-side session lifetime. Matches the cookie MaxAge.
-const sessionMaxAge = 24 * time.Hour
+const (
+	// SessionMaxAge is the absolute server-side session lifetime.
+	SessionMaxAge = 12 * time.Hour
+	// SessionIdleTimeout expires sessions that have not made a request recently.
+	SessionIdleTimeout = 30 * time.Minute
+	// ReauthMaxAge is how long password/MFA reauthentication is valid for
+	// sensitive operations.
+	ReauthMaxAge = 15 * time.Minute
+)
+
+// SessionInfo is the redacted session view returned to the dashboard.
+type SessionInfo struct {
+	ID                    string    `json:"id"`
+	Username              string    `json:"username"`
+	CreatedAt             time.Time `json:"created_at"`
+	LastSeenAt            time.Time `json:"last_seen_at"`
+	ExpiresAt             time.Time `json:"expires_at"`
+	IdleExpiresAt         time.Time `json:"idle_expires_at"`
+	ReauthenticatedAt     time.Time `json:"reauthenticated_at"`
+	ReauthenticationUntil time.Time `json:"reauthentication_until"`
+	IP                    string    `json:"ip"`
+	UserAgent             string    `json:"user_agent"`
+	Current               bool      `json:"current"`
+}
 
 // SessionStore manages active sessions in memory with automatic TTL cleanup.
 type SessionStore struct {
@@ -54,16 +84,16 @@ func NewSessionStore() *SessionStore {
 	return s
 }
 
-// cleanupLoop removes expired sessions periodically to prevent unbounded
-// map growth from abandoned sessions.
+// cleanupLoop removes expired sessions periodically to prevent unbounded map
+// growth from abandoned sessions.
 func (s *SessionStore) cleanupLoop() {
-	ticker := time.NewTicker(1 * time.Hour)
+	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 	for range ticker.C {
 		s.mu.Lock()
 		now := time.Now()
 		for token, entry := range s.sessions {
-			if now.Sub(entry.createdAt) > sessionMaxAge {
+			if sessionExpired(entry, now) {
 				delete(s.sessions, token)
 			}
 		}
@@ -210,13 +240,13 @@ func validatePasswordStrength(username, pw string) error {
 	// A tiny, illustrative blocklist. Operators should integrate a HIBP-style
 	// breach-list check in a future iteration.
 	common := map[string]bool{
-		"password":     true,
-		"password123":  true,
-		"admin":        true,
-		"administrator":true,
-		"changeme":     true,
-		"letmein":      true,
-		"qwerty123456": true,
+		"password":      true,
+		"password123":   true,
+		"admin":         true,
+		"administrator": true,
+		"changeme":      true,
+		"letmein":       true,
+		"qwerty123456":  true,
 	}
 	if common[strings.ToLower(pw)] {
 		return fmt.Errorf("password is too common")
@@ -229,26 +259,74 @@ func GenerateSessionToken() (string, error) {
 	return generateRandomHex(32)
 }
 
-// AddSession stores a session token in the session store with a creation timestamp.
-func (s *SessionStore) AddSession(token, username string) {
+// AddSession stores a session token in the session store with metadata for
+// inventory, idle expiration, and recent-reauth checks.
+func (s *SessionStore) AddSession(token, username, ip, userAgent string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.sessions[token] = sessionEntry{username: username, createdAt: time.Now()}
+	now := time.Now()
+	s.sessions[token] = sessionEntry{
+		id:                sessionID(token),
+		username:          username,
+		createdAt:         now,
+		lastSeenAt:        now,
+		reauthenticatedAt: now,
+		ip:                sanitizeSessionField(ip, 64),
+		userAgent:         sanitizeSessionField(userAgent, 200),
+	}
 }
 
 // ValidateSession checks if a session token is valid and not expired.
 func (s *SessionStore) ValidateSession(token string) (string, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	entry, ok := s.sessions[token]
 	if !ok {
 		return "", false
 	}
 	// Reject expired sessions even before the cleanup loop runs.
-	if time.Since(entry.createdAt) > sessionMaxAge {
+	now := time.Now()
+	if sessionExpired(entry, now) {
+		delete(s.sessions, token)
 		return "", false
 	}
+	entry.lastSeenAt = now
+	s.sessions[token] = entry
 	return entry.username, true
+}
+
+// MarkReauthenticated records that the current session recently completed a
+// password/MFA challenge.
+func (s *SessionStore) MarkReauthenticated(token string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, ok := s.sessions[token]
+	if !ok || sessionExpired(entry, time.Now()) {
+		if ok {
+			delete(s.sessions, token)
+		}
+		return false
+	}
+	entry.reauthenticatedAt = time.Now()
+	entry.lastSeenAt = entry.reauthenticatedAt
+	s.sessions[token] = entry
+	return true
+}
+
+// RecentlyReauthenticated returns true when the session completed a password
+// or MFA challenge inside ReauthMaxAge.
+func (s *SessionStore) RecentlyReauthenticated(token string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	entry, ok := s.sessions[token]
+	if !ok {
+		return false
+	}
+	now := time.Now()
+	if sessionExpired(entry, now) {
+		return false
+	}
+	return !entry.reauthenticatedAt.IsZero() && now.Sub(entry.reauthenticatedAt) <= ReauthMaxAge
 }
 
 // RemoveSession removes a session token from the store.
@@ -256,6 +334,100 @@ func (s *SessionStore) RemoveSession(token string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.sessions, token)
+}
+
+// ListSessions returns all live sessions, redacted for API output.
+func (s *SessionStore) ListSessions(currentToken string) []SessionInfo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	var out []SessionInfo
+	for token, entry := range s.sessions {
+		if sessionExpired(entry, now) {
+			delete(s.sessions, token)
+			continue
+		}
+		out = append(out, entry.info(token == currentToken))
+	}
+	return out
+}
+
+// RevokeSession removes one session by redacted session id. The current
+// session can be revoked intentionally by passing its id.
+func (s *SessionStore) RevokeSession(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for token, entry := range s.sessions {
+		if entry.id == id {
+			delete(s.sessions, token)
+			return true
+		}
+	}
+	return false
+}
+
+// RevokeOtherSessions removes every live session except the caller's token.
+func (s *SessionStore) RevokeOtherSessions(currentToken string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	count := 0
+	for token := range s.sessions {
+		if token == currentToken {
+			continue
+		}
+		delete(s.sessions, token)
+		count++
+	}
+	return count
+}
+
+func sessionExpired(entry sessionEntry, now time.Time) bool {
+	return now.Sub(entry.createdAt) > SessionMaxAge || now.Sub(entry.lastSeenAt) > SessionIdleTimeout
+}
+
+func (entry sessionEntry) info(current bool) SessionInfo {
+	return SessionInfo{
+		ID:                    entry.id,
+		Username:              entry.username,
+		CreatedAt:             entry.createdAt,
+		LastSeenAt:            entry.lastSeenAt,
+		ExpiresAt:             entry.createdAt.Add(SessionMaxAge),
+		IdleExpiresAt:         entry.lastSeenAt.Add(SessionIdleTimeout),
+		ReauthenticatedAt:     entry.reauthenticatedAt,
+		ReauthenticationUntil: entry.reauthenticatedAt.Add(ReauthMaxAge),
+		IP:                    entry.ip,
+		UserAgent:             entry.userAgent,
+		Current:               current,
+	}
+}
+
+func sessionID(token string) string {
+	sum := sha256Hex(token)
+	if len(sum) > 24 {
+		return sum[:24]
+	}
+	return sum
+}
+
+func sanitizeSessionField(s string, maxLen int) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= 32 && r != 127 {
+			b.WriteRune(r)
+		}
+	}
+	out := b.String()
+	if len(out) > maxLen {
+		return out[:maxLen]
+	}
+	return out
+}
+
+func sha256Hex(s string) string {
+	// Isolated helper to avoid exporting token hashes. The full session token
+	// is never exposed; only a short hash prefix is used as a revocation id.
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:])
 }
 
 // SaveConfig persists the configuration to disk. Exported for use by settings handlers.

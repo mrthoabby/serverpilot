@@ -13,8 +13,9 @@ import (
 // older RHEL-style systems (gpasswd in /usr/sbin), and merged-/usr
 // systems where both work via symlink.
 //
-// Each entry is resolved at most once; the result is cached for the
-// process lifetime since binary install paths don't change at runtime.
+// Positive entries are cached for the process lifetime. Misses are not
+// cached because the dashboard can install missing packages, such as acl,
+// while the daemon is running.
 
 var (
 	binCacheMu sync.Mutex
@@ -41,7 +42,6 @@ func findBinary(name string, candidates ...string) string {
 			return p
 		}
 	}
-	binCache[name] = ""
 	return ""
 }
 

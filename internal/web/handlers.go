@@ -40,8 +40,6 @@ import (
 	"github.com/mrthoabby/serverpilot/internal/users"
 )
 
-const sessionCookieName = "sp_session"
-
 var (
 	// Strict FQDN regex: each label is 1-63 alnum/hyphen, hyphen never at edges,
 	// at least one dot, no consecutive dots, no trailing dot, TLD letters-only.
@@ -53,6 +51,8 @@ var (
 	// address with an optional /N suffix (0-32). Stricter validation is
 	// performed via net.ParseCIDR / net.ParseIP after the regex match.
 	cidrRegex = regexp.MustCompile(`^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$`)
+
+	proxyPassPortRegex = regexp.MustCompile(`proxy_pass\s+http://(?:127\.0\.0\.1|localhost):([0-9]{1,5})\s*;`)
 )
 
 // jsonDecode is a hardened wrapper around json.Decoder that:
@@ -86,6 +86,7 @@ type apiResponse struct {
 type loginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+	MFACode  string `json:"mfa_code,omitempty"`
 }
 
 type domainRequest struct {
@@ -96,6 +97,14 @@ type siteCreateRequest struct {
 	Domain       string `json:"domain"`
 	TemplateType string `json:"template_type"`
 	Port         int    `json:"port"`
+}
+
+type siteUpdateDomainRequest struct {
+	CurrentDomain string `json:"current_domain"`
+	ConfigName    string `json:"config_name"`
+	NewDomain     string `json:"new_domain"`
+	EnableSSL     *bool  `json:"enable_ssl,omitempty"`
+	RemoveOldCert *bool  `json:"remove_old_cert,omitempty"`
 }
 
 // indexHTML caches the embedded index.html content at startup so we don't
@@ -181,6 +190,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, apiResponse{Error: "invalid credentials"})
 		return
 	}
+	if freshConfig.MFAEnabled {
+		if !auth.ValidateTOTPCode(freshConfig.TOTPSecret, req.MFACode, time.Now()) {
+			loginAttemptRecord(clientIP, false)
+			writeJSON(w, http.StatusUnauthorized, apiResponse{Error: "invalid MFA code"})
+			return
+		}
+	}
 	loginAttemptRecord(clientIP, true)
 
 	// Update in-memory config so other handlers also see the latest values.
@@ -193,23 +209,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.sessionStore.AddSession(token, req.Username)
-
-	// When SSL is enabled, cookies travel only over HTTPS with strict SameSite.
-	cookieSecure := s.config.SSLEnabled
-	cookieSameSite := http.SameSiteLaxMode
-	if cookieSecure {
-		cookieSameSite = http.SameSiteStrictMode
-	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookieName,
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   cookieSecure,
-		SameSite: cookieSameSite,
-		MaxAge:   86400, // 24 hours
-	})
+	s.sessionStore.AddSession(token, req.Username, clientIP, r.Header.Get("User-Agent"))
+	s.setSessionCookie(w, token)
 
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{"message": "logged in"}})
 }
@@ -220,20 +221,12 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cookie, err := r.Cookie(sessionCookieName)
-	if err == nil {
-		s.sessionStore.RemoveSession(cookie.Value)
+	token, ok := s.currentSessionToken(r)
+	if ok {
+		s.sessionStore.RemoveSession(token)
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookieName,
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   s.config.SSLEnabled,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   -1,
-	})
+	s.clearSessionCookies(w)
 
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{"message": "logged out"}})
 }
@@ -475,6 +468,11 @@ func sseWriteEvent(w http.ResponseWriter, flusher http.Flusher, event, data stri
 func sseWriteLog(w http.ResponseWriter, flusher http.Flusher, line string) {
 	escaped, _ := json.Marshal(line)
 	sseWriteEvent(w, flusher, "log", string(escaped))
+}
+
+func sseWriteDone(w http.ResponseWriter, flusher http.Flusher, payload map[string]interface{}) {
+	data, _ := json.Marshal(payload)
+	sseWriteEvent(w, flusher, "done", string(data))
 }
 
 func (s *Server) handleSSLEnable(w http.ResponseWriter, r *http.Request) {
@@ -757,6 +755,281 @@ func (s *Server) handleSiteDelete(w http.ResponseWriter, r *http.Request) {
 
 	sseWriteLog(w, flusher, "Site "+displayName+" completely removed!")
 	sseWriteEvent(w, flusher, "done", `{"success":true,"message":"Site `+displayName+` deleted"}`)
+}
+
+func (s *Server) handleSiteUpdateDomain(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	var req siteUpdateDomainRequest
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	configName := strings.TrimSpace(req.ConfigName)
+	currentDomain := strings.TrimSpace(req.CurrentDomain)
+	newDomain := strings.ToLower(strings.TrimSpace(req.NewDomain))
+	if configName == "" {
+		configName = currentDomain
+	}
+	if !isValidConfigName(configName) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid site name format"})
+		return
+	}
+	if !isValidDomain(newDomain) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid new domain format"})
+		return
+	}
+	if strings.EqualFold(newDomain, configName) || strings.EqualFold(newDomain, currentDomain) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "new domain must be different"})
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "streaming not supported"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	enableSSL := true
+	if req.EnableSSL != nil {
+		enableSSL = *req.EnableSSL
+	}
+	removeOldCert := true
+	if req.RemoveOldCert != nil {
+		removeOldCert = *req.RemoveOldCert
+	}
+
+	oldDisplay := currentDomain
+	if oldDisplay == "" || oldDisplay == "_" {
+		oldDisplay = configName
+	}
+
+	sseWriteLog(w, flusher, "[Step 1/6] Reading current site "+oldDisplay+"...")
+	oldContent, err := nginx.ReadConfigContent(configName)
+	if err != nil {
+		sseWriteLog(w, flusher, "ERROR: could not read current site config.")
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "failed to read current site config"})
+		return
+	}
+	proxyPort, err := extractProxyPassPort(oldContent)
+	if err != nil {
+		sseWriteLog(w, flusher, "ERROR: could not detect the proxy_pass port from the current config.")
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "could not detect current proxy port"})
+		return
+	}
+	tmplType := inferSiteTemplateType(oldContent)
+	sseWriteLog(w, flusher, "Detected "+string(tmplType)+" template on port "+strconv.Itoa(proxyPort)+".")
+
+	newAvailablePath, err := nginxSitePath("/etc/nginx/sites-available", newDomain)
+	if err != nil {
+		sseWriteLog(w, flusher, "ERROR: invalid new site path.")
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "invalid new site path"})
+		return
+	}
+	if _, err := os.Lstat(newAvailablePath); err == nil {
+		sseWriteLog(w, flusher, "ERROR: a site config already exists for "+newDomain+".")
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "new domain already has an nginx config"})
+		return
+	} else if !os.IsNotExist(err) {
+		sseWriteLog(w, flusher, "ERROR: could not check existing site config.")
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "failed to check new site config"})
+		return
+	}
+	newEnabledPath, err := nginxSitePath("/etc/nginx/sites-enabled", newDomain)
+	if err != nil {
+		sseWriteLog(w, flusher, "ERROR: invalid new enabled path.")
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "invalid new enabled path"})
+		return
+	}
+	if _, err := os.Lstat(newEnabledPath); err == nil {
+		sseWriteLog(w, flusher, "ERROR: a sites-enabled entry already exists for "+newDomain+".")
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "new domain already has an enabled site"})
+		return
+	} else if !os.IsNotExist(err) {
+		sseWriteLog(w, flusher, "ERROR: could not check enabled site.")
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "failed to check enabled site"})
+		return
+	}
+
+	createdNewConfig := false
+	enabledNewSite := false
+	cleanupNewCert := false
+	var certbotBin string
+
+	rollbackNewSite := func(reason string) {
+		sseWriteLog(w, flusher, "")
+		sseWriteLog(w, flusher, "Rolling back new domain due to failure...")
+		if cleanupNewCert && certbotBin != "" {
+			if err := runCertbotDeleteStream(w, flusher, certbotBin, newDomain, "certbot rollback "+newDomain); err != nil {
+				sseWriteLog(w, flusher, "WARNING: could not remove new SSL certificate: "+err.Error())
+			}
+		}
+		if enabledNewSite {
+			if removed, err := removeSiteFileIfPresent("/etc/nginx/sites-enabled", newDomain); err != nil {
+				sseWriteLog(w, flusher, "WARNING: could not remove new enabled site: "+err.Error())
+			} else if removed {
+				sseWriteLog(w, flusher, "Removed new sites-enabled entry.")
+			}
+		}
+		if createdNewConfig {
+			if removed, err := removeSiteFileIfPresent("/etc/nginx/sites-available", newDomain); err != nil {
+				sseWriteLog(w, flusher, "WARNING: could not remove new config: "+err.Error())
+			} else if removed {
+				sseWriteLog(w, flusher, "Removed new site config.")
+			}
+		}
+		if err := nginx.ReloadNginx(); err != nil {
+			sseWriteLog(w, flusher, "WARNING: nginx reload after rollback failed: "+err.Error())
+		} else {
+			sseWriteLog(w, flusher, "Nginx reloaded after rollback.")
+		}
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": reason})
+	}
+
+	sseWriteLog(w, flusher, "[Step 2/6] Creating nginx config for "+newDomain+"...")
+	newConfig, err := templates.GetTemplate(tmplType, newDomain, proxyPort)
+	if err != nil {
+		sseWriteLog(w, flusher, "ERROR: failed to render nginx template.")
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "failed to render nginx template"})
+		return
+	}
+	if err := createNewSiteConfig(newDomain, newConfig); err != nil {
+		sseWriteLog(w, flusher, "ERROR: failed to write new nginx config: "+err.Error())
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "failed to write new nginx config"})
+		return
+	}
+	createdNewConfig = true
+	sseWriteLog(w, flusher, "Created nginx config for "+newDomain+".")
+
+	if err := nginx.EnableSite(newDomain); err != nil {
+		sseWriteLog(w, flusher, "ERROR: failed to enable new site.")
+		rollbackNewSite("failed to enable new site")
+		return
+	}
+	enabledNewSite = true
+	sseWriteLog(w, flusher, "Enabled "+newDomain+" in sites-enabled.")
+
+	sseWriteLog(w, flusher, "[Step 3/6] Validating and reloading nginx for HTTP...")
+	if err := nginx.ReloadNginx(); err != nil {
+		sseWriteLog(w, flusher, "ERROR: nginx reload failed: "+err.Error())
+		rollbackNewSite("nginx validation failed for new domain")
+		return
+	}
+	sseWriteLog(w, flusher, "Nginx reloaded. "+newDomain+" is active on HTTP.")
+
+	if enableSSL {
+		sseWriteLog(w, flusher, "[Step 4/6] Requesting SSL certificate for "+newDomain+"...")
+		certbotBin, err = findCertbot()
+		if err != nil {
+			sseWriteLog(w, flusher, "ERROR: "+err.Error())
+			rollbackNewSite("certbot not found")
+			return
+		}
+		sseWriteLog(w, flusher, "Using certbot: "+certbotBin)
+		certArgs := s.certbotEnableArgs(certbotBin, newDomain, true)
+		cmd := exec.Command(certArgs[0], certArgs[1:]...)
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			sseWriteLog(w, flusher, "ERROR: failed to create stdout pipe: "+err.Error())
+			rollbackNewSite("failed to start certbot")
+			return
+		}
+		cmd.Stderr = cmd.Stdout
+		if err := cmd.Start(); err != nil {
+			sseWriteLog(w, flusher, "ERROR: failed to start certbot: "+err.Error())
+			rollbackNewSite("failed to start certbot")
+			return
+		}
+		cleanupNewCert = true
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			line := scanner.Text()
+			log.Printf("[site domain update certbot %s] %s", newDomain, line)
+			sseWriteLog(w, flusher, line)
+		}
+		if err := scanner.Err(); err != nil {
+			sseWriteLog(w, flusher, "WARNING: certbot output read failed: "+err.Error())
+		}
+		if err := cmd.Wait(); err != nil {
+			sseWriteLog(w, flusher, "ERROR: certbot failed: "+err.Error())
+			rollbackNewSite("certbot failed for new domain")
+			return
+		}
+		sseWriteLog(w, flusher, "SSL enabled for "+newDomain+".")
+	} else {
+		sseWriteLog(w, flusher, "[Step 4/6] SSL skipped by request.")
+	}
+
+	sseWriteLog(w, flusher, "[Step 5/6] Removing old domain config...")
+	if removed, err := removeSiteFileIfPresent("/etc/nginx/sites-enabled", configName); err != nil {
+		sseWriteLog(w, flusher, "WARNING: could not remove old sites-enabled entry: "+err.Error())
+	} else if removed {
+		sseWriteLog(w, flusher, "Removed old sites-enabled entry.")
+	} else {
+		sseWriteLog(w, flusher, "Old sites-enabled entry was not present.")
+	}
+	if removed, err := removeSiteFileIfPresent("/etc/nginx/sites-available", configName); err != nil {
+		sseWriteLog(w, flusher, "WARNING: could not remove old site config: "+err.Error())
+	} else if removed {
+		sseWriteLog(w, flusher, "Removed old site config.")
+	} else {
+		sseWriteLog(w, flusher, "Old site config was not present.")
+	}
+
+	oldCertName := currentDomain
+	if !isValidDomain(oldCertName) && isValidDomain(configName) {
+		oldCertName = configName
+	}
+	if removeOldCert && oldCertName != "" && oldCertName != "_" && isValidDomain(oldCertName) && !strings.EqualFold(oldCertName, newDomain) {
+		certPath := filepath.Join("/etc/letsencrypt/live", oldCertName)
+		if _, err := os.Stat(certPath); err == nil {
+			sseWriteLog(w, flusher, "Removing old SSL certificate for "+oldCertName+"...")
+			if certbotBin == "" {
+				certbotBin, err = findCertbot()
+			}
+			if err != nil {
+				sseWriteLog(w, flusher, "WARNING: "+err.Error()+" — skipping old certificate removal")
+			} else if err := runCertbotDeleteStream(w, flusher, certbotBin, oldCertName, "certbot delete "+oldCertName); err != nil {
+				sseWriteLog(w, flusher, "WARNING: certbot delete failed: "+err.Error())
+			} else {
+				sseWriteLog(w, flusher, "Old SSL certificate removed.")
+			}
+		} else {
+			sseWriteLog(w, flusher, "No old SSL certificate found for "+oldCertName+".")
+		}
+	} else {
+		sseWriteLog(w, flusher, "Old SSL certificate removal skipped.")
+	}
+
+	sseWriteLog(w, flusher, "[Step 6/6] Final nginx reload...")
+	if err := nginx.ReloadNginx(); err != nil {
+		sseWriteLog(w, flusher, "WARNING: final nginx reload failed: "+err.Error())
+		sseWriteDone(w, flusher, map[string]interface{}{
+			"success": false,
+			"error":   "new domain configured but final nginx reload failed",
+		})
+		return
+	}
+
+	sseWriteLog(w, flusher, "")
+	if enableSSL {
+		sseWriteLog(w, flusher, "Domain updated from "+oldDisplay+" to "+newDomain+" with SSL.")
+	} else {
+		sseWriteLog(w, flusher, "Domain updated from "+oldDisplay+" to "+newDomain+".")
+	}
+	sseWriteDone(w, flusher, map[string]interface{}{
+		"success": true,
+		"message": "Domain updated to " + newDomain,
+	})
 }
 
 func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
@@ -1474,12 +1747,143 @@ func containsHTML(s string) bool {
 	return htmlTagRegex.MatchString(s)
 }
 
+func extractProxyPassPort(content string) (int, error) {
+	matches := proxyPassPortRegex.FindStringSubmatch(content)
+	if len(matches) != 2 {
+		return 0, fmt.Errorf("proxy_pass port not found")
+	}
+	port, err := strconv.Atoi(matches[1])
+	if err != nil || port < 1 || port > 65535 {
+		return 0, fmt.Errorf("invalid proxy_pass port")
+	}
+	return port, nil
+}
+
+func inferSiteTemplateType(content string) templates.TemplateType {
+	switch {
+	case strings.Contains(content, "/_next/static/") || strings.Contains(content, "/_next/image") || strings.Contains(content, "/_next/data/"):
+		return templates.NextJS
+	case strings.Contains(content, "client_max_body_size 0") || strings.Contains(content, "proxy_request_buffering  off") || strings.Contains(content, "proxy_request_buffering off"):
+		return templates.MinIO
+	case strings.Contains(content, "location ~*") && strings.Contains(content, "max-age=2592000"):
+		return templates.Frontend
+	case strings.Contains(content, `proxy_set_header Connection "upgrade"`) && strings.Contains(content, "proxy_read_timeout 86400"):
+		return templates.NestJS
+	default:
+		return templates.API
+	}
+}
+
+func nginxSitePath(dir, name string) (string, error) {
+	if !isValidConfigName(name) {
+		return "", fmt.Errorf("invalid site name")
+	}
+	base, err := filepath.Abs(dir)
+	if err != nil {
+		return "", fmt.Errorf("invalid nginx directory")
+	}
+	path, err := filepath.Abs(filepath.Join(base, name))
+	if err != nil {
+		return "", fmt.Errorf("invalid site path")
+	}
+	rel, err := filepath.Rel(base, path)
+	if err != nil {
+		return "", fmt.Errorf("invalid site path")
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("site path escapes nginx directory")
+	}
+	return path, nil
+}
+
+func createNewSiteConfig(name, content string) error {
+	configPath, err := nginxSitePath("/etc/nginx/sites-available", name)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Lstat(configPath); err == nil {
+		return fmt.Errorf("site config already exists")
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to check site config")
+	}
+
+	file, err := os.OpenFile(configPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to create site config")
+	}
+	if _, err := file.WriteString(content); err != nil {
+		_ = file.Close()
+		_ = os.Remove(configPath)
+		return fmt.Errorf("failed to write site config")
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		_ = os.Remove(configPath)
+		return fmt.Errorf("failed to sync site config")
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(configPath)
+		return fmt.Errorf("failed to close site config")
+	}
+	if dir, err := os.Open(filepath.Dir(configPath)); err == nil {
+		_ = dir.Sync()
+		_ = dir.Close()
+	}
+	return nil
+}
+
+func removeSiteFileIfPresent(dir, name string) (bool, error) {
+	path, err := nginxSitePath(dir, name)
+	if err != nil {
+		return false, err
+	}
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to inspect site file")
+	}
+	if info.IsDir() {
+		return false, fmt.Errorf("refusing to remove directory")
+	}
+	if err := os.Remove(path); err != nil {
+		return false, fmt.Errorf("failed to remove site file")
+	}
+	return true, nil
+}
+
+func runCertbotDeleteStream(w http.ResponseWriter, flusher http.Flusher, certbotBin, domain, logPrefix string) error {
+	cmd := exec.Command(certbotBin, "delete", "--cert-name", domain, "--non-interactive")
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdout pipe")
+	}
+	cmd.Stderr = cmd.Stdout
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start certbot")
+	}
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := scanner.Text()
+		log.Printf("[%s] %s", logPrefix, line)
+		sseWriteLog(w, flusher, line)
+	}
+	if err := scanner.Err(); err != nil {
+		sseWriteLog(w, flusher, "WARNING: certbot output read failed: "+err.Error())
+	}
+	if err := cmd.Wait(); err != nil {
+		return err
+	}
+	return nil
+}
+
 // isValidConfigName validates a config filename (more permissive than domain — allows underscores, tildes).
 func isValidConfigName(name string) bool {
 	if len(name) == 0 || len(name) > 253 {
 		return false
 	}
-	if name == "." || name == ".." || strings.Contains(name, "/") || strings.Contains(name, "\\") {
+	if name == "." || name == ".." || strings.Contains(name, "/") || strings.Contains(name, "\\") || strings.Contains(name, "\x00") {
 		return false
 	}
 	for _, c := range name {
@@ -1858,9 +2262,9 @@ const maxBinarySize = 200 * 1024 * 1024
 // current one. Checksum verification is best-effort and matches whatever the
 // release pipeline publishes:
 //
-//   * If a SHA-256 sidecar (<binary>.sha256) is present at the same path,
+//   - If a SHA-256 sidecar (<binary>.sha256) is present at the same path,
 //     we enforce it strictly with a constant-time compare.
-//   * If not, we log a warning and proceed. TLS 1.2+ minimum, the strict
+//   - If not, we log a warning and proceed. TLS 1.2+ minimum, the strict
 //     tag regex, and pinning to the immutable tag ref still apply, and the
 //     atomic replace gives a rollback path.
 //
@@ -1993,7 +2397,11 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 			"email":            s.config.Email,
 			"ssl_enabled":      s.config.SSLEnabled,
 			"insecure_blocked": s.config.InsecureBlocked,
+			"mfa_enabled":      s.config.MFAEnabled,
 			"port":             s.port,
+			"session_max_sec":  int(auth.SessionMaxAge.Seconds()),
+			"session_idle_sec": int(auth.SessionIdleTimeout.Seconds()),
+			"reauth_max_sec":   int(auth.ReauthMaxAge.Seconds()),
 		},
 	})
 }
@@ -2398,6 +2806,7 @@ type dependencyInstallRequest struct {
 //     be re-interpreted as a flag (CWE-78 argument injection defence).
 //   - List every package literally — never derive package names from
 //     user input.
+//
 // The slugs themselves are validated against this map at request time,
 // so the UI can never request an arbitrary package.
 var knownDependencies = map[string][]string{
@@ -2817,7 +3226,7 @@ var protectedProcesses = map[string]bool{
 	"containerd":  true,
 	"systemd":     true,
 	"init":        true,
-	"sshd":       true,
+	"sshd":        true,
 }
 
 // handleKillProcess sends SIGTERM to a process by PID after strict validation.
@@ -3223,8 +3632,9 @@ func (s *Server) handleDeployUsers(w http.ResponseWriter, r *http.Request) {
 
 // handleDeployUserCreate creates a new Linux deploy user.
 // Two modes:
-//   Password mode: {"username": "ci-deploy", "password": "securepass123"}
-//   SSH-only mode: {"username": "ci-deploy", "ssh_only": true, "ssh_key": "ssh-ed25519 AAAA..."}
+//
+//	Password mode: {"username": "ci-deploy", "password": "securepass123"}
+//	SSH-only mode: {"username": "ci-deploy", "ssh_only": true, "ssh_key": "ssh-ed25519 AAAA..."}
 func (s *Server) handleDeployUserCreate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
@@ -3303,7 +3713,9 @@ func (s *Server) handleSystemUsersList(w http.ResponseWriter, r *http.Request) {
 
 // handleSystemUserGroupToggle adds or removes a user from one of the
 // allowlisted groups (currently `deploy` and `docker`). Body:
-//   {"username":"...", "group":"deploy", "action":"add"|"remove"}
+//
+//	{"username":"...", "group":"deploy", "action":"add"|"remove"}
+//
 // Dangerous groups (Docker) require a confirm token, mirroring the
 // existing system-app permissions flow.
 func (s *Server) handleSystemUserGroupToggle(w http.ResponseWriter, r *http.Request) {
@@ -3805,7 +4217,8 @@ func (s *Server) handlePermissionsCapabilities(w http.ResponseWriter, r *http.Re
 
 // handlePermissionsManagedApp returns the live FS ACL state for /opt/<app>
 // projected over the managed deploy users.
-//   GET /api/permissions/managed-app?app=<name>
+//
+//	GET /api/permissions/managed-app?app=<name>
 func (s *Server) handlePermissionsManagedApp(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
@@ -3836,7 +4249,8 @@ func (s *Server) handlePermissionsSystemApps(w http.ResponseWriter, r *http.Requ
 }
 
 // handlePermissionsSystemApp returns the live state for a single system app.
-//   GET /api/permissions/system-app?app=docker
+//
+//	GET /api/permissions/system-app?app=docker
 func (s *Server) handlePermissionsSystemApp(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
@@ -3968,7 +4382,8 @@ func (s *Server) handlePermissionsSystemGrant(w http.ResponseWriter, r *http.Req
 }
 
 // handlePermissionsAudit returns the recent audit log entries.
-//   GET /api/permissions/audit?limit=100
+//
+//	GET /api/permissions/audit?limit=100
 func (s *Server) handlePermissionsAudit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
@@ -3994,11 +4409,11 @@ func (s *Server) handlePermissionsAudit(w http.ResponseWriter, r *http.Request) 
 // if the cookie is somehow missing — should never happen because all
 // permissions endpoints sit behind authMiddleware.
 func (s *Server) actorFromRequest(r *http.Request) string {
-	cookie, err := r.Cookie(sessionCookieName)
-	if err != nil {
+	token, ok := s.currentSessionToken(r)
+	if !ok {
 		return "admin"
 	}
-	if username, ok := s.sessionStore.ValidateSession(cookie.Value); ok {
+	if username, ok := s.sessionStore.ValidateSession(token); ok {
 		return username
 	}
 	return "admin"
@@ -4081,7 +4496,8 @@ func (s *Server) handleDeployUserGenerateKey(w http.ResponseWriter, r *http.Requ
 
 // handleDeployUserPrivateKey returns the decrypted private key from the
 // vault. Audit-logged on every successful read.
-//   GET /api/users/ssh-keys/private?username=<u>
+//
+//	GET /api/users/ssh-keys/private?username=<u>
 func (s *Server) handleDeployUserPrivateKey(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
@@ -4125,7 +4541,8 @@ func (s *Server) handleDeployUserPrivateKey(w http.ResponseWriter, r *http.Reque
 // handleDeployUserPrivateKeyDelete removes a vault entry without touching
 // authorized_keys. The user retains SSH access via the public key already
 // installed; only the convenience copy of the private key is removed.
-//   POST /api/users/ssh-keys/private/delete  body: {"username":"..."}
+//
+//	POST /api/users/ssh-keys/private/delete  body: {"username":"..."}
 func (s *Server) handleDeployUserPrivateKeyDelete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
@@ -4150,7 +4567,8 @@ func (s *Server) handleDeployUserPrivateKeyDelete(w http.ResponseWriter, r *http
 // handleDeployUserKeyVaultStatus reports whether the vault contains an
 // entry for each managed user. The UI uses this to decide which user
 // rows render the "Reveal private key" button.
-//   GET /api/users/ssh-keys/vault-status
+//
+//	GET /api/users/ssh-keys/vault-status
 func (s *Server) handleDeployUserKeyVaultStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
@@ -4402,7 +4820,8 @@ func (s *Server) handleDBCellUpdate(w http.ResponseWriter, r *http.Request) {
 
 // handleDBSchema returns the schemas/tables/columns/PKs of a postgres
 // connection so the dashboard can render the schema browser tree.
-//   GET /api/db/schema?connection_id=<id>
+//
+//	GET /api/db/schema?connection_id=<id>
 func (s *Server) handleDBSchema(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
