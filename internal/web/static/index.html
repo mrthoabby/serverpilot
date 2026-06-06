@@ -2187,9 +2187,21 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
             </div>
           </div>
 
+          <div class="settings-step" id="settingsStepHostGuard" style="margin-top:1.25rem;">
+            <div class="settings-step-header">
+              <span class="settings-step-num" id="settingsHostGuardNum">4</span>
+              <span class="settings-step-title">Unknown Host Guard</span>
+              <span class="settings-step-status" id="settingsHostGuardStatus"></span>
+            </div>
+            <p class="settings-step-desc">Return a plain 404 for domains that do not match an enabled site, instead of exposing the dashboard login.</p>
+            <div style="margin-top:0.5rem;">
+              <button class="btn btn-sm btn-warning" id="settingsHostGuardBtn">Install Host Guard</button>
+            </div>
+          </div>
+
           <div class="settings-step" id="settingsStep4" style="margin-top:1.25rem;">
             <div class="settings-step-header">
-              <span class="settings-step-num" id="settingsMFANum">4</span>
+              <span class="settings-step-num" id="settingsMFANum">5</span>
               <span class="settings-step-title">Multi-Factor Authentication</span>
               <span class="settings-step-status" id="settingsMFAStatus"></span>
             </div>
@@ -2255,6 +2267,12 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       <div class="form-group">
         <label for="assocDomain">Domain</label>
         <input type="text" id="assocDomain" required placeholder="example.com">
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:0.5rem;font-weight:500;">
+          <input type="checkbox" id="assocIncludeWWW" style="width:auto;">
+          Include www alias
+        </label>
       </div>
       <div class="form-group">
         <label for="assocPort">Host port to proxy</label>
@@ -3742,7 +3760,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     var thead = document.createElement("thead");
     var trh = document.createElement("tr");
-    ["Domain", "Engine", "Port", "Proxy Pass", "SSL", "Auto-Renew", "Status", "Actions"].forEach(function(h) {
+    ["Domain", "Engine", "Port", "Proxy Pass", "SSL", "WWW", "Auto-Renew", "Status", "Actions"].forEach(function(h) {
       var th = document.createElement("th");
       setText(th, h);
       trh.appendChild(th);
@@ -3754,6 +3772,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     sites.forEach(function(s) {
       var tr = document.createElement("tr");
       var siteMapping = mappingForSite(s);
+      var configName = s.config_path ? s.config_path.split("/").pop() : s.domain;
 
       // Domain
       var tdDomain = document.createElement("td");
@@ -3791,6 +3810,14 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       var sslLabel = document.createTextNode(" " + (s.ssl_enabled ? "Enabled" : "Disabled"));
       tdSSL.appendChild(sslLabel);
       tr.appendChild(tdSSL);
+
+      // WWW
+      var tdWWW = document.createElement("td");
+      var wwwBadge = document.createElement("span");
+      wwwBadge.className = "badge " + (s.www_enabled ? "badge-running" : "badge-stopped");
+      setText(wwwBadge, s.www_enabled ? "Enabled" : "Disabled");
+      tdWWW.appendChild(wwwBadge);
+      tr.appendChild(tdWWW);
 
       // Auto-Renew
       var tdRenew = document.createElement("td");
@@ -3852,12 +3879,32 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       })(s);
       tdAct.appendChild(sslBtn);
 
+      // WWW enable
+      var wwwBtn = document.createElement("button");
+      var canEnableWWW = s.domain && s.domain !== "_" && String(s.domain).toLowerCase().indexOf("www.") !== 0;
+      wwwBtn.className = "btn btn-sm " + (s.www_enabled ? "btn-outline" : "btn-success");
+      setText(wwwBtn, s.www_enabled ? "WWW Enabled" : "Enable WWW");
+      wwwBtn.disabled = !canEnableWWW || s.www_enabled;
+      (function(site, siteConfigName) {
+        wwwBtn.addEventListener("click", function() {
+          var wwwDomain = "www." + site.domain;
+          confirmAction("Enable WWW", "Enable " + wwwDomain + " for " + site.domain + "? If SSL is enabled, Certbot will expand the certificate too.", function() {
+            runStreamedOperation(
+              "/api/sites/enable-www",
+              { domain: site.domain, config_name: siteConfigName },
+              "Enabling WWW",
+              site.domain + " + " + wwwDomain
+            );
+          });
+        });
+      })(s, configName);
+      tdAct.appendChild(wwwBtn);
+
       // Update Domain button
       var updateDomainBtn = document.createElement("button");
       updateDomainBtn.className = "btn btn-sm btn-outline";
       setText(updateDomainBtn, "Update Domain");
       (function(site) {
-        var configName = site.config_path ? site.config_path.split("/").pop() : site.domain;
         updateDomainBtn.addEventListener("click", function() {
           var currentName = site.domain && site.domain !== "_" ? site.domain : configName;
           var newDomain = window.prompt("Enter the new domain for " + currentName + ".", "");
@@ -3895,7 +3942,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       setText(editBtn, "Edit Config");
       (function(site) {
         editBtn.addEventListener("click", function() {
-          var configName = site.config_path ? site.config_path.split("/").pop() : site.domain;
           openConfigEditor(configName, site.domain);
         });
       })(s);
@@ -3906,7 +3952,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       deleteBtn.className = "btn btn-sm btn-danger";
       setText(deleteBtn, "Delete");
       (function(site) {
-        var configName = site.config_path ? site.config_path.split("/").pop() : site.domain;
         deleteBtn.addEventListener("click", function() {
           confirmAction("Delete Site", "Are you sure you want to completely delete " + (site.domain || configName) + "? This will remove the nginx config, symlink, and SSL certificate.", function() {
             runStreamedOperation(
@@ -4589,6 +4634,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var actionText = "Create " + (templateNames[label] || "an Nginx site");
     setText(document.getElementById("associateModalSub"), actionText + " for \"" + container.name + "\"");
     document.getElementById("assocDomain").value = "";
+    document.getElementById("assocIncludeWWW").checked = false;
 
     // Prefill the HOST port (the one Docker published on 0.0.0.0:<port>),
     // not the container's internal port. Nginx runs on the host, outside
@@ -4675,7 +4721,8 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         body: {
           template_type: document.getElementById("assocTemplate").value,
           domain: document.getElementById("assocDomain").value,
-          port: parseInt(document.getElementById("assocPort").value, 10)
+          port: parseInt(document.getElementById("assocPort").value, 10),
+          include_www: document.getElementById("assocIncludeWWW").checked
         }
       });
       assocModal.classList.remove("show");
@@ -5034,7 +5081,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       try {
         var result = JSON.parse(data);
         finishProgress(result.success !== false, result.error || result.message || "", result.dependency_missing || null);
-        if (result.success !== false && lastStreamedUrl && lastStreamedUrl.indexOf("/api/container-replicas/") === 0) {
+        if (result.success !== false && lastStreamedUrl && (lastStreamedUrl.indexOf("/api/container-replicas/") === 0 || lastStreamedUrl.indexOf("/api/sites/") === 0 || lastStreamedUrl.indexOf("/api/ssl/") === 0)) {
           Promise.all([loadSites(), loadMappings(), loadContainers()]);
         }
       } catch(e) {
@@ -7316,7 +7363,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   }
 
   // ── Settings ──
-  var settingsData = { domain: "", ssl_enabled: false, insecure_blocked: false, mfa_enabled: false, port: 0 };
+  var settingsData = { domain: "", ssl_enabled: false, insecure_blocked: false, host_guard: false, mfa_enabled: false, port: 0 };
   var pendingMFASecret = "";
 
   async function loadSettings() {
@@ -7338,6 +7385,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var sslStatus = document.getElementById("settingsSSLStatus");
     var blockBtn = document.getElementById("settingsBlockBtn");
     var blockStatus = document.getElementById("settingsBlockStatus");
+    var hostGuardBtn = document.getElementById("settingsHostGuardBtn");
+    var hostGuardStatus = document.getElementById("settingsHostGuardStatus");
+    var hostGuardNum = document.getElementById("settingsHostGuardNum");
     var step1Num = document.querySelector("#settingsStep1 .settings-step-num");
     var step2Num = document.querySelector("#settingsStep2 .settings-step-num");
     var step3Num = document.querySelector("#settingsStep3 .settings-step-num");
@@ -7425,6 +7475,22 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       blockStatus.className = "settings-step-status pending";
       blockBtn.disabled = true;
       blockBtn.style.display = "inline-flex";
+    }
+
+    if (settingsData.host_guard) {
+      hostGuardStatus.textContent = "Installed";
+      hostGuardStatus.className = "settings-step-status configured";
+      hostGuardNum.classList.add("done");
+      hostGuardBtn.disabled = true;
+      setText(hostGuardBtn, "Host Guard Installed");
+      hostGuardBtn.className = "btn btn-sm btn-outline";
+    } else {
+      hostGuardStatus.textContent = "Not installed";
+      hostGuardStatus.className = "settings-step-status pending";
+      hostGuardNum.classList.remove("done");
+      hostGuardBtn.disabled = false;
+      setText(hostGuardBtn, "Install Host Guard");
+      hostGuardBtn.className = "btn btn-sm btn-warning";
     }
 
     if (settingsData.mfa_enabled) {
@@ -7523,6 +7589,25 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       try {
         await apiFetch("/api/settings/block-insecure", { method: "POST", body: {} });
         showToast(isBlocked ? "HTTP access re-enabled for " + settingsData.domain : "HTTP blocked — all traffic redirects to HTTPS.", "success");
+        await loadSettings();
+        await loadSites();
+      } catch(err) {
+        showToast("Failed: " + err.message, "error");
+        btn.disabled = false;
+        renderSettings();
+      }
+    });
+  });
+
+  document.getElementById("settingsHostGuardBtn").addEventListener("click", function() {
+    confirmAction("Install Host Guard", "Install a default nginx guard so unknown domains return a plain 404 instead of reaching ServerPilot?", async function() {
+      var btn = document.getElementById("settingsHostGuardBtn");
+      btn.disabled = true;
+      setText(btn, "Installing...");
+      try {
+        var resp = await apiFetch("/api/settings/host-guard", { method: "POST", body: {} });
+        var data = (resp && resp.data) || {};
+        showToast(data.message || "Host guard installed", "success");
         await loadSettings();
         await loadSites();
       } catch(err) {

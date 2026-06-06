@@ -279,9 +279,24 @@ func GetTemplate(templateType TemplateType, domain string, port int) (string, er
 // ApplyTemplate generates an nginx config from a template, writes it to sites-available,
 // enables the site, and reloads nginx.
 func ApplyTemplate(templateType TemplateType, domain string, containerPort int) error {
+	return applyTemplate(templateType, domain, containerPort, false)
+}
+
+// ApplyTemplateWithWWW is ApplyTemplate plus a www.<domain> server_name alias.
+func ApplyTemplateWithWWW(templateType TemplateType, domain string, containerPort int) error {
+	return applyTemplate(templateType, domain, containerPort, true)
+}
+
+func applyTemplate(templateType TemplateType, domain string, containerPort int, includeWWW bool) error {
 	config, err := GetTemplate(templateType, domain, containerPort)
 	if err != nil {
 		return err
+	}
+	if includeWWW {
+		config, _, err = nginx.AddWWWAliasToConfig(config, domain)
+		if err != nil {
+			return err
+		}
 	}
 
 	configPath := filepath.Join("/etc/nginx/sites-available", domain)

@@ -15,18 +15,43 @@ import (
 const (
 	sitesAvailableDir = "/etc/nginx/sites-available"
 	sitesEnabledDir   = "/etc/nginx/sites-enabled"
-	nginxBaseDir       = "/etc/nginx"
+	nginxBaseDir      = "/etc/nginx"
 )
+
+const securityCatchAllName = "00-serverpilot-unmatched-hosts"
+
+const securityCatchAllHTTPOnlyConfig = `# Managed by ServerPilot. Catches HTTP requests for hosts that do not
+# match an explicit nginx site, so they never fall through to the dashboard.
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    default_type text/plain;
+    return 404 "Site not found\n";
+}
+`
+
+const securityCatchAllTLSConfig = securityCatchAllHTTPOnlyConfig + `
+# Reject unknown HTTPS hosts during TLS negotiation when supported by nginx.
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name _;
+    ssl_reject_handshake on;
+}
+`
 
 // Site represents an Nginx site configuration.
 type Site struct {
-	Domain     string `json:"domain"`
-	ConfigPath string `json:"config_path"`
-	ListenPort string `json:"listen_port"`
-	ProxyPass  string `json:"proxy_pass"`
-	SSLEnabled bool   `json:"ssl_enabled"`
-	SSLAutoRnw bool   `json:"ssl_auto_renew"`
-	Enabled    bool   `json:"enabled"`
+	Domain      string   `json:"domain"`
+	ServerNames []string `json:"server_names,omitempty"`
+	ConfigPath  string   `json:"config_path"`
+	ListenPort  string   `json:"listen_port"`
+	ProxyPass   string   `json:"proxy_pass"`
+	SSLEnabled  bool     `json:"ssl_enabled"`
+	SSLAutoRnw  bool     `json:"ssl_auto_renew"`
+	WWWEnabled  bool     `json:"www_enabled"`
+	Enabled     bool     `json:"enabled"`
 }
 
 // ListSites returns all nginx sites from sites-available, indicating whether they are enabled.
@@ -89,8 +114,11 @@ func ParseConfig(path string) (*Site, error) {
 		line := strings.TrimSpace(scanner.Text())
 
 		if strings.HasPrefix(line, "server_name ") {
-			domain := strings.TrimSuffix(strings.TrimPrefix(line, "server_name "), ";")
-			site.Domain = strings.TrimSpace(domain)
+			names := parseServerNames(line)
+			site.ServerNames = appendUniqueServerNames(site.ServerNames, names...)
+			if site.Domain == "" {
+				site.Domain = primaryServerName(names)
+			}
 		}
 
 		if strings.HasPrefix(line, "listen ") {
@@ -120,7 +148,146 @@ func ParseConfig(path string) (*Site, error) {
 		return nil, fmt.Errorf("error reading config: %w", err)
 	}
 
+	if site.Domain == "" {
+		site.Domain = primaryServerName(site.ServerNames)
+	}
+	site.WWWEnabled = hasWWWAlias(site.Domain, site.ServerNames)
+
 	return site, nil
+}
+
+func parseServerNames(line string) []string {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "server_name ") {
+		return nil
+	}
+	raw := strings.TrimSpace(strings.TrimPrefix(line, "server_name "))
+	if idx := strings.Index(raw, ";"); idx >= 0 {
+		raw = raw[:idx]
+	}
+	return strings.Fields(raw)
+}
+
+func appendUniqueServerNames(existing []string, names ...string) []string {
+	seen := make(map[string]bool, len(existing)+len(names))
+	for _, name := range existing {
+		seen[strings.ToLower(name)] = true
+	}
+	for _, name := range names {
+		key := strings.ToLower(name)
+		if seen[key] {
+			continue
+		}
+		existing = append(existing, name)
+		seen[key] = true
+	}
+	return existing
+}
+
+func primaryServerName(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	for _, name := range names {
+		if name != "_" && !strings.HasPrefix(strings.ToLower(name), "www.") {
+			return name
+		}
+	}
+	return names[0]
+}
+
+func hasWWWAlias(domain string, names []string) bool {
+	alias, err := WWWAliasForDomain(domain)
+	if err != nil {
+		return false
+	}
+	seenDomain := false
+	seenAlias := false
+	for _, name := range names {
+		switch strings.ToLower(name) {
+		case strings.ToLower(domain):
+			seenDomain = true
+		case strings.ToLower(alias):
+			seenAlias = true
+		}
+	}
+	return seenDomain && seenAlias
+}
+
+// WWWAliasForDomain returns the www host for a primary domain.
+func WWWAliasForDomain(domain string) (string, error) {
+	if !isValidDomain(domain) {
+		return "", fmt.Errorf("invalid domain format")
+	}
+	if strings.HasPrefix(strings.ToLower(domain), "www.") {
+		return "", fmt.Errorf("domain already starts with www")
+	}
+	return "www." + domain, nil
+}
+
+// AddWWWAliasToConfig adds www.<domain> to every server_name directive that
+// names domain. It preserves the rest of the config and reports whether it
+// changed anything.
+func AddWWWAliasToConfig(content, domain string) (string, bool, error) {
+	alias, err := WWWAliasForDomain(domain)
+	if err != nil {
+		return "", false, err
+	}
+
+	lines := strings.Split(content, "\n")
+	foundDomain := false
+	changed := false
+	for i, line := range lines {
+		updated, lineFound, lineChanged := addWWWAliasToServerNameLine(line, domain, alias)
+		if lineFound {
+			foundDomain = true
+		}
+		if lineChanged {
+			lines[i] = updated
+			changed = true
+		}
+	}
+	if !foundDomain {
+		return "", false, fmt.Errorf("domain not found in server_name directives")
+	}
+	return strings.Join(lines, "\n"), changed, nil
+}
+
+func addWWWAliasToServerNameLine(line, domain, alias string) (string, bool, bool) {
+	trimmed := strings.TrimLeft(line, " \t")
+	if !strings.HasPrefix(trimmed, "server_name ") {
+		return line, false, false
+	}
+
+	indent := line[:len(line)-len(trimmed)]
+	raw := strings.TrimSpace(strings.TrimPrefix(trimmed, "server_name "))
+	semiIdx := strings.Index(raw, ";")
+	if semiIdx < 0 {
+		return line, false, false
+	}
+
+	beforeSemi := raw[:semiIdx]
+	afterSemi := raw[semiIdx+1:]
+	names := strings.Fields(beforeSemi)
+	hasDomain := false
+	hasAlias := false
+	for _, name := range names {
+		switch strings.ToLower(name) {
+		case strings.ToLower(domain):
+			hasDomain = true
+		case strings.ToLower(alias):
+			hasAlias = true
+		}
+	}
+	if !hasDomain {
+		return line, false, false
+	}
+	if hasAlias {
+		return line, true, false
+	}
+
+	names = append(names, alias)
+	return indent + "server_name " + strings.Join(names, " ") + ";" + afterSemi, true, true
 }
 
 // EnableSite creates a symlink in sites-enabled for the given domain.
@@ -189,6 +356,171 @@ func DisableSite(domain string) error {
 		return fmt.Errorf("failed to disable site: %w", err)
 	}
 
+	return nil
+}
+
+// SecurityCatchAllEnabled reports whether ServerPilot's unmatched-host guard
+// config is installed and enabled in nginx.
+func SecurityCatchAllEnabled() bool {
+	availablePath := filepath.Join(sitesAvailableDir, securityCatchAllName)
+	content, err := os.ReadFile(availablePath)
+	if err != nil {
+		return false
+	}
+	if !strings.Contains(string(content), "Managed by ServerPilot") || !strings.Contains(string(content), "Site not found") {
+		return false
+	}
+
+	enabledPath := filepath.Join(sitesEnabledDir, securityCatchAllName)
+	info, err := os.Lstat(enabledPath)
+	return err == nil && info.Mode()&os.ModeSymlink != 0
+}
+
+// InstallSecurityCatchAll installs a default_server guard for hosts that do
+// not match any explicit nginx server_name. It first tries an HTTP+TLS
+// configuration; if the local nginx does not support ssl_reject_handshake or
+// already has a TLS default_server, it falls back to HTTP-only.
+func InstallSecurityCatchAll() (bool, error) {
+	if err := installSecurityCatchAllContent(securityCatchAllTLSConfig); err == nil {
+		return true, nil
+	}
+	if err := installSecurityCatchAllContent(securityCatchAllHTTPOnlyConfig); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+func installSecurityCatchAllContent(content string) error {
+	configPath := filepath.Join(sitesAvailableDir, securityCatchAllName)
+	enabledPath := filepath.Join(sitesEnabledDir, securityCatchAllName)
+	if !isWithinNginxDir(configPath) || !isWithinNginxDir(enabledPath) {
+		return fmt.Errorf("path is outside nginx directory")
+	}
+
+	hadOriginal := false
+	var original []byte
+	if info, err := os.Lstat(configPath); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || info.IsDir() {
+			return fmt.Errorf("refusing to overwrite unsafe catch-all config")
+		}
+		data, readErr := os.ReadFile(configPath)
+		if readErr != nil {
+			return fmt.Errorf("failed to read existing catch-all config")
+		}
+		original = data
+		hadOriginal = true
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to inspect catch-all config")
+	}
+
+	hadEnabled := false
+	if info, err := os.Lstat(enabledPath); err == nil {
+		if info.Mode()&os.ModeSymlink == 0 {
+			return fmt.Errorf("refusing to overwrite non-symlink catch-all enable path")
+		}
+		hadEnabled = true
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to inspect catch-all enable path")
+	}
+
+	if err := writeConfigAtomic(configPath, []byte(content)); err != nil {
+		return err
+	}
+	if err := enableConfigName(securityCatchAllName); err != nil {
+		restoreSecurityCatchAll(configPath, enabledPath, original, hadOriginal, hadEnabled)
+		return err
+	}
+	if err := TestConfig(); err != nil {
+		restoreSecurityCatchAll(configPath, enabledPath, original, hadOriginal, hadEnabled)
+		return err
+	}
+	if err := ReloadNginx(); err != nil {
+		restoreSecurityCatchAll(configPath, enabledPath, original, hadOriginal, hadEnabled)
+		return err
+	}
+	return nil
+}
+
+func restoreSecurityCatchAll(configPath, enabledPath string, original []byte, hadOriginal, hadEnabled bool) {
+	if hadOriginal {
+		_ = writeConfigAtomic(configPath, original)
+	} else {
+		_ = os.Remove(configPath)
+	}
+	if !hadEnabled {
+		_ = os.Remove(enabledPath)
+	}
+}
+
+func writeConfigAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".")
+	if err != nil {
+		return fmt.Errorf("failed to create temp config")
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("failed to write temp config")
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("failed to chmod temp config")
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("failed to sync temp config")
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("failed to close temp config")
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("failed to install config")
+	}
+	cleanup = false
+	if dirHandle, err := os.Open(dir); err == nil {
+		_ = dirHandle.Sync()
+		_ = dirHandle.Close()
+	}
+	return nil
+}
+
+func enableConfigName(name string) error {
+	if !isValidConfigName(name) {
+		return fmt.Errorf("invalid config name")
+	}
+	availablePath := filepath.Join(sitesAvailableDir, name)
+	enabledPath := filepath.Join(sitesEnabledDir, name)
+	if !isWithinNginxDir(availablePath) || !isWithinNginxDir(enabledPath) {
+		return fmt.Errorf("path is outside nginx directory")
+	}
+	if _, err := os.Stat(availablePath); os.IsNotExist(err) {
+		return fmt.Errorf("site config not found")
+	}
+	if info, err := os.Lstat(enabledPath); err == nil {
+		if info.Mode()&os.ModeSymlink == 0 {
+			return fmt.Errorf("refusing to overwrite non-symlink at sites-enabled path")
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("lstat failed")
+	}
+
+	tmpLink := enabledPath + ".sp-tmp-link"
+	_ = os.Remove(tmpLink)
+	if err := os.Symlink(availablePath, tmpLink); err != nil {
+		return fmt.Errorf("failed to enable config")
+	}
+	if err := os.Rename(tmpLink, enabledPath); err != nil {
+		_ = os.Remove(tmpLink)
+		return fmt.Errorf("failed to enable config")
+	}
 	return nil
 }
 

@@ -98,6 +98,7 @@ type siteCreateRequest struct {
 	Domain       string `json:"domain"`
 	TemplateType string `json:"template_type"`
 	Port         int    `json:"port"`
+	IncludeWWW   bool   `json:"include_www"`
 }
 
 type siteUpdateDomainRequest struct {
@@ -106,6 +107,11 @@ type siteUpdateDomainRequest struct {
 	NewDomain     string `json:"new_domain"`
 	EnableSSL     *bool  `json:"enable_ssl,omitempty"`
 	RemoveOldCert *bool  `json:"remove_old_cert,omitempty"`
+}
+
+type siteWWWRequest struct {
+	Domain     string `json:"domain"`
+	ConfigName string `json:"config_name"`
 }
 
 // indexHTML caches the embedded index.html content at startup so we don't
@@ -686,7 +692,15 @@ func findCertbot() (string, error) {
 // certbotEnableArgs builds the certbot arguments for obtaining an SSL certificate.
 // If the config has an email, it uses --email; otherwise --register-unsafely-without-email.
 func (s *Server) certbotEnableArgs(certbotBin, domain string, redirect bool) []string {
-	args := []string{certbotBin, "--nginx", "-d", domain, "--non-interactive", "--agree-tos"}
+	return s.certbotEnableArgsForDomains(certbotBin, []string{domain}, redirect)
+}
+
+func (s *Server) certbotEnableArgsForDomains(certbotBin string, domains []string, redirect bool) []string {
+	args := []string{certbotBin, "--nginx"}
+	for _, domain := range domains {
+		args = append(args, "-d", domain)
+	}
+	args = append(args, "--non-interactive", "--agree-tos")
 	if s.config.Email != "" {
 		args = append(args, "--email", s.config.Email)
 	} else {
@@ -694,6 +708,9 @@ func (s *Server) certbotEnableArgs(certbotBin, domain string, redirect bool) []s
 	}
 	if redirect {
 		args = append(args, "--redirect")
+	}
+	if len(domains) > 1 {
+		args = append(args, "--expand")
 	}
 	return args
 }
@@ -1302,7 +1319,13 @@ func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := templates.ApplyTemplate(tmplType, req.Domain, req.Port); err != nil {
+	var err error
+	if req.IncludeWWW {
+		err = templates.ApplyTemplateWithWWW(tmplType, req.Domain, req.Port)
+	} else {
+		err = templates.ApplyTemplate(tmplType, req.Domain, req.Port)
+	}
+	if err != nil {
 		log.Printf("Error creating site %s: %v", req.Domain, err)
 		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to create site"})
 		return
@@ -1376,6 +1399,167 @@ func (s *Server) handleSiteDisable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{"message": "Site disabled: " + req.Domain}})
+}
+
+func (s *Server) handleSiteEnableWWW(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	var req siteWWWRequest
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	if !isValidDomain(req.Domain) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid domain format"})
+		return
+	}
+	if strings.HasPrefix(strings.ToLower(req.Domain), "www.") {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "domain already starts with www"})
+		return
+	}
+
+	configName := req.ConfigName
+	if configName == "" {
+		configName = req.Domain
+	}
+	if !isValidConfigName(configName) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid config name"})
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "streaming not supported"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	wwwDomain, err := nginx.WWWAliasForDomain(req.Domain)
+	if err != nil {
+		sseWriteLog(w, flusher, "ERROR: invalid domain")
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "invalid domain"})
+		return
+	}
+
+	sseWriteLog(w, flusher, "[Step 1/4] Updating nginx server_name for "+req.Domain+"...")
+	configPath, err := nginxSitePath("/etc/nginx/sites-available", configName)
+	if err != nil {
+		sseWriteLog(w, flusher, "ERROR: invalid config name")
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "invalid config name"})
+		return
+	}
+	site, err := nginx.ParseConfig(configPath)
+	if err != nil {
+		log.Printf("Error parsing site config %s: %v", configName, err)
+		sseWriteLog(w, flusher, "ERROR: failed to read nginx site")
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "failed to read site"})
+		return
+	}
+	content, err := nginx.ReadConfigContent(configName)
+	if err != nil {
+		log.Printf("Error reading site config %s: %v", configName, err)
+		sseWriteLog(w, flusher, "ERROR: failed to read nginx site")
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "failed to read site"})
+		return
+	}
+
+	updated, changed, err := nginx.AddWWWAliasToConfig(content, req.Domain)
+	if err != nil {
+		log.Printf("Error adding www alias for %s in %s: %v", req.Domain, configName, err)
+		sseWriteLog(w, flusher, "ERROR: failed to add www alias")
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "failed to add www alias"})
+		return
+	}
+	if !changed {
+		sseWriteLog(w, flusher, wwwDomain+" is already present in this site.")
+		sseWriteDone(w, flusher, map[string]interface{}{"success": true, "message": "www already enabled for " + req.Domain})
+		return
+	}
+
+	testOutput, err := nginx.WriteConfigContent(configName, updated, true)
+	if err != nil {
+		log.Printf("Nginx validation failed after adding www alias for %s in %s: %v", req.Domain, configName, err)
+		if testOutput != "" {
+			sseWriteLog(w, flusher, "ERROR: nginx validation failed")
+			sseWriteLog(w, flusher, testOutput)
+		} else {
+			sseWriteLog(w, flusher, "ERROR: nginx validation failed")
+		}
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "nginx validation failed"})
+		return
+	}
+	sseWriteLog(w, flusher, "Added "+wwwDomain+" to nginx config.")
+
+	if site.SSLEnabled {
+		sseWriteLog(w, flusher, "[Step 2/4] Expanding SSL certificate to include "+wwwDomain+"...")
+		certbotBin, err := findCertbot()
+		if err != nil {
+			sseWriteLog(w, flusher, "ERROR: "+err.Error())
+			sseWriteLog(w, flusher, "Reloading nginx with the www alias anyway; HTTPS for www still needs a valid certificate.")
+			if reloadErr := nginx.ReloadNginx(); reloadErr != nil {
+				log.Printf("Error reloading nginx after certbot lookup failed for %s: %v", req.Domain, reloadErr)
+				sseWriteLog(w, flusher, "WARNING: nginx reload failed after adding www alias.")
+			}
+			sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "certbot not found"})
+			return
+		}
+		sseWriteLog(w, flusher, "Using certbot: "+certbotBin)
+
+		certArgs := s.certbotEnableArgsForDomains(certbotBin, []string{req.Domain, wwwDomain}, true)
+		cmd := exec.Command(certArgs[0], certArgs[1:]...)
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			sseWriteLog(w, flusher, "ERROR: failed to create stdout pipe")
+			sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "failed to start certbot"})
+			return
+		}
+		cmd.Stderr = cmd.Stdout
+		if err := cmd.Start(); err != nil {
+			sseWriteLog(w, flusher, "ERROR: failed to start certbot")
+			sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "failed to start certbot"})
+			return
+		}
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			line := scanner.Text()
+			log.Printf("[certbot enable-www %s] %s", req.Domain, line)
+			sseWriteLog(w, flusher, line)
+		}
+		if err := scanner.Err(); err != nil {
+			sseWriteLog(w, flusher, "WARNING: certbot output read failed: "+err.Error())
+		}
+		if err := cmd.Wait(); err != nil {
+			sseWriteLog(w, flusher, "ERROR: certbot failed while expanding the certificate.")
+			sseWriteLog(w, flusher, "Reloading nginx with the www alias anyway; fix DNS/certbot issues and retry if HTTPS for www still fails.")
+			if reloadErr := nginx.ReloadNginx(); reloadErr != nil {
+				log.Printf("Error reloading nginx after certbot failed for %s: %v", req.Domain, reloadErr)
+				sseWriteLog(w, flusher, "WARNING: nginx reload failed after adding www alias.")
+			}
+			sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "certbot failed"})
+			return
+		}
+	} else {
+		sseWriteLog(w, flusher, "[Step 2/4] Site has no SSL certificate; skipping certbot.")
+	}
+
+	sseWriteLog(w, flusher, "[Step 3/4] Reloading nginx...")
+	if err := nginx.ReloadNginx(); err != nil {
+		log.Printf("Error reloading nginx after enabling www for %s: %v", req.Domain, err)
+		sseWriteLog(w, flusher, "ERROR: nginx reload failed")
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "nginx reload failed"})
+		return
+	}
+
+	sseWriteLog(w, flusher, "[Step 4/4] WWW enabled for "+req.Domain+"!")
+	sseWriteDone(w, flusher, map[string]interface{}{"success": true, "message": "www enabled for " + req.Domain})
 }
 
 func (s *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
@@ -2637,6 +2821,7 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 			"email":            s.config.Email,
 			"ssl_enabled":      s.config.SSLEnabled,
 			"insecure_blocked": s.config.InsecureBlocked,
+			"host_guard":       nginx.SecurityCatchAllEnabled(),
 			"mfa_enabled":      s.config.MFAEnabled,
 			"port":             s.port,
 			"session_max_sec":  int(auth.SessionMaxAge.Seconds()),
@@ -2945,6 +3130,33 @@ func (s *Server) handleSettingsBlockInsecure(w http.ResponseWriter, r *http.Requ
 			Data:    map[string]string{"message": "HTTP traffic blocked for " + domain + ". All requests redirect to HTTPS."},
 		})
 	}
+}
+
+// handleSettingsHostGuard installs a default nginx guard for unmatched hosts.
+func (s *Server) handleSettingsHostGuard(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	tlsGuard, err := nginx.InstallSecurityCatchAll()
+	if err != nil {
+		log.Printf("Error installing unmatched-host guard: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to install host guard"})
+		return
+	}
+
+	message := "Unknown host guard installed. Unmatched HTTP requests return a plain 404."
+	if tlsGuard {
+		message = "Unknown host guard installed. Unmatched HTTP requests return a plain 404 and unknown HTTPS hosts are rejected."
+	}
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"message":   message,
+			"tls_guard": tlsGuard,
+		},
+	})
 }
 
 // ── GD-App Handlers ──
