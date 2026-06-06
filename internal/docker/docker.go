@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -267,13 +269,8 @@ func GetContainerLogs(id string, tail int) (string, error) {
 // allow mutating Env on an existing container; changing Env still requires a
 // recreate flow. This helper is intentionally restart-only.
 func RestartContainer(id string) error {
-	if id == "" || len(id) > 128 {
-		return fmt.Errorf("invalid container ID format")
-	}
-	for _, c := range id {
-		if !((c >= 'a' && c <= 'f') || (c >= '0' && c <= '9')) {
-			return fmt.Errorf("invalid container ID format")
-		}
+	if err := validateContainerID(id); err != nil {
+		return err
 	}
 
 	dockerBin, err := deps.DockerPath()
@@ -293,6 +290,207 @@ func RestartContainer(id string) error {
 		return fmt.Errorf("failed to restart container: %w", err)
 	}
 	return nil
+}
+
+func validateContainerID(id string) error {
+	if id == "" || len(id) > 128 {
+		return fmt.Errorf("invalid container ID format")
+	}
+	for _, c := range id {
+		if !((c >= 'a' && c <= 'f') || (c >= '0' && c <= '9')) {
+			return fmt.Errorf("invalid container ID format")
+		}
+	}
+	return nil
+}
+
+// RecreateContainerWithEnv replaces a container with a new one using the same
+// image/runtime shape and the provided environment entries. It keeps the old
+// container renamed until the new docker run succeeds, then removes it. If the
+// run fails, it restores and starts the original container.
+func RecreateContainerWithEnv(id string, env []string) error {
+	if err := validateContainerID(id); err != nil {
+		return err
+	}
+	runtime, err := inspectRuntime(id)
+	if err != nil {
+		return err
+	}
+	name := strings.TrimPrefix(runtime.Name, "/")
+	if name == "" {
+		return fmt.Errorf("container has no name")
+	}
+	if len(runtime.Config.Entrypoint) > 1 {
+		return fmt.Errorf("container entrypoint cannot be safely recreated")
+	}
+
+	dockerBin, err := deps.DockerPath()
+	if err != nil {
+		return err
+	}
+	oldName := name + "-sp-env-old-" + strconv.FormatInt(time.Now().Unix(), 10)
+
+	if out, err := exec.Command(dockerBin, "stop", "--time", "10", "--", id).CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to stop container: %s", strings.TrimSpace(string(out)))
+	}
+	if out, err := exec.Command(dockerBin, "rename", id, oldName).CombinedOutput(); err != nil {
+		_ = exec.Command(dockerBin, "start", id).Run()
+		return fmt.Errorf("failed to stage old container: %s", strings.TrimSpace(string(out)))
+	}
+
+	image := runtime.Image
+	if image == "" {
+		image = runtime.Config.Image
+	}
+	args := buildRecreateRunArgs(runtime, name, image, env)
+	if out, err := exec.Command(dockerBin, args...).CombinedOutput(); err != nil {
+		_ = exec.Command(dockerBin, "rm", "-f", "--", name).Run()
+		_ = exec.Command(dockerBin, "rename", oldName, name).Run()
+		_ = exec.Command(dockerBin, "start", name).Run()
+		return fmt.Errorf("failed to run replacement container: %s", strings.TrimSpace(string(out)))
+	}
+
+	_ = exec.Command(dockerBin, "rm", "--", oldName).Run()
+	return nil
+}
+
+type containerRuntimeInspect struct {
+	ID     string `json:"Id"`
+	Image  string `json:"Image"`
+	Name   string `json:"Name"`
+	Config struct {
+		Image      string            `json:"Image"`
+		Env        []string          `json:"Env"`
+		Cmd        []string          `json:"Cmd"`
+		Entrypoint []string          `json:"Entrypoint"`
+		WorkingDir string            `json:"WorkingDir"`
+		User       string            `json:"User"`
+		Labels     map[string]string `json:"Labels"`
+	} `json:"Config"`
+	HostConfig struct {
+		NetworkMode   string `json:"NetworkMode"`
+		RestartPolicy struct {
+			Name              string `json:"Name"`
+			MaximumRetryCount int    `json:"MaximumRetryCount"`
+		} `json:"RestartPolicy"`
+	} `json:"HostConfig"`
+	Mounts []struct {
+		Type        string `json:"Type"`
+		Name        string `json:"Name"`
+		Source      string `json:"Source"`
+		Destination string `json:"Destination"`
+		RW          bool   `json:"RW"`
+	} `json:"Mounts"`
+	NetworkSettings struct {
+		Ports map[string][]struct {
+			HostIP   string `json:"HostIp"`
+			HostPort string `json:"HostPort"`
+		} `json:"Ports"`
+	} `json:"NetworkSettings"`
+}
+
+func inspectRuntime(id string) (containerRuntimeInspect, error) {
+	dockerBin, err := deps.DockerPath()
+	if err != nil {
+		return containerRuntimeInspect{}, err
+	}
+	out, err := exec.Command(dockerBin, "inspect", "--", id).Output()
+	if err != nil {
+		return containerRuntimeInspect{}, fmt.Errorf("failed to inspect container: %w", err)
+	}
+	var list []containerRuntimeInspect
+	if err := json.Unmarshal(out, &list); err != nil {
+		return containerRuntimeInspect{}, fmt.Errorf("failed to parse container inspect: %w", err)
+	}
+	if len(list) == 0 {
+		return containerRuntimeInspect{}, fmt.Errorf("container not found")
+	}
+	return list[0], nil
+}
+
+func buildRecreateRunArgs(runtime containerRuntimeInspect, name, image string, env []string) []string {
+	args := []string{"run", "-d", "--name", name}
+	if runtime.Config.User != "" {
+		args = append(args, "--user", runtime.Config.User)
+	}
+	if runtime.Config.WorkingDir != "" {
+		args = append(args, "--workdir", runtime.Config.WorkingDir)
+	}
+	if runtime.HostConfig.RestartPolicy.Name != "" && runtime.HostConfig.RestartPolicy.Name != "no" {
+		restart := runtime.HostConfig.RestartPolicy.Name
+		if restart == "on-failure" && runtime.HostConfig.RestartPolicy.MaximumRetryCount > 0 {
+			restart += ":" + strconv.Itoa(runtime.HostConfig.RestartPolicy.MaximumRetryCount)
+		}
+		args = append(args, "--restart", restart)
+	}
+	if runtime.HostConfig.NetworkMode != "" && runtime.HostConfig.NetworkMode != "default" && runtime.HostConfig.NetworkMode != "bridge" {
+		args = append(args, "--network", runtime.HostConfig.NetworkMode)
+	}
+	labelKeys := make([]string, 0, len(runtime.Config.Labels))
+	for k := range runtime.Config.Labels {
+		labelKeys = append(labelKeys, k)
+	}
+	sort.Strings(labelKeys)
+	for _, k := range labelKeys {
+		v := runtime.Config.Labels[k]
+		args = append(args, "--label", k+"="+v)
+	}
+	for _, item := range env {
+		args = append(args, "-e", item)
+	}
+	if networkModeAllowsPortPublish(runtime.HostConfig.NetworkMode) {
+		ports := make([]string, 0, len(runtime.NetworkSettings.Ports))
+		for port := range runtime.NetworkSettings.Ports {
+			ports = append(ports, port)
+		}
+		sort.Strings(ports)
+		for _, port := range ports {
+			bindings := runtime.NetworkSettings.Ports[port]
+			if len(bindings) == 0 {
+				continue
+			}
+			for _, b := range bindings {
+				if b.HostPort == "" {
+					continue
+				}
+				spec := b.HostPort + ":" + port
+				if b.HostIP != "" && b.HostIP != "0.0.0.0" && b.HostIP != "::" {
+					spec = b.HostIP + ":" + spec
+				}
+				args = append(args, "-p", spec)
+			}
+		}
+	}
+	for _, m := range runtime.Mounts {
+		mode := "ro"
+		if m.RW {
+			mode = "rw"
+		}
+		source := m.Source
+		if m.Type == "volume" && m.Name != "" {
+			source = m.Name
+		}
+		if source == "" || m.Destination == "" {
+			continue
+		}
+		args = append(args, "-v", source+":"+m.Destination+":"+mode)
+	}
+	if len(runtime.Config.Entrypoint) == 1 {
+		args = append(args, "--entrypoint", runtime.Config.Entrypoint[0])
+	}
+	args = append(args, image)
+	args = append(args, runtime.Config.Cmd...)
+	return args
+}
+
+func networkModeAllowsPortPublish(mode string) bool {
+	if mode == "" || mode == "default" || mode == "bridge" {
+		return true
+	}
+	if mode == "host" || mode == "none" || strings.HasPrefix(mode, "container:") {
+		return false
+	}
+	return true
 }
 
 // ClearContainerLogs truncates the container's log file so future calls to

@@ -295,7 +295,9 @@ type containerLogsClearRequest struct {
 }
 
 type containerReloadEnvRequest struct {
-	ID string `json:"id"`
+	ID       string `json:"id"`
+	App      string `json:"app"`
+	FileName string `json:"file_name"`
 }
 
 // handleContainerLogsClear truncates a container's log file. State-changing,
@@ -346,12 +348,33 @@ func (s *Server) handleContainerReloadEnv(w http.ResponseWriter, r *http.Request
 	}
 
 	id := strings.TrimSpace(req.ID)
+	req.App = strings.TrimSpace(req.App)
+	req.FileName = strings.TrimSpace(req.FileName)
 	if !containerIDRegex.MatchString(id) {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid container id"})
 		return
 	}
+	if req.App == "" || req.FileName == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "app and file_name are required"})
+		return
+	}
 
-	if err := docker.RestartContainer(id); err != nil {
+	envContent, err := apps.ReadEnvFilePlaintext(req.App, req.FileName)
+	if err != nil {
+		log.Printf("container reload env: read env app=%q file=%q: %v",
+			sanitizeLogField(req.App, 64), sanitizeLogField(req.FileName, 64), err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "failed to read environment file"})
+		return
+	}
+	env, err := apps.ParseEnvContent(envContent.Content)
+	if err != nil {
+		log.Printf("container reload env: parse env app=%q file=%q: %v",
+			sanitizeLogField(req.App, 64), sanitizeLogField(req.FileName, 64), err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid environment file"})
+		return
+	}
+
+	if err := docker.RecreateContainerWithEnv(id, env); err != nil {
 		log.Printf("container reload env (id=%s): %v", id, err)
 		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to reload container environment"})
 		return
@@ -359,7 +382,7 @@ func (s *Server) handleContainerReloadEnv(w http.ResponseWriter, r *http.Request
 
 	writeJSON(w, http.StatusOK, apiResponse{
 		Success: true,
-		Data:    map[string]string{"message": "container restarted"},
+		Data:    map[string]string{"message": "container recreated with selected environment"},
 	})
 }
 

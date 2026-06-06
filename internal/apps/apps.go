@@ -50,10 +50,41 @@ type EnvFileContent struct {
 	FileName string `json:"file_name"`
 	// Content is AES-256-GCM encrypted, then base64-encoded for JSON transport.
 	// The frontend must send the encrypted blob back for saving.
-	Content       string `json:"content"`
-	Encrypted     bool   `json:"encrypted"`
-	SizeBytes     int    `json:"size_bytes"`
-	LastModified  string `json:"last_modified,omitempty"`
+	Content      string `json:"content"`
+	Encrypted    bool   `json:"encrypted"`
+	SizeBytes    int    `json:"size_bytes"`
+	LastModified string `json:"last_modified,omitempty"`
+}
+
+var validEnvKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// ParseEnvContent parses the common dotenv subset used by managed app env
+// files into KEY=value entries suitable for Docker -e arguments.
+func ParseEnvContent(content string) ([]string, error) {
+	var out []string
+	for lineNo, raw := range strings.Split(content, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "export ")
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			return nil, fmt.Errorf("invalid env line %d", lineNo+1)
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if !validEnvKey.MatchString(key) {
+			return nil, fmt.Errorf("invalid env key on line %d", lineNo+1)
+		}
+		if len(value) >= 2 {
+			if (value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'') {
+				value = value[1 : len(value)-1]
+			}
+		}
+		out = append(out, key+"="+value)
+	}
+	return out, nil
 }
 
 // registry holds the list of managed apps.

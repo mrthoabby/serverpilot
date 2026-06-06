@@ -2341,6 +2341,33 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   </div>
 </div>
 
+<!-- Reload Container Environment Modal -->
+<div class="modal-overlay" id="reloadEnvModal">
+  <div class="modal" style="max-width: 520px;">
+    <h3>Reload environment</h3>
+    <p class="modal-sub" id="reloadEnvModalSub">Recreate this container with a managed app environment file.</p>
+    <form id="reloadEnvForm">
+      <input type="hidden" id="reloadEnvContainerId">
+      <input type="hidden" id="reloadEnvContainerName">
+      <div class="form-group">
+        <label for="reloadEnvApp">Application</label>
+        <select id="reloadEnvApp" required></select>
+      </div>
+      <div class="form-group">
+        <label for="reloadEnvFile">Environment file</label>
+        <select id="reloadEnvFile" required></select>
+      </div>
+      <p style="font-size:0.76rem;color:var(--text-muted);line-height:1.45;margin-bottom:1rem;">
+        This stops the current container, recreates it with the selected environment, and restores the old container if Docker cannot start the replacement.
+      </p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="reloadEnvCancelBtn">Cancel</button>
+        <button type="submit" class="btn btn-warning" id="reloadEnvSubmitBtn">Reload Env</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Confirm Modal -->
 <div class="modal-overlay" id="confirmModal">
   <div class="modal">
@@ -2726,9 +2753,18 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       var resp = await apiFetch("/api/container-replicas");
       containerReplicas = (resp && resp.data) ? resp.data : [];
       if (!Array.isArray(containerReplicas)) containerReplicas = [];
+      applyReplicaLabels();
     } catch(e) {
       containerReplicas = [];
     }
+  }
+
+  function applyReplicaLabels() {
+    containerReplicas.forEach(function(r) {
+      if (r && r.name && r.template_type) {
+        containerLabels[r.name] = r.template_type;
+      }
+    });
   }
 
   async function setContainerLabel(containerName, label) {
@@ -2759,6 +2795,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       var results = await Promise.all([apiFetch("/api/containers"), loadLabels(), loadReplicas()]);
       var resp = results[0];
       containers = (resp && resp.data) ? resp.data : (Array.isArray(resp) ? resp : []);
+      applyReplicaLabels();
       setText(document.getElementById("containerCount"), String(containers.length));
       renderContainers(wrap);
       updateTabTimestamp("containers");
@@ -2812,6 +2849,17 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         protocol: replica.protocol || "tcp"
       }]
     };
+  }
+
+  function associateButtonText(templateType) {
+    switch (templateType) {
+      case "api": return "Associate API";
+      case "nextjs": return "Associate Next.js";
+      case "frontend": return "Associate Frontend";
+      case "minio": return "Associate MinIO";
+      case "gd-app": return "Associate GD-App";
+      default: return "Associate Site";
+    }
   }
 
   function renderContainers(wrap) {
@@ -2965,7 +3013,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       reloadEnvBtn.className = "btn btn-sm btn-outline";
       reloadEnvBtn.style.marginRight = "0.5rem";
       setText(reloadEnvBtn, "Reload env");
-      reloadEnvBtn.title = "Restart this container so its process reloads the Docker-configured environment.";
+      reloadEnvBtn.title = "Recreate this container with a selected managed app environment file.";
       (function(container) {
         reloadEnvBtn.addEventListener("click", function() {
           reloadContainerEnv(container);
@@ -3177,7 +3225,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     reloadEnvBtn.style.marginRight = "0.5rem";
     setText(reloadEnvBtn, "Reload env");
     reloadEnvBtn.disabled = !replica.container_id;
-    reloadEnvBtn.title = "Restart this replica so its process reloads the Docker-configured environment.";
+    reloadEnvBtn.title = "Recreate this replica with a selected managed app environment file.";
     reloadEnvBtn.addEventListener("click", function() { reloadContainerEnv(containerForReplica(replica)); });
     tdAct.appendChild(reloadEnvBtn);
 
@@ -3188,14 +3236,15 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     editBtn.addEventListener("click", function() { editReplicaMeta(replica); });
     tdAct.appendChild(editBtn);
 
-    if ((replica.template_type || "back") !== "back") {
+    var replicaTemplate = replica.template_type || "back";
+    if (replicaTemplate !== "back") {
       var assocBtn = document.createElement("button");
       assocBtn.className = "btn btn-sm btn-primary";
       assocBtn.style.marginRight = "0.5rem";
-      setText(assocBtn, replica.domain ? "Associated" : "Associate Site");
+      setText(assocBtn, replica.domain ? "Associated" : associateButtonText(replicaTemplate));
       assocBtn.disabled = !!replica.domain;
       assocBtn.addEventListener("click", function() {
-        openAssociateModal(containerForReplica(replica), replica.template_type || "api");
+        openAssociateModal(containerForReplica(replica), replicaTemplate || "api");
       });
       tdAct.appendChild(assocBtn);
     }
@@ -3364,7 +3413,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         body: { name: replica.name, alias: alias.trim(), template_type: template.trim() }
       });
       showToast("Replica metadata updated", "success");
-      await Promise.all([loadReplicas(), loadContainers()]);
+      await Promise.all([loadReplicas(), loadMappings(), loadSites(), loadContainers()]);
     } catch(err) {
       showToast("Failed to update replica: " + err.message, "error");
     }
@@ -4095,28 +4144,105 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
   }
 
+  var _reloadEnvApps = [];
+
   async function reloadContainerEnv(container) {
     if (!container || !container.id) {
       showToast("Container id not available", "error");
       return;
     }
+    document.getElementById("reloadEnvContainerId").value = container.id;
+    document.getElementById("reloadEnvContainerName").value = container.name || "";
+    setText(document.getElementById("reloadEnvModalSub"), "Recreate \"" + (container.name || "container") + "\" with a managed app environment file.");
+    await populateReloadEnvApps();
+    document.getElementById("reloadEnvModal").classList.add("show");
+  }
+
+  async function populateReloadEnvApps() {
+    var appSel = document.getElementById("reloadEnvApp");
+    var fileSel = document.getElementById("reloadEnvFile");
+    var submitBtn = document.getElementById("reloadEnvSubmitBtn");
+    appSel.innerHTML = "";
+    fileSel.innerHTML = "";
+    submitBtn.disabled = true;
+    try {
+      var resp = await apiFetch("/api/managed-apps");
+      _reloadEnvApps = (resp && resp.data) ? resp.data : [];
+      if (!Array.isArray(_reloadEnvApps)) _reloadEnvApps = [];
+    } catch(err) {
+      showToast("Failed to load applications: " + err.message, "error");
+      _reloadEnvApps = [];
+    }
+    _reloadEnvApps = _reloadEnvApps.filter(function(app) {
+      return app && app.name && app.env_files && app.env_files.length;
+    });
+    if (!_reloadEnvApps.length) {
+      var opt = document.createElement("option");
+      opt.value = "";
+      setText(opt, "No apps with .env files");
+      appSel.appendChild(opt);
+      return;
+    }
+    submitBtn.disabled = false;
+    _reloadEnvApps.forEach(function(app) {
+      var opt = document.createElement("option");
+      opt.value = app.name;
+      setText(opt, app.name);
+      appSel.appendChild(opt);
+    });
+    updateReloadEnvFiles();
+  }
+
+  function updateReloadEnvFiles() {
+    var appName = document.getElementById("reloadEnvApp").value;
+    var fileSel = document.getElementById("reloadEnvFile");
+    fileSel.innerHTML = "";
+    var app = _reloadEnvApps.find(function(a) { return a.name === appName; });
+    ((app && app.env_files) || []).forEach(function(fileName) {
+      var opt = document.createElement("option");
+      opt.value = fileName;
+      setText(opt, fileName);
+      fileSel.appendChild(opt);
+    });
+  }
+
+  document.getElementById("reloadEnvApp").addEventListener("change", updateReloadEnvFiles);
+  document.getElementById("reloadEnvCancelBtn").addEventListener("click", function() {
+    document.getElementById("reloadEnvModal").classList.remove("show");
+  });
+  document.getElementById("reloadEnvModal").addEventListener("click", function(e) {
+    if (e.target === document.getElementById("reloadEnvModal")) {
+      document.getElementById("reloadEnvModal").classList.remove("show");
+    }
+  });
+  document.getElementById("reloadEnvForm").addEventListener("submit", async function(e) {
+    e.preventDefault();
+    var id = document.getElementById("reloadEnvContainerId").value;
+    var name = document.getElementById("reloadEnvContainerName").value;
+    var appName = document.getElementById("reloadEnvApp").value;
+    var fileName = document.getElementById("reloadEnvFile").value;
+    if (!appName || !fileName) {
+      showToast("Choose an application environment", "error");
+      return;
+    }
+    document.getElementById("reloadEnvModal").classList.remove("show");
     confirmAction(
       "Reload environment",
-      "This restarts \"" + container.name + "\" so its process reloads the Docker-configured environment. Docker cannot apply new env values without recreating the container. Continue?",
+      "This recreates \"" + name + "\" with " + appName + "/" + fileName + ". The container will briefly stop. Continue?",
       async function() {
         try {
           await apiFetch("/api/containers/reload-env", {
             method: "POST",
-            body: { id: container.id }
+            body: { id: id, app: appName, file_name: fileName }
           });
-          showToast("Container restarted: " + container.name, "success");
+          showToast("Container recreated with " + fileName + ": " + name, "success");
           await Promise.all([loadContainers(), loadMappings()]);
         } catch(err) {
           showToast("Failed to reload env: " + err.message, "error");
         }
       }
     );
-  }
+  });
 
   document.getElementById("containerLogsCloseBtn").addEventListener("click", closeContainerLogsModal);
   document.getElementById("containerLogsRefreshBtn").addEventListener("click", function() {

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/mrthoabby/serverpilot/internal/deps"
+	"github.com/mrthoabby/serverpilot/internal/labels"
 	"github.com/mrthoabby/serverpilot/internal/nginx"
 	"github.com/mrthoabby/serverpilot/internal/portalloc"
 )
@@ -223,6 +224,7 @@ func List() ([]Replica, error) {
 		if domain := findDomainByPort(reg.Replicas[i].HostPort); domain != "" {
 			reg.Replicas[i].Domain = domain
 		}
+		_ = syncReplicaLabel(reg.Replicas[i])
 	}
 	_ = saveRegistry(reg)
 	return append([]Replica(nil), reg.Replicas...), nil
@@ -315,10 +317,17 @@ func Create(req CreateRequest, progress Progress) (*Replica, error) {
 		UpdatedAt:         now,
 	}
 	reg.Replicas = append(reg.Replicas, replica)
+	if err := syncReplicaLabel(replica); err != nil {
+		_ = dockerRemove(req.Name, true)
+		_ = dockerRemoveImage(image)
+		_ = os.RemoveAll(dataDir)
+		return nil, err
+	}
 	if err := saveRegistry(reg); err != nil {
 		_ = dockerRemove(req.Name, true)
 		_ = dockerRemoveImage(image)
 		_ = os.RemoveAll(dataDir)
+		_ = labels.Remove(replica.Name)
 		return nil, err
 	}
 	return &replica, nil
@@ -431,6 +440,7 @@ func Sync(req SyncRequest, progress Progress) (*Replica, error) {
 	if err := saveRegistry(reg); err != nil {
 		return nil, err
 	}
+	_ = syncReplicaLabel(old)
 	return &old, nil
 }
 
@@ -458,6 +468,7 @@ func Delete(req DeleteRequest, progress Progress) error {
 		_ = os.RemoveAll(rep.DataDir)
 	}
 	reg.Replicas = append(reg.Replicas[:idx], reg.Replicas[idx+1:]...)
+	_ = labels.Remove(rep.Name)
 	return saveRegistry(reg)
 }
 
@@ -479,14 +490,31 @@ func Update(req UpdateRequest) (*Replica, error) {
 	if idx < 0 {
 		return nil, fmt.Errorf("replica not found")
 	}
+	previous := reg.Replicas[idx]
 	reg.Replicas[idx].Alias = req.Alias
 	reg.Replicas[idx].TemplateType = req.TemplateType
 	reg.Replicas[idx].UpdatedAt = time.Now().UTC()
 	if err := saveRegistry(reg); err != nil {
 		return nil, err
 	}
+	if err := syncReplicaLabel(reg.Replicas[idx]); err != nil {
+		reg.Replicas[idx] = previous
+		_ = saveRegistry(reg)
+		_ = syncReplicaLabel(previous)
+		return nil, err
+	}
 	rep := reg.Replicas[idx]
 	return &rep, nil
+}
+
+func syncReplicaLabel(rep Replica) error {
+	if rep.Name == "" {
+		return fmt.Errorf("replica name is required")
+	}
+	if !labels.ValidLabel(rep.TemplateType) {
+		return fmt.Errorf("invalid replica label")
+	}
+	return labels.Set(rep.Name, labels.Label(rep.TemplateType))
 }
 
 func Fingerprint(in inspectData) (string, error) {
