@@ -2306,23 +2306,20 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
           <input type="text" id="replicaAlias" required placeholder="go-up">
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
-        <div class="form-group">
-          <label for="replicaTemplate">Nginx template</label>
-          <select id="replicaTemplate">
-            <option value="api">API</option>
-            <option value="nestjs">NestJS</option>
-            <option value="nextjs">Next.js</option>
-            <option value="frontend">Frontend / SPA</option>
-            <option value="minio">MinIO</option>
-            <option value="gd-app">GD-App</option>
-            <option value="back">Back / no publish</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="replicaHostPort">Host port</label>
-          <input type="number" id="replicaHostPort" min="1" max="65535" placeholder="auto">
-        </div>
+      <div class="form-group">
+        <label for="replicaTemplate">Nginx template</label>
+        <select id="replicaTemplate">
+          <option value="api">API</option>
+          <option value="nestjs">NestJS</option>
+          <option value="nextjs">Next.js</option>
+          <option value="frontend">Frontend / SPA</option>
+          <option value="minio">MinIO</option>
+          <option value="gd-app">GD-App</option>
+          <option value="back">Back / no publish</option>
+        </select>
+        <p style="font-size:0.72rem;color:var(--text-muted);line-height:1.45;margin-top:6px;">
+          Host port is assigned automatically from the ServerPilot port registry and remains reserved for this replica.
+        </p>
       </div>
       <div class="form-group">
         <label>Environment variables</label>
@@ -2854,11 +2851,21 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   function associateButtonText(templateType) {
     switch (templateType) {
       case "api": return "Associate API";
+      case "nestjs": return "Associate NestJS";
       case "nextjs": return "Associate Next.js";
       case "frontend": return "Associate Frontend";
       case "minio": return "Associate MinIO";
       case "gd-app": return "Associate GD-App";
       default: return "Associate Site";
+    }
+  }
+
+  function openSitesTab() {
+    var btn = document.querySelector('.tab-btn[data-tab="sites"]');
+    if (btn) {
+      btn.click();
+    } else {
+      loadSites();
     }
   }
 
@@ -3226,22 +3233,18 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     reloadEnvBtn.addEventListener("click", function() { reloadContainerEnv(containerForReplica(replica)); });
     tdAct.appendChild(reloadEnvBtn);
 
-    var editBtn = document.createElement("button");
-    editBtn.className = "btn btn-sm btn-outline";
-    editBtn.style.marginRight = "0.5rem";
-    setText(editBtn, "Set label/template");
-    editBtn.addEventListener("click", function() { editReplicaMeta(replica); });
-    tdAct.appendChild(editBtn);
-
     var replicaTemplate = replica.template_type || "back";
     if (replicaTemplate !== "back") {
       var assocBtn = document.createElement("button");
       assocBtn.className = "btn btn-sm btn-primary";
       assocBtn.style.marginRight = "0.5rem";
-      setText(assocBtn, replica.domain ? "Associated" : associateButtonText(replicaTemplate));
-      assocBtn.disabled = !!replica.domain;
+      setText(assocBtn, replica.domain ? "Manage Site" : associateButtonText(replicaTemplate));
       assocBtn.addEventListener("click", function() {
-        openAssociateModal(containerForReplica(replica), replicaTemplate || "api");
+        if (replica.domain) {
+          openSitesTab();
+        } else {
+          openAssociateModal(containerForReplica(replica), replicaTemplate || "api");
+        }
       });
       tdAct.appendChild(assocBtn);
     }
@@ -3302,6 +3305,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
   function envRow(key, value, sensitive) {
     var row = document.createElement("div");
+    row.className = "replica-env-row";
     row.style.display = "grid";
     row.style.gridTemplateColumns = "160px 1fr 64px";
     row.style.gap = "6px";
@@ -3333,16 +3337,21 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   function renderReplicaEnv(env) {
     var list = document.getElementById("replicaEnvList");
     list.innerHTML = "";
+    renderReplicaEnvRows(list, env);
+  }
+
+  function renderReplicaEnvRows(container, env) {
+    container.innerHTML = "";
     (env || []).forEach(function(e) {
-      list.appendChild(envRow(e.key || "", e.value || "", !!e.sensitive));
+      container.appendChild(envRow(e.key || "", e.value || "", !!e.sensitive));
     });
-    if (!list.children.length) {
-      list.appendChild(envRow("", "", false));
+    if (!container.children.length) {
+      container.appendChild(envRow("", "", false));
     }
   }
 
   function collectReplicaEnv() {
-    var rows = document.querySelectorAll("#replicaEnvList > div");
+    var rows = document.querySelectorAll("#replicaEnvList .replica-env-row");
     var env = [];
     rows.forEach(function(row) {
       var k = row.querySelector(".replica-env-key");
@@ -3351,6 +3360,147 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       if (key) env.push(key + "=" + (v ? v.value : ""));
     });
     return env;
+  }
+
+  function envArrayToMap(env) {
+    var out = {};
+    (env || []).forEach(function(e) {
+      if (!e || !e.key) return;
+      out[e.key] = {
+        key: e.key,
+        value: e.value || "",
+        sensitive: !!e.sensitive
+      };
+    });
+    return out;
+  }
+
+  function envFingerprint(env) {
+    return (env || []).map(function(e) {
+      return (e.key || "") + "=" + (e.value || "");
+    }).sort().join("\n");
+  }
+
+  function envDisplayValue(entry) {
+    if (!entry) return "(missing)";
+    if (entry.sensitive) return "******";
+    return entry.value === "" ? "(empty)" : entry.value;
+  }
+
+  function renderReplicaSyncEnv(parentEnv, replicaEnv) {
+    var list = document.getElementById("replicaEnvList");
+    list.innerHTML = "";
+
+    parentEnv = parentEnv || [];
+    replicaEnv = replicaEnv || [];
+    var identical = envFingerprint(parentEnv) === envFingerprint(replicaEnv);
+
+    var toolbar = document.createElement("div");
+    toolbar.style.display = "flex";
+    toolbar.style.flexWrap = "wrap";
+    toolbar.style.gap = "8px";
+    toolbar.style.alignItems = "center";
+    toolbar.style.marginBottom = "10px";
+
+    var status = document.createElement("span");
+    status.className = identical ? "badge badge-running" : "badge badge-warning";
+    setText(status, identical ? "Env iguales" : "Env diferentes");
+    toolbar.appendChild(status);
+
+    var keepBtn = document.createElement("button");
+    keepBtn.type = "button";
+    keepBtn.className = "btn btn-sm btn-outline";
+    setText(keepBtn, "Conservar actual");
+    toolbar.appendChild(keepBtn);
+
+    var parentBtn = document.createElement("button");
+    parentBtn.type = "button";
+    parentBtn.className = "btn btn-sm btn-primary";
+    setText(parentBtn, "Tomar del padre");
+    toolbar.appendChild(parentBtn);
+    list.appendChild(toolbar);
+
+    var compare = document.createElement("div");
+    compare.style.border = "1px solid var(--border)";
+    compare.style.borderRadius = "6px";
+    compare.style.overflow = "hidden";
+    compare.style.marginBottom = "10px";
+
+    var header = document.createElement("div");
+    header.style.display = "grid";
+    header.style.gridTemplateColumns = "150px 1fr 1fr 90px";
+    header.style.gap = "8px";
+    header.style.padding = "6px 8px";
+    header.style.borderBottom = "1px solid var(--border)";
+    header.style.background = "var(--bg-input)";
+    header.style.fontSize = "0.68rem";
+    header.style.fontWeight = "700";
+    ["KEY", "REPLICA ACTUAL", "PADRE", "ESTADO"].forEach(function(text) {
+      var cell = document.createElement("div");
+      cell.style.color = "var(--text-muted)";
+      setText(cell, text);
+      header.appendChild(cell);
+    });
+    compare.appendChild(header);
+
+    var currentMap = envArrayToMap(replicaEnv);
+    var parentMap = envArrayToMap(parentEnv);
+    var keys = {};
+    Object.keys(currentMap).forEach(function(k) { keys[k] = true; });
+    Object.keys(parentMap).forEach(function(k) { keys[k] = true; });
+    Object.keys(keys).sort().forEach(function(key) {
+      var row = document.createElement("div");
+      row.style.display = "grid";
+      row.style.gridTemplateColumns = "150px 1fr 1fr 90px";
+      row.style.gap = "8px";
+      row.style.padding = "6px 8px";
+      row.style.borderBottom = "1px solid var(--border)";
+      row.style.fontSize = "0.72rem";
+
+      var cur = currentMap[key];
+      var par = parentMap[key];
+      var same = !!cur && !!par && cur.value === par.value;
+      [key, envDisplayValue(cur), envDisplayValue(par), same ? "igual" : "cambia"].forEach(function(text, idx) {
+        var cell = document.createElement("div");
+        cell.style.color = idx === 3 ? (same ? "var(--green)" : "#d29922") : "var(--text-secondary)";
+        if (idx === 0) {
+          cell.style.color = "var(--text-primary)";
+          cell.style.fontFamily = '"SF Mono","Fira Code",monospace';
+        }
+        setText(cell, text);
+        row.appendChild(cell);
+      });
+      compare.appendChild(row);
+    });
+    if (compare.children.length === 1) {
+      var empty = document.createElement("div");
+      empty.style.padding = "8px";
+      empty.style.color = "var(--text-muted)";
+      setText(empty, "No environment variables found on replica or parent.");
+      compare.appendChild(empty);
+    }
+    list.appendChild(compare);
+
+    var selectedLabel = document.createElement("div");
+    selectedLabel.style.fontSize = "0.72rem";
+    selectedLabel.style.color = "var(--text-muted)";
+    selectedLabel.style.margin = "8px 0 6px";
+    list.appendChild(selectedLabel);
+
+    var editable = document.createElement("div");
+    list.appendChild(editable);
+
+    function choose(which) {
+      var chosen = which === "parent" ? parentEnv : replicaEnv;
+      keepBtn.className = which === "current" ? "btn btn-sm btn-primary" : "btn btn-sm btn-outline";
+      parentBtn.className = which === "parent" ? "btn btn-sm btn-primary" : "btn btn-sm btn-outline";
+      setText(selectedLabel, which === "parent" ? "Environment selected: parent" : "Environment selected: current replica");
+      renderReplicaEnvRows(editable, chosen);
+    }
+
+    keepBtn.addEventListener("click", function() { choose("current"); });
+    parentBtn.addEventListener("click", function() { choose("parent"); });
+    choose(identical ? "parent" : "current");
   }
 
   function renderReplicaMounts(mounts) {
@@ -3387,8 +3537,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       document.getElementById("replicaAlias").disabled = false;
       document.getElementById("replicaTemplate").value = _replicaPreview.template_type || "api";
       document.getElementById("replicaTemplate").disabled = false;
-      document.getElementById("replicaHostPort").value = "";
-      document.getElementById("replicaHostPort").disabled = false;
       setText(document.getElementById("replicaSubmitBtn"), "Create Replica");
       renderReplicaEnv(_replicaPreview.env || []);
       renderReplicaMounts(_replicaPreview.mounts || []);
@@ -3404,7 +3552,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       _replicaSyncName = replica.name;
       var parent = containers.find(function(c) { return c.name === replica.parent_name || c.id === replica.parent_id; });
       var parentID = parent ? parent.id : replica.parent_id;
-      var resp = await apiFetch("/api/container-replicas/preview", { method: "POST", body: { parent_id: parentID } });
+      var resp = await apiFetch("/api/container-replicas/preview", { method: "POST", body: { parent_id: parentID, replica_name: replica.name } });
       _replicaPreview = (resp && resp.data) || {};
       document.querySelector("#replicaModal h3").textContent = "Sync Replica";
       setText(document.getElementById("replicaModalSub"), "Reclone \"" + replica.name + "\" from parent \"" + replica.parent_name + "\" using blue-green replacement.");
@@ -3415,10 +3563,8 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       document.getElementById("replicaAlias").disabled = true;
       document.getElementById("replicaTemplate").value = replica.template_type || "api";
       document.getElementById("replicaTemplate").disabled = true;
-      document.getElementById("replicaHostPort").value = replica.host_port || "";
-      document.getElementById("replicaHostPort").disabled = true;
       setText(document.getElementById("replicaSubmitBtn"), "Sync Replica");
-      renderReplicaEnv(_replicaPreview.env || []);
+      renderReplicaSyncEnv(_replicaPreview.env || [], _replicaPreview.replica_env || []);
       renderReplicaMounts(_replicaPreview.mounts || []);
       document.getElementById("replicaModal").classList.add("show");
     } catch(err) {
@@ -3431,26 +3577,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   }
 
   function deleteReplica(replica) {
-    confirmAction("Delete Replica", "Remove replica " + replica.name + " and its independent data folder? Nginx sites are not deleted automatically.", function() {
+    confirmAction("Delete Replica", "Remove replica " + replica.name + ", its Nginx sites, SSL certificate if present, snapshot image, port reservation, and independent data folder?", function() {
       runStreamedOperation("/api/container-replicas/delete", { name: replica.name }, "Deleting Replica", replica.name);
     });
-  }
-
-  async function editReplicaMeta(replica) {
-    var alias = window.prompt("Visible label for " + replica.name, replica.alias || "");
-    if (!alias) return;
-    var template = window.prompt("Nginx template (api, nestjs, nextjs, frontend, minio, gd-app, back)", replica.template_type || "api");
-    if (!template) return;
-    try {
-      await apiFetch("/api/container-replicas/update", {
-        method: "POST",
-        body: { name: replica.name, alias: alias.trim(), template_type: template.trim() }
-      });
-      showToast("Replica metadata updated", "success");
-      await Promise.all([loadReplicas(), loadMappings(), loadSites(), loadContainers()]);
-    } catch(err) {
-      showToast("Failed to update replica: " + err.message, "error");
-    }
   }
 
   document.getElementById("replicaAddEnvBtn").addEventListener("click", function() {
@@ -3478,13 +3607,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       }, "Syncing Replica", _replicaSyncName + " — blue-green replacement");
       return;
     }
-    var hostPortRaw = document.getElementById("replicaHostPort").value.trim();
     runStreamedOperation("/api/container-replicas/create", {
       parent_id: document.getElementById("replicaParentId").value,
       name: document.getElementById("replicaName").value.trim(),
       alias: document.getElementById("replicaAlias").value.trim(),
       template_type: document.getElementById("replicaTemplate").value,
-      host_port: hostPortRaw ? parseInt(hostPortRaw, 10) : 0,
       env: env
     }, "Creating Replica", document.getElementById("replicaName").value.trim());
   });
@@ -3493,9 +3620,26 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   async function loadSites() {
     var wrap = document.getElementById("sitesContent");
     try {
-      var resp = await apiFetch("/api/sites");
+      var results = await Promise.all([
+        apiFetch("/api/sites"),
+        apiFetch("/api/containers"),
+        apiFetch("/api/mappings"),
+        loadLabels(),
+        loadReplicas()
+      ]);
+      var resp = results[0];
+      var containersResp = results[1];
+      var mappingsResp = results[2];
       sites = (resp && resp.data) ? resp.data : (Array.isArray(resp) ? resp : []);
-      setText(document.getElementById("siteCount"), String(sites.length));
+      containers = (containersResp && containersResp.data) ? containersResp.data : (Array.isArray(containersResp) ? containersResp : []);
+      var mappingsData = (mappingsResp && mappingsResp.data) ? mappingsResp.data : mappingsResp;
+      mappings = {
+        mapped: (mappingsData && mappingsData.mapped) || [],
+        unmappedContainers: (mappingsData && mappingsData.unmappedContainers) || [],
+        orphanedSites: (mappingsData && mappingsData.orphanedSites) || []
+      };
+      applyReplicaLabels();
+      setText(document.getElementById("siteCount"), String(sites.length + engineSiteCandidates().length));
       renderSites(wrap);
       updateTabTimestamp("sites");
     } catch(err) {
@@ -3509,9 +3653,81 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
   }
 
+  function siteProxyPort(site) {
+    var proxy = (site && site.proxy_pass) || "";
+    var m = proxy.match(/:(\d+)(?:\/|$)/);
+    return m ? m[1] : "";
+  }
+
+  function mappingForSite(site) {
+    var port = siteProxyPort(site);
+    for (var i = 0; i < mappings.mapped.length; i++) {
+      var m = mappings.mapped[i];
+      if (site.domain && m.nginx_domain === site.domain) return m;
+      if (port && String(m.container_port) === String(port)) return m;
+    }
+    return null;
+  }
+
+  function containerByName(name) {
+    for (var i = 0; i < containers.length; i++) {
+      if (containers[i].name === name) return containers[i];
+    }
+    return null;
+  }
+
+  function engineSiteCandidates() {
+    var mappedNames = {};
+    (mappings.mapped || []).forEach(function(m) {
+      if (m.container_name) mappedNames[m.container_name] = true;
+    });
+    var out = [];
+    (containers || []).forEach(function(c) {
+      var label = containerLabels[c.name] || "";
+      if (!label || label === "back" || mappedNames[c.name]) return;
+      var port = "";
+      if (c.ports && c.ports.length) {
+        for (var i = 0; i < c.ports.length; i++) {
+          if (c.ports[i].host_port) {
+            port = String(c.ports[i].host_port);
+            break;
+          }
+        }
+      }
+      if (!port) return;
+      out.push({ container: c, label: label, host_port: port });
+    });
+    out.sort(function(a,b) { return String(a.container.name).localeCompare(String(b.container.name)); });
+    return out;
+  }
+
+  function appendEngineCell(tr, mapping, fallbackName) {
+    var td = document.createElement("td");
+    if (!mapping && !fallbackName) {
+      setText(td, "-");
+      td.style.color = "var(--text-muted)";
+      tr.appendChild(td);
+      return;
+    }
+    var name = mapping ? mapping.container_name : fallbackName;
+    var label = containerLabels[name] || "";
+    if (label) {
+      var badge = document.createElement("span");
+      badge.className = "label-badge label-badge-" + label.replace(/[^a-z-]/g, "");
+      setText(badge, label);
+      td.appendChild(badge);
+      td.appendChild(document.createTextNode(" "));
+    }
+    var s = document.createElement("strong");
+    setText(s, name);
+    td.appendChild(s);
+    tr.appendChild(td);
+  }
+
   function renderSites(wrap) {
     wrap.innerHTML = "";
-    if (!sites.length) {
+    var pendingEngines = engineSiteCandidates();
+    if (!sites.length && !pendingEngines.length) {
       var em = document.createElement("div");
       em.className = "empty-state";
       var p = document.createElement("p");
@@ -3526,7 +3742,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     var thead = document.createElement("thead");
     var trh = document.createElement("tr");
-    ["Domain", "Port", "Proxy Pass", "SSL", "Auto-Renew", "Status", "Actions"].forEach(function(h) {
+    ["Domain", "Engine", "Port", "Proxy Pass", "SSL", "Auto-Renew", "Status", "Actions"].forEach(function(h) {
       var th = document.createElement("th");
       setText(th, h);
       trh.appendChild(th);
@@ -3537,6 +3753,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var tbody = document.createElement("tbody");
     sites.forEach(function(s) {
       var tr = document.createElement("tr");
+      var siteMapping = mappingForSite(s);
 
       // Domain
       var tdDomain = document.createElement("td");
@@ -3544,6 +3761,8 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       setText(domStrong, s.domain);
       tdDomain.appendChild(domStrong);
       tr.appendChild(tdDomain);
+
+      appendEngineCell(tr, siteMapping, "");
 
       // Port
       var tdPort = document.createElement("td");
@@ -3701,6 +3920,63 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       })(s);
       tdAct.appendChild(deleteBtn);
 
+      tr.appendChild(tdAct);
+      tbody.appendChild(tr);
+    });
+
+    pendingEngines.forEach(function(candidate) {
+      var tr = document.createElement("tr");
+      tr.style.background = "rgba(210,153,34,0.055)";
+
+      var tdDomain = document.createElement("td");
+      setText(tdDomain, "Not created");
+      tdDomain.style.color = "var(--text-muted)";
+      tr.appendChild(tdDomain);
+
+      appendEngineCell(tr, null, candidate.container.name);
+
+      var tdPort = document.createElement("td");
+      var ptag = document.createElement("span");
+      ptag.className = "port-tag";
+      setText(ptag, candidate.host_port);
+      tdPort.appendChild(ptag);
+      tr.appendChild(tdPort);
+
+      var tdProxy = document.createElement("td");
+      var proxyCode = document.createElement("span");
+      proxyCode.style.fontFamily = '"SF Mono","Fira Code",monospace';
+      proxyCode.style.fontSize = "0.8125rem";
+      proxyCode.style.color = "var(--text-secondary)";
+      setText(proxyCode, "http://127.0.0.1:" + candidate.host_port);
+      tdProxy.appendChild(proxyCode);
+      tr.appendChild(tdProxy);
+
+      var tdSSL = document.createElement("td");
+      setText(tdSSL, "-");
+      tdSSL.style.color = "var(--text-muted)";
+      tr.appendChild(tdSSL);
+
+      var tdRenew = document.createElement("td");
+      setText(tdRenew, "-");
+      tdRenew.style.color = "var(--text-muted)";
+      tr.appendChild(tdRenew);
+
+      var tdStatus = document.createElement("td");
+      var badge = document.createElement("span");
+      badge.className = "badge badge-warning";
+      setText(badge, "Needs site");
+      tdStatus.appendChild(badge);
+      tr.appendChild(tdStatus);
+
+      var tdAct = document.createElement("td");
+      tdAct.className = "actions-cell";
+      var createBtn = document.createElement("button");
+      createBtn.className = "btn btn-sm btn-primary";
+      setText(createBtn, associateButtonText(candidate.label));
+      createBtn.addEventListener("click", function() {
+        openAssociateModal(candidate.container, candidate.label);
+      });
+      tdAct.appendChild(createBtn);
       tr.appendChild(tdAct);
       tbody.appendChild(tr);
     });

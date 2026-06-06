@@ -9,8 +9,8 @@ import (
 )
 
 var (
-	portMin int
-	portMax int
+	portMin  int
+	portMax  int
 	portList bool
 )
 
@@ -38,8 +38,11 @@ Examples:
 			}
 			fmt.Fprintf(os.Stderr, "Active reservations (%d):\n", len(reservations))
 			for _, r := range reservations {
-				fmt.Fprintf(os.Stderr, "  port %-5d  locked until %s\n",
-					r.Port, r.ExpiresAt.Format("15:04:05"))
+				if r.Owner != "" {
+					fmt.Fprintf(os.Stderr, "  port %-5d  reserved for %s\n", r.Port, r.Owner)
+					continue
+				}
+				fmt.Fprintf(os.Stderr, "  port %-5d  locked until %s\n", r.Port, r.ExpiresAt.Format("15:04:05"))
 			}
 			return nil
 		}

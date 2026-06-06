@@ -387,7 +387,8 @@ func (s *Server) handleContainerReloadEnv(w http.ResponseWriter, r *http.Request
 }
 
 type replicaPreviewRequest struct {
-	ParentID string `json:"parent_id"`
+	ParentID    string `json:"parent_id"`
+	ReplicaName string `json:"replica_name,omitempty"`
 }
 
 func (s *Server) handleContainerReplicasList(w http.ResponseWriter, r *http.Request) {
@@ -415,11 +416,12 @@ func (s *Server) handleContainerReplicaPreview(w http.ResponseWriter, r *http.Re
 		return
 	}
 	req.ParentID = strings.TrimSpace(req.ParentID)
+	req.ReplicaName = strings.TrimSpace(req.ReplicaName)
 	if req.ParentID == "" {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "parent_id is required"})
 		return
 	}
-	preview, err := replicas.PreviewParent(req.ParentID)
+	preview, err := replicas.PreviewParentForReplica(req.ParentID, req.ReplicaName)
 	if err != nil {
 		log.Printf("container replica preview: %v", err)
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "failed to inspect parent container"})

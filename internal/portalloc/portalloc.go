@@ -208,6 +208,7 @@ type Reservation struct {
 	Port      int       `json:"port"`
 	LockedAt  time.Time `json:"locked_at"`
 	ExpiresAt time.Time `json:"expires_at"`
+	Owner     string    `json:"owner,omitempty"`
 }
 
 // registry holds all active Reservations.
@@ -250,7 +251,7 @@ func Allocate(minPort, maxPort int) (int, error) {
 	reserved := make(map[int]bool, len(reg.Reservations))
 	var alive []Reservation
 	for _, r := range reg.Reservations {
-		if now.Before(r.ExpiresAt) {
+		if r.Owner != "" || now.Before(r.ExpiresAt) {
 			reserved[r.Port] = true
 			alive = append(alive, r)
 		}
@@ -279,6 +280,153 @@ func Allocate(minPort, maxPort int) (int, error) {
 	return 0, fmt.Errorf("no available port in range %d-%d", minPort, maxPort)
 }
 
+// ReserveOwner returns a port permanently assigned to owner. If owner already
+// has a reservation and the port is not bound, the same port is returned. This
+// is intended for managed resources such as container replicas, where the port
+// must remain reserved across restarts or brief downtime.
+func ReserveOwner(owner string, minPort, maxPort int) (int, error) {
+	if owner == "" || len(owner) > 128 {
+		return 0, fmt.Errorf("invalid reservation owner")
+	}
+	if minPort < 1 || maxPort < minPort || maxPort > 65535 {
+		return 0, fmt.Errorf("invalid port range %d-%d", minPort, maxPort)
+	}
+	if err := ensureBaseDir(); err != nil {
+		return 0, err
+	}
+
+	fileMu.Lock()
+	defer fileMu.Unlock()
+
+	unlock, err := lockFile(lockPath())
+	if err != nil {
+		return 0, fmt.Errorf("cannot acquire lock: %w", err)
+	}
+	defer unlock()
+
+	reg := loadRegistry()
+	now := time.Now()
+	reserved := make(map[int]string, len(reg.Reservations))
+	var alive []Reservation
+	ownerIdx := -1
+	for _, r := range reg.Reservations {
+		if r.Owner != "" || now.Before(r.ExpiresAt) {
+			if r.Owner == owner {
+				ownerIdx = len(alive)
+			}
+			reserved[r.Port] = r.Owner
+			alive = append(alive, r)
+		}
+	}
+	reg.Reservations = alive
+	if ownerIdx >= 0 {
+		r := reg.Reservations[ownerIdx]
+		if isPortFree(r.Port) {
+			r.LockedAt = now
+			r.ExpiresAt = time.Time{}
+			reg.Reservations[ownerIdx] = r
+			if err := saveRegistry(reg); err != nil {
+				return 0, fmt.Errorf("failed to persist reservation: %w", err)
+			}
+			return r.Port, nil
+		}
+		reg.Reservations = append(reg.Reservations[:ownerIdx], reg.Reservations[ownerIdx+1:]...)
+		delete(reserved, r.Port)
+	}
+
+	for port := minPort; port <= maxPort; port++ {
+		if _, ok := reserved[port]; ok {
+			continue
+		}
+		if !isPortFree(port) {
+			continue
+		}
+		reg.Reservations = append(reg.Reservations, Reservation{
+			Port:      port,
+			LockedAt:  now,
+			ExpiresAt: time.Time{},
+			Owner:     owner,
+		})
+		if err := saveRegistry(reg); err != nil {
+			return 0, fmt.Errorf("failed to persist reservation: %w", err)
+		}
+		return port, nil
+	}
+	return 0, fmt.Errorf("no available port in range %d-%d", minPort, maxPort)
+}
+
+func ReleaseOwner(owner string) error {
+	if owner == "" {
+		return nil
+	}
+	if err := ensureBaseDir(); err != nil {
+		return err
+	}
+
+	fileMu.Lock()
+	defer fileMu.Unlock()
+
+	unlock, err := lockFile(lockPath())
+	if err != nil {
+		return fmt.Errorf("cannot acquire lock: %w", err)
+	}
+	defer unlock()
+
+	reg := loadRegistry()
+	next := reg.Reservations[:0]
+	for _, r := range reg.Reservations {
+		if r.Owner != owner {
+			next = append(next, r)
+		}
+	}
+	reg.Reservations = next
+	return saveRegistry(reg)
+}
+
+func AssignOwnerPort(owner string, port int) error {
+	if owner == "" || len(owner) > 128 {
+		return fmt.Errorf("invalid reservation owner")
+	}
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("invalid port")
+	}
+	if err := ensureBaseDir(); err != nil {
+		return err
+	}
+
+	fileMu.Lock()
+	defer fileMu.Unlock()
+
+	unlock, err := lockFile(lockPath())
+	if err != nil {
+		return fmt.Errorf("cannot acquire lock: %w", err)
+	}
+	defer unlock()
+
+	reg := loadRegistry()
+	now := time.Now()
+	next := reg.Reservations[:0]
+	for _, r := range reg.Reservations {
+		if r.Owner == owner {
+			continue
+		}
+		if r.Port == port && r.Owner != "" {
+			return fmt.Errorf("port already reserved by another owner")
+		}
+		if r.Port == port {
+			continue
+		}
+		next = append(next, r)
+	}
+	reg.Reservations = append(next, Reservation{
+		Port:      port,
+		LockedAt:  now,
+		ExpiresAt: time.Time{},
+		Owner:     owner,
+	})
+	return saveRegistry(reg)
+}
+
 // ListReservations returns all non-expired Reservations (useful for debugging).
 func ListReservations() []Reservation {
 	if err := ensureBaseDir(); err != nil {
@@ -298,7 +446,7 @@ func ListReservations() []Reservation {
 	now := time.Now()
 	var alive []Reservation
 	for _, r := range reg.Reservations {
-		if now.Before(r.ExpiresAt) {
+		if r.Owner != "" || now.Before(r.ExpiresAt) {
 			alive = append(alive, r)
 		}
 	}

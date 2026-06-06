@@ -2,6 +2,7 @@ package replicas
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -38,6 +39,7 @@ var (
 	nameRegex   = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$`)
 	aliasRegex  = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,39}$`)
 	envKeyRegex = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	certRegex   = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.-]{0,252}$`)
 )
 
 // Progress receives user-facing operation messages for SSE handlers.
@@ -79,6 +81,7 @@ type Preview struct {
 	ParentName        string         `json:"parent_name"`
 	Image             string         `json:"image"`
 	Env               []EnvVar       `json:"env"`
+	ReplicaEnv        []EnvVar       `json:"replica_env,omitempty"`
 	Ports             []PortPreview  `json:"ports"`
 	Mounts            []MountPreview `json:"mounts"`
 	TemplateType      string         `json:"template_type"`
@@ -114,7 +117,6 @@ type CreateRequest struct {
 	Alias        string   `json:"alias"`
 	TemplateType string   `json:"template_type"`
 	Env          []string `json:"env"`
-	HostPort     int      `json:"host_port,omitempty"`
 }
 
 type SyncRequest struct {
@@ -178,6 +180,10 @@ type inspectData struct {
 }
 
 func PreviewParent(parentID string) (*Preview, error) {
+	return PreviewParentForReplica(parentID, "")
+}
+
+func PreviewParentForReplica(parentID, replicaName string) (*Preview, error) {
 	parent, err := inspectContainer(parentID)
 	if err != nil {
 		return nil, err
@@ -193,7 +199,7 @@ func PreviewParent(parentID string) (*Preview, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Preview{
+	preview := &Preview{
 		ParentID:          parent.ID,
 		ParentName:        containerName(parent.Name),
 		Image:             parent.Config.Image,
@@ -204,7 +210,19 @@ func PreviewParent(parentID string) (*Preview, error) {
 		ParentFingerprint: fp,
 		ExistingReplicas:  count,
 		MaxReplicas:       maxReplicas,
-	}, nil
+	}
+	replicaName = strings.TrimSpace(replicaName)
+	if replicaName != "" {
+		if !validName(replicaName) {
+			return nil, fmt.Errorf("invalid replica name")
+		}
+		replica, err := inspectContainer(replicaName)
+		if err != nil {
+			return nil, fmt.Errorf("inspect replica: %w", err)
+		}
+		preview.ReplicaEnv = splitEnv(replica.Config.Env)
+	}
+	return preview, nil
 }
 
 func List() ([]Replica, error) {
@@ -253,13 +271,17 @@ func Create(req CreateRequest, progress Progress) (*Replica, error) {
 		return nil, fmt.Errorf("docker container with that name already exists")
 	}
 
-	hostPort := req.HostPort
-	if hostPort == 0 {
-		hostPort, err = portalloc.Allocate(portalloc.DefaultMinPort, portalloc.DefaultMaxPort)
-		if err != nil {
-			return nil, fmt.Errorf("allocate host port: %w", err)
-		}
+	portOwner := replicaPortOwner(req.Name)
+	hostPort, err := portalloc.ReserveOwner(portOwner, portalloc.DefaultMinPort, portalloc.DefaultMaxPort)
+	if err != nil {
+		return nil, fmt.Errorf("reserve host port: %w", err)
 	}
+	created := false
+	defer func() {
+		if !created {
+			_ = portalloc.ReleaseOwner(portOwner)
+		}
+	}()
 	port, err := primaryContainerPort(parent)
 	if err != nil {
 		return nil, err
@@ -330,6 +352,7 @@ func Create(req CreateRequest, progress Progress) (*Replica, error) {
 		_ = labels.Remove(replica.Name)
 		return nil, err
 	}
+	created = true
 	return &replica, nil
 }
 
@@ -357,6 +380,7 @@ func Sync(req SyncRequest, progress Progress) (*Replica, error) {
 	if err := validateEnv(env); err != nil {
 		return nil, err
 	}
+	previousPort := old.HostPort
 
 	tempName := old.Name + "-sp-sync-" + strconv.FormatInt(time.Now().Unix(), 10)
 	tempDir := replicaDir(old.ParentName, tempName)
@@ -373,12 +397,19 @@ func Sync(req SyncRequest, progress Progress) (*Replica, error) {
 		_ = os.RemoveAll(tempDir)
 		return nil, err
 	}
-	newPort, err := portalloc.Allocate(portalloc.DefaultMinPort, portalloc.DefaultMaxPort)
+	portOwner := replicaPortOwner(old.Name)
+	newPort, err := portalloc.ReserveOwner(portOwner, portalloc.DefaultMinPort, portalloc.DefaultMaxPort)
 	if err != nil {
 		_ = dockerRemoveImage(image)
 		_ = os.RemoveAll(tempDir)
-		return nil, fmt.Errorf("allocate replacement port: %w", err)
+		return nil, fmt.Errorf("reserve replacement port: %w", err)
 	}
+	promoted := false
+	defer func() {
+		if !promoted {
+			_ = portalloc.AssignOwnerPort(portOwner, previousPort)
+		}
+	}()
 	if err := dockerRun(parent, tempName, image, env, newPort, old.ContainerPort, mounts, progress); err != nil {
 		_ = dockerRemoveImage(image)
 		_ = os.RemoveAll(tempDir)
@@ -441,6 +472,7 @@ func Sync(req SyncRequest, progress Progress) (*Replica, error) {
 		return nil, err
 	}
 	_ = syncReplicaLabel(old)
+	promoted = true
 	return &old, nil
 }
 
@@ -458,6 +490,12 @@ func Delete(req DeleteRequest, progress Progress) error {
 	}
 	rep := reg.Replicas[idx]
 	if progress != nil {
+		progress("Removing Nginx sites associated with replica port...")
+	}
+	if err := deleteNginxSitesByPort(rep.HostPort, progress); err != nil {
+		return err
+	}
+	if progress != nil {
 		progress("Removing replica container " + rep.Name + "...")
 	}
 	_ = dockerRemove(rep.Name, true)
@@ -469,6 +507,7 @@ func Delete(req DeleteRequest, progress Progress) error {
 	}
 	reg.Replicas = append(reg.Replicas[:idx], reg.Replicas[idx+1:]...)
 	_ = labels.Remove(rep.Name)
+	_ = portalloc.ReleaseOwner(replicaPortOwner(rep.Name))
 	return saveRegistry(reg)
 }
 
@@ -569,9 +608,6 @@ func validateCreate(req CreateRequest) error {
 	if !validTemplate(req.TemplateType) {
 		return fmt.Errorf("invalid template type")
 	}
-	if req.HostPort < 0 || req.HostPort > 65535 {
-		return fmt.Errorf("invalid host port")
-	}
 	return validateEnv(req.Env)
 }
 
@@ -594,6 +630,10 @@ func validTemplate(t string) bool {
 	default:
 		return false
 	}
+}
+
+func replicaPortOwner(name string) string {
+	return "replica:" + name
 }
 
 func looksLikeContainerID(id string) bool {
@@ -1122,6 +1162,135 @@ func switchNginxPort(oldPort, newPort int) ([]string, error) {
 		changed = append(changed, name)
 	}
 	return changed, nil
+}
+
+func deleteNginxSitesByPort(port int, progress Progress) error {
+	if port <= 0 {
+		return nil
+	}
+	sites, err := nginx.ListSites()
+	if err != nil {
+		return fmt.Errorf("list nginx sites: %w", err)
+	}
+	var removed []string
+	for _, site := range sites {
+		if site.ProxyPass == "" || !proxyPassMatchesPort(site.ProxyPass, port) {
+			continue
+		}
+		name := filepath.Base(site.ConfigPath)
+		if progress != nil {
+			display := site.Domain
+			if display == "" {
+				display = name
+			}
+			progress("Removing Nginx site " + display + "...")
+		}
+		if err := removeNginxSiteFiles(site); err != nil {
+			return err
+		}
+		if site.Domain != "" && site.Domain != "_" {
+			_ = deleteCertbotCert(site.Domain, progress)
+		}
+		removed = append(removed, name)
+	}
+	if len(removed) == 0 {
+		return nil
+	}
+	if err := nginx.ReloadNginx(); err != nil {
+		return fmt.Errorf("nginx reload after site deletion failed: %w", err)
+	}
+	return nil
+}
+
+func removeNginxSiteFiles(site nginx.Site) error {
+	name := filepath.Base(site.ConfigPath)
+	availablePath := filepath.Join("/etc/nginx/sites-available", name)
+	if err := safeRemoveNginxFile("/etc/nginx/sites-available", availablePath, false); err != nil {
+		return fmt.Errorf("remove nginx available site %s: %w", name, err)
+	}
+	enabledPath := filepath.Join("/etc/nginx/sites-enabled", name)
+	if err := safeRemoveNginxFile("/etc/nginx/sites-enabled", enabledPath, true); err != nil {
+		return fmt.Errorf("remove nginx enabled site %s: %w", name, err)
+	}
+	return nil
+}
+
+func safeRemoveNginxFile(baseDir, path string, allowSymlink bool) error {
+	baseAbs, err := filepath.Abs(baseDir)
+	if err != nil {
+		return err
+	}
+	pathAbs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(baseAbs, pathAbs)
+	if err != nil {
+		return err
+	}
+	if rel == "." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || rel == ".." {
+		return fmt.Errorf("path escapes nginx directory")
+	}
+	info, err := os.Lstat(pathAbs)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("refusing to remove directory")
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		if !allowSymlink {
+			return fmt.Errorf("refusing symlink in sites-available")
+		}
+		return os.Remove(pathAbs)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("refusing non-regular file")
+	}
+	if allowSymlink {
+		return fmt.Errorf("refusing non-symlink in sites-enabled")
+	}
+	return os.Remove(pathAbs)
+}
+
+func deleteCertbotCert(domain string, progress Progress) error {
+	if !validCertName(domain) {
+		return fmt.Errorf("invalid certificate name")
+	}
+	certPath := filepath.Join("/etc/letsencrypt/live", domain)
+	if _, err := os.Stat(certPath); err != nil {
+		return nil
+	}
+	certbotBin, err := deps.FindCertbot()
+	if err != nil {
+		if progress != nil {
+			progress("WARNING: certbot not found; SSL certificate for " + domain + " was not deleted.")
+		}
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, certbotBin, "delete", "--cert-name", domain, "--non-interactive").CombinedOutput(); err != nil {
+		if progress != nil {
+			msg := strings.TrimSpace(string(out))
+			if msg == "" {
+				msg = err.Error()
+			}
+			progress("WARNING: certbot delete failed for " + domain + ": " + msg)
+		}
+		return nil
+	}
+	if progress != nil {
+		progress("Removed SSL certificate for " + domain + ".")
+	}
+	return nil
+}
+
+func validCertName(name string) bool {
+	return certRegex.MatchString(name) && strings.Contains(name, ".")
 }
 
 func atomicWrite(path string, data []byte, mode os.FileMode) error {
