@@ -3203,10 +3203,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     tr.appendChild(tdPorts);
 
     var tdLabel = document.createElement("td");
-    var chip = document.createElement("span");
-    chip.className = "label-badge label-badge-" + ((replica.template_type || "back").replace(/[^a-z-]/g, ""));
-    setText(chip, replica.alias || replica.template_type || "replica");
-    tdLabel.appendChild(chip);
+    tdLabel.appendChild(renderReplicaLabelSelector(replica));
     tr.appendChild(tdLabel);
 
     var tdAct = document.createElement("td");
@@ -3264,6 +3261,43 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     tr.appendChild(tdAct);
     return tr;
+  }
+
+  function renderReplicaLabelSelector(replica) {
+    var labelDiv = document.createElement("div");
+    labelDiv.className = "label-selector";
+    var currentTemplate = replica.template_type || "back";
+    ["api", "nestjs", "nextjs", "frontend", "minio", "gd-app", "back"].forEach(function(lbl) {
+      var btn = document.createElement("button");
+      btn.className = "label-btn" + (currentTemplate === lbl ? " active-" + lbl : "");
+      setText(btn, lbl);
+      btn.title = currentTemplate === lbl ? "Replica already uses " + lbl : "Set replica template to " + lbl;
+      (function(replicaRef, templateType, isActive) {
+        btn.addEventListener("click", function() {
+          if (isActive) return;
+          setReplicaTemplate(replicaRef, templateType);
+        });
+      })(replica, lbl, currentTemplate === lbl);
+      labelDiv.appendChild(btn);
+    });
+    return labelDiv;
+  }
+
+  async function setReplicaTemplate(replica, templateType) {
+    try {
+      await apiFetch("/api/container-replicas/update", {
+        method: "POST",
+        body: {
+          name: replica.name,
+          alias: replica.alias || "replica",
+          template_type: templateType
+        }
+      });
+      showToast("Replica label set to " + templateType + ": " + replica.name, "success");
+      await Promise.all([loadReplicas(), loadMappings(), loadSites(), loadContainers()]);
+    } catch(err) {
+      showToast("Failed to update replica label: " + err.message, "error");
+    }
   }
 
   function envRow(key, value, sensitive) {

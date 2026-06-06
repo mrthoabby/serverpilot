@@ -213,6 +213,7 @@ func List() ([]Replica, error) {
 
 	reg := loadRegistry()
 	for i := range reg.Replicas {
+		_ = syncReplicaLabel(reg.Replicas[i])
 		parent, err := inspectContainer(reg.Replicas[i].ParentID)
 		if err != nil {
 			reg.Replicas[i].Outdated = true
@@ -224,7 +225,6 @@ func List() ([]Replica, error) {
 		if domain := findDomainByPort(reg.Replicas[i].HostPort); domain != "" {
 			reg.Replicas[i].Domain = domain
 		}
-		_ = syncReplicaLabel(reg.Replicas[i])
 	}
 	_ = saveRegistry(reg)
 	return append([]Replica(nil), reg.Replicas...), nil
