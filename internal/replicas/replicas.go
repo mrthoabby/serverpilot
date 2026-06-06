@@ -232,7 +232,7 @@ func List() ([]Replica, error) {
 	reg := loadRegistry()
 	for i := range reg.Replicas {
 		_ = syncReplicaLabel(reg.Replicas[i])
-		parent, err := inspectContainer(reg.Replicas[i].ParentID)
+		parent, err := inspectReplicaParent(&reg.Replicas[i], nil)
 		if err != nil {
 			reg.Replicas[i].Outdated = true
 			continue
@@ -369,28 +369,37 @@ func Sync(req SyncRequest, progress Progress) (*Replica, error) {
 		return nil, fmt.Errorf("replica not found")
 	}
 	old := reg.Replicas[idx]
-	parent, err := inspectContainer(old.ParentID)
+	if progress != nil {
+		progress("Inspecting parent container " + old.ParentName + "...")
+	}
+	parent, err := inspectReplicaParent(&old, progress)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("inspect parent container: %w", err)
 	}
 	env := req.Env
 	if len(env) == 0 {
 		env = parent.Config.Env
 	}
 	if err := validateEnv(env); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validate replacement environment: %w", err)
 	}
 	previousPort := old.HostPort
 
 	tempName := old.Name + "-sp-sync-" + strconv.FormatInt(time.Now().Unix(), 10)
 	tempDir := replicaDir(old.ParentName, tempName)
+	if progress != nil {
+		progress("Preparing blue-green replacement directory...")
+	}
 	if err := os.MkdirAll(tempDir, 0o750); err != nil {
 		return nil, fmt.Errorf("prepare temp replica dir: %w", err)
+	}
+	if progress != nil {
+		progress("Copying parent mounts into replacement data directory...")
 	}
 	mounts, err := copyMountsTo(parent, old.ParentName, tempName)
 	if err != nil {
 		_ = os.RemoveAll(tempDir)
-		return nil, err
+		return nil, fmt.Errorf("copy parent mounts: %w", err)
 	}
 	image := snapshotImageName(old.ParentName, tempName)
 	if err := dockerCommit(parent.ID, image, progress); err != nil {
@@ -398,6 +407,9 @@ func Sync(req SyncRequest, progress Progress) (*Replica, error) {
 		return nil, err
 	}
 	portOwner := replicaPortOwner(old.Name)
+	if progress != nil {
+		progress("Reserving replacement port...")
+	}
 	newPort, err := portalloc.ReserveOwner(portOwner, portalloc.DefaultMinPort, portalloc.DefaultMaxPort)
 	if err != nil {
 		_ = dockerRemoveImage(image)
@@ -455,6 +467,8 @@ func Sync(req SyncRequest, progress Progress) (*Replica, error) {
 	fp, _ := Fingerprint(parent)
 	now := time.Now().UTC()
 	old.ContainerID = inspectID(old.Name)
+	old.ParentID = parent.ID
+	old.ParentName = containerName(parent.Name)
 	old.SnapshotImage = image
 	old.HostPort = newPort
 	old.Mounts = rewriteMountPaths(mounts, tempName, old.Name)
@@ -657,9 +671,13 @@ func inspectContainer(idOrName string) (inspectData, error) {
 		return inspectData{}, fmt.Errorf("invalid container")
 	}
 	cmd := exec.Command(dockerBin, "inspect", idOrName)
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return inspectData{}, fmt.Errorf("inspect container: %w", err)
+		detail := strings.TrimSpace(string(out))
+		if detail == "" {
+			return inspectData{}, fmt.Errorf("inspect container %q: %w", idOrName, err)
+		}
+		return inspectData{}, fmt.Errorf("inspect container %q: %s", idOrName, detail)
 	}
 	var list []inspectData
 	if err := json.Unmarshal(out, &list); err != nil {
@@ -669,6 +687,33 @@ func inspectContainer(idOrName string) (inspectData, error) {
 		return inspectData{}, fmt.Errorf("container not found")
 	}
 	return list[0], nil
+}
+
+func inspectReplicaParent(rep *Replica, progress Progress) (inspectData, error) {
+	if rep == nil {
+		return inspectData{}, fmt.Errorf("replica not found")
+	}
+	if strings.TrimSpace(rep.ParentID) != "" {
+		parent, err := inspectContainer(rep.ParentID)
+		if err == nil {
+			rep.ParentID = parent.ID
+			rep.ParentName = containerName(parent.Name)
+			return parent, nil
+		}
+		if strings.TrimSpace(rep.ParentName) == "" {
+			return inspectData{}, err
+		}
+		if progress != nil {
+			progress("Parent container ID changed or is unavailable; retrying by parent name " + rep.ParentName + "...")
+		}
+	}
+	parent, err := inspectContainer(rep.ParentName)
+	if err != nil {
+		return inspectData{}, err
+	}
+	rep.ParentID = parent.ID
+	rep.ParentName = containerName(parent.Name)
+	return parent, nil
 }
 
 func dockerCommit(containerID, image string, progress Progress) error {

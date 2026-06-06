@@ -512,13 +512,60 @@ func (s *Server) streamReplicaOperation(w http.ResponseWriter, stage string, run
 	data, err := run(progress)
 	if err != nil {
 		log.Printf("%s: %v", stage, err)
-		sseWriteLog(w, flusher, "ERROR: operation failed. Check journalctl -u serverpilot for details.")
-		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"operation failed"}`)
+		msg := replicaOperationErrorMessage(err)
+		sseWriteLog(w, flusher, "ERROR: "+msg)
+		sseWriteLog(w, flusher, "Check journalctl -u serverpilot for full details.")
+		payload, _ := json.Marshal(map[string]interface{}{"success": false, "error": msg})
+		sseWriteEvent(w, flusher, "done", string(payload))
 		return
 	}
 	payload, _ := json.Marshal(map[string]interface{}{"success": true, "data": data})
 	sseWriteLog(w, flusher, "Replica operation completed.")
 	sseWriteEvent(w, flusher, "done", string(payload))
+}
+
+func replicaOperationErrorMessage(err error) string {
+	if err == nil {
+		return "operation failed"
+	}
+	msg := sanitizeLogField(err.Error(), 240)
+	msg = strings.TrimSpace(msg)
+	lower := strings.ToLower(msg)
+	switch {
+	case strings.Contains(lower, "inspect parent container"):
+		return "could not inspect the parent container"
+	case strings.Contains(lower, "validate replacement environment"):
+		return "replacement environment is invalid"
+	case strings.Contains(lower, "copy parent mounts"):
+		return "could not copy parent mounts into the replacement"
+	case strings.Contains(lower, "reserve replacement port") || strings.Contains(lower, "no available port"):
+		return "could not reserve a replacement port"
+	case strings.Contains(lower, "docker commit failed"):
+		return "docker commit failed while snapshotting the parent"
+	case strings.Contains(lower, "docker run failed"):
+		if strings.Contains(lower, "port is already allocated") || strings.Contains(lower, "bind") {
+			return "docker could not bind the selected port"
+		}
+		return "docker failed while starting the replacement container"
+	case strings.Contains(lower, "healthcheck failed"):
+		return "replacement container healthcheck failed"
+	case strings.Contains(lower, "did not become ready"):
+		return "replacement container did not become ready in time"
+	case strings.Contains(lower, "nginx reload failed"):
+		return "nginx reload failed; old replica was kept"
+	case strings.Contains(lower, "switch nginx") || strings.Contains(lower, "proxy_pass"):
+		return "could not switch nginx to the replacement port"
+	case strings.Contains(lower, "mount source symlink refused") || strings.Contains(lower, "symlink refused"):
+		return "mount copy refused because a symlink was detected"
+	case strings.Contains(lower, "invalid replica name"):
+		return "invalid replica name"
+	case strings.Contains(lower, "replica not found"):
+		return "replica not found"
+	}
+	if msg == "" {
+		return "operation failed"
+	}
+	return msg
 }
 
 func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
