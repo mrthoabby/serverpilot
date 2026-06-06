@@ -3665,6 +3665,7 @@ func (s *Server) handleDeployUserCreate(w http.ResponseWriter, r *http.Request) 
 			writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
 			return
 		}
+		s.repairDeployPortAccess("deploy-user-create", req.Username)
 		log.Printf("deploy-user-create: created SSH-only user %q", req.Username)
 		writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
 			"username": req.Username,
@@ -3682,6 +3683,7 @@ func (s *Server) handleDeployUserCreate(w http.ResponseWriter, r *http.Request) 
 			writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
 			return
 		}
+		s.repairDeployPortAccess("deploy-user-create", req.Username)
 		log.Printf("deploy-user-create: created user %q", req.Username)
 		writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
 			"username": req.Username,
@@ -3771,6 +3773,9 @@ func (s *Server) handleSystemUserGroupToggle(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "group change failed"})
 		return
 	}
+	if req.Action == "add" && req.Group == "deploy" {
+		s.repairDeployPortAccess("system-user-group-toggle", req.Username)
+	}
 	log.Printf("system-user-group-toggle: actor=%q user=%q group=%q action=%q result=ok",
 		sanitizeLogField(s.actorFromRequest(r), 64),
 		sanitizeLogField(req.Username, 64),
@@ -3809,6 +3814,7 @@ func (s *Server) handleDeployUserImport(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
 		return
 	}
+	s.repairDeployPortAccess("deploy-user-import", req.Username)
 	log.Printf("deploy-user-import: actor=%q user=%q",
 		sanitizeLogField(s.actorFromRequest(r), 64),
 		sanitizeLogField(req.Username, 64))
@@ -4479,6 +4485,9 @@ func (s *Server) handleDeployUserGenerateKey(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
 		return
 	}
+	if req.CreateUser {
+		s.repairDeployPortAccess("deploy-user-keygen", req.Username)
+	}
 
 	actor := s.actorFromRequest(r)
 	log.Printf("deploy-user-keygen: actor=%q user=%q type=%s stored=%v fp=%s",
@@ -4492,6 +4501,13 @@ func (s *Server) handleDeployUserGenerateKey(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: gen})
+}
+
+func (s *Server) repairDeployPortAccess(stage, username string) {
+	if err := portalloc.EnsureSetup(); err != nil {
+		log.Printf("%s: portalloc setup warning for user=%q: %v",
+			stage, sanitizeLogField(username, 64), err)
+	}
 }
 
 // handleDeployUserPrivateKey returns the decrypted private key from the

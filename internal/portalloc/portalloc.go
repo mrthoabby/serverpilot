@@ -35,8 +35,10 @@ const lockTTL = 1 * time.Minute
 // symlink as root.
 //
 // The fix:
-//   1. Move the registry into /var/lib/serverpilot/ (root-owned, 0700).
-//      Non-root users cannot create or replace entries inside this directory.
+//   1. Move the registry into /var/lib/serverpilot/ (root-owned and,
+//      once the deploy group exists, group-writable by deploy users only).
+//      Other non-root users cannot create or replace entries inside this
+//      directory.
 //   2. Use O_NOFOLLOW on the lock file (see flock.go) so even if a symlink
 //      somehow appears at the lock path, the open fails closed.
 //   3. Replace WriteFile + Rename with a CreateTemp-in-same-dir + Rename
@@ -49,6 +51,7 @@ const (
 	baseDir      = "/var/lib/serverpilot"
 	registryName = "ports.json"
 	lockName     = "ports.json.lock"
+	accessWX     = 0o3 // POSIX W_OK|X_OK
 )
 
 func registryPath() string { return filepath.Join(baseDir, registryName) }
@@ -78,7 +81,10 @@ const deployGroupName = "deploy"
 func ensureBaseDir() error {
 	info, err := os.Stat(baseDir)
 	if err == nil && info.IsDir() {
-		return nil
+		if os.Geteuid() == 0 {
+			return repairBaseDir()
+		}
+		return verifyExistingBaseDirAccessible()
 	}
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("cannot stat %s: %w", baseDir, err)
@@ -92,16 +98,35 @@ func ensureBaseDir() error {
 	if err := os.MkdirAll(baseDir, 0o2770); err != nil {
 		return fmt.Errorf("cannot create %s: %w", baseDir, err)
 	}
+	return repairBaseDir()
+}
+
+func repairBaseDir() error {
 	// chown root:deploy if the deploy group exists. If it doesn't yet,
 	// fall back to root:root with mode 0700 — `sp setup` (or the first
 	// `sp users create`) creates the deploy group, after which a later
 	// invocation will fix the perms.
 	deployGid, deployErr := lookupDeployGID()
 	if deployErr == nil {
-		_ = os.Chown(baseDir, 0, deployGid)
-		_ = os.Chmod(baseDir, 0o2770) // re-apply mode in case chown reset setgid
-	} else {
-		_ = os.Chmod(baseDir, 0o700)
+		if err := os.Chown(baseDir, 0, deployGid); err != nil {
+			return fmt.Errorf("cannot chown %s: %w", baseDir, err)
+		}
+		if err := os.Chmod(baseDir, 0o2770); err != nil {
+			return fmt.Errorf("cannot chmod %s: %w", baseDir, err)
+		}
+		for _, path := range []string{registryPath(), lockPath()} {
+			if err := repairRegistryFile(path, deployGid); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if err := os.Chown(baseDir, 0, 0); err != nil {
+		return fmt.Errorf("cannot chown %s: %w", baseDir, err)
+	}
+	if err := os.Chmod(baseDir, 0o700); err != nil {
+		return fmt.Errorf("cannot chmod %s: %w", baseDir, err)
 	}
 	return nil
 }
@@ -111,6 +136,56 @@ func ensureBaseDir() error {
 // exists with the canonical perms before any non-root `sp port` invocation
 // happens. It is idempotent and silent on success.
 func EnsureSetup() error { return ensureBaseDir() }
+
+func repairRegistryFile(path string, deployGid int) error {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("cannot stat %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s must not be a symlink", path)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s must be a regular file", path)
+	}
+	if err := os.Chown(path, 0, deployGid); err != nil {
+		return fmt.Errorf("cannot chown %s: %w", path, err)
+	}
+	if err := os.Chmod(path, 0o660); err != nil {
+		return fmt.Errorf("cannot chmod %s: %w", path, err)
+	}
+	return nil
+}
+
+func verifyExistingBaseDirAccessible() error {
+	if err := syscall.Access(baseDir, accessWX); err != nil {
+		return fmt.Errorf("%s is not writable by this user — run `sudo sp start` or `sudo sp setup` once to repair ServerPilot deploy permissions, then reconnect SSH if the user was just added to the deploy group: %w", baseDir, err)
+	}
+	for _, path := range []string{registryPath(), lockPath()} {
+		info, err := os.Lstat(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("cannot stat %s: %w", path, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s must not be a symlink", path)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s must be a regular file", path)
+		}
+		f, err := os.OpenFile(path, os.O_RDWR|syscall.O_NOFOLLOW, 0)
+		if err != nil {
+			return fmt.Errorf("%s is not writable by this user — run `sudo sp start` or `sudo sp setup` once to repair ServerPilot deploy permissions, then reconnect SSH if the user was just added to the deploy group: %w", path, err)
+		}
+		_ = f.Close()
+	}
+	return nil
+}
 
 // lookupDeployGID finds the GID of the `deploy` group via /etc/group
 // (os/user uses NSS — same caveats as elsewhere in the codebase). Returns
