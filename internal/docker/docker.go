@@ -262,6 +262,39 @@ func GetContainerLogs(id string, tail int) (string, error) {
 	return string(output), nil
 }
 
+// RestartContainer restarts a Docker container so its main process re-reads
+// the environment configured in Docker for that container. Docker does not
+// allow mutating Env on an existing container; changing Env still requires a
+// recreate flow. This helper is intentionally restart-only.
+func RestartContainer(id string) error {
+	if id == "" || len(id) > 128 {
+		return fmt.Errorf("invalid container ID format")
+	}
+	for _, c := range id {
+		if !((c >= 'a' && c <= 'f') || (c >= '0' && c <= '9')) {
+			return fmt.Errorf("invalid container ID format")
+		}
+	}
+
+	dockerBin, err := deps.DockerPath()
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, dockerBin, "restart", "--time", "10", "--", id)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		trimmed := strings.TrimSpace(string(out))
+		if trimmed != "" {
+			return fmt.Errorf("failed to restart container: %s", trimmed)
+		}
+		return fmt.Errorf("failed to restart container: %w", err)
+	}
+	return nil
+}
+
 // ClearContainerLogs truncates the container's log file so future calls to
 // `docker logs` start fresh. There is no native Docker command for this; the
 // portable trick is to truncate the json-file driver's LogPath in place

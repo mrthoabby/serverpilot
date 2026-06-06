@@ -220,6 +220,10 @@ body {
   padding: 1.5rem;
 }
 
+.main-content.wide-containers {
+  max-width: none;
+}
+
 /* Tabs */
 .tabs {
   display: flex;
@@ -1135,7 +1139,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     </div>
   </nav>
 
-  <div class="main-content">
+  <div class="main-content wide-containers">
     <div class="tabs">
       <button class="tab-btn active" data-tab="containers">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 012.5 2h11A1.5 1.5 0 0115 3.5v1A1.5 1.5 0 0113.5 6h-11A1.5 1.5 0 011 4.5v-1zm0 5A1.5 1.5 0 012.5 7h11A1.5 1.5 0 0115 8.5v1a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 9.5v-1zm1.5 3.5A1.5 1.5 0 001 13.5v1A1.5 1.5 0 002.5 16h11a1.5 1.5 0 001.5-1.5v-1a1.5 1.5 0 00-1.5-1.5h-11z"/></svg>
@@ -2688,6 +2692,8 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       btn.classList.add("active");
       activeTab = btn.dataset.tab;
       document.getElementById("panel-" + activeTab).classList.add("active");
+      var main = document.querySelector(".main-content");
+      if (main) main.classList.toggle("wide-containers", activeTab === "containers");
       // Immediately load data for the selected tab (click = manual refresh).
       if (tabLoaders[activeTab]) tabLoaders[activeTab]();
     });
@@ -2955,6 +2961,18 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       })(c);
       tdAct.appendChild(logsBtn);
 
+      var reloadEnvBtn = document.createElement("button");
+      reloadEnvBtn.className = "btn btn-sm btn-outline";
+      reloadEnvBtn.style.marginRight = "0.5rem";
+      setText(reloadEnvBtn, "Reload env");
+      reloadEnvBtn.title = "Restart this container so its process reloads the Docker-configured environment.";
+      (function(container) {
+        reloadEnvBtn.addEventListener("click", function() {
+          reloadContainerEnv(container);
+        });
+      })(c);
+      tdAct.appendChild(reloadEnvBtn);
+
       var replicaBtn = document.createElement("button");
       replicaBtn.className = "btn btn-sm btn-outline";
       replicaBtn.style.marginRight = "0.5rem";
@@ -3153,6 +3171,15 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     logsBtn.disabled = !replica.container_id;
     logsBtn.addEventListener("click", function() { openContainerLogsModal(containerForReplica(replica)); });
     tdAct.appendChild(logsBtn);
+
+    var reloadEnvBtn = document.createElement("button");
+    reloadEnvBtn.className = "btn btn-sm btn-outline";
+    reloadEnvBtn.style.marginRight = "0.5rem";
+    setText(reloadEnvBtn, "Reload env");
+    reloadEnvBtn.disabled = !replica.container_id;
+    reloadEnvBtn.title = "Restart this replica so its process reloads the Docker-configured environment.";
+    reloadEnvBtn.addEventListener("click", function() { reloadContainerEnv(containerForReplica(replica)); });
+    tdAct.appendChild(reloadEnvBtn);
 
     var editBtn = document.createElement("button");
     editBtn.className = "btn btn-sm btn-outline";
@@ -4066,6 +4093,29 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     } catch(err) {
       showToast("No se pudieron limpiar los logs: " + err.message, "error");
     }
+  }
+
+  async function reloadContainerEnv(container) {
+    if (!container || !container.id) {
+      showToast("Container id not available", "error");
+      return;
+    }
+    confirmAction(
+      "Reload environment",
+      "This restarts \"" + container.name + "\" so its process reloads the Docker-configured environment. Docker cannot apply new env values without recreating the container. Continue?",
+      async function() {
+        try {
+          await apiFetch("/api/containers/reload-env", {
+            method: "POST",
+            body: { id: container.id }
+          });
+          showToast("Container restarted: " + container.name, "success");
+          await Promise.all([loadContainers(), loadMappings()]);
+        } catch(err) {
+          showToast("Failed to reload env: " + err.message, "error");
+        }
+      }
+    );
   }
 
   document.getElementById("containerLogsCloseBtn").addEventListener("click", closeContainerLogsModal);

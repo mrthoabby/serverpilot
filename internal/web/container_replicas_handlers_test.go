@@ -20,6 +20,7 @@ func TestContainerReplicaHandlersRejectWrongMethod(t *testing.T) {
 		{"sync", s.handleContainerReplicaSync, http.MethodGet},
 		{"delete", s.handleContainerReplicaDelete, http.MethodGet},
 		{"update", s.handleContainerReplicaUpdate, http.MethodGet},
+		{"reload-env", s.handleContainerReloadEnv, http.MethodGet},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -30,6 +31,19 @@ func TestContainerReplicaHandlersRejectWrongMethod(t *testing.T) {
 				t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
 			}
 		})
+	}
+}
+
+func TestContainerReloadEnvRejectsStrictJSON(t *testing.T) {
+	s := &Server{}
+	req := httptest.NewRequest(http.MethodPost, "/api/containers/reload-env", strings.NewReader(`{"id":"abcdef123456","extra":true}`))
+	rec := httptest.NewRecorder()
+	s.handleContainerReloadEnv(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if !strings.Contains(rec.Body.String(), "invalid request body") {
+		t.Fatalf("body = %s", rec.Body.String())
 	}
 }
 
