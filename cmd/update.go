@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mrthoabby/serverpilot/internal/portalloc"
 	"github.com/spf13/cobra"
 )
 
@@ -52,7 +53,7 @@ type githubRelease struct {
 // ── End hardening notes ──────────────────────────────────────────────────
 
 const (
-	httpUpdateTimeout  = 30 * time.Second
+	httpUpdateTimeout   = 30 * time.Second
 	httpDownloadTimeout = 5 * time.Minute
 	maxBinarySize       = 200 * 1024 * 1024 // 200 MB
 	maxJSONResponseSize = 256 * 1024        // 256 KB
@@ -117,6 +118,9 @@ var updateCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Successfully updated to v%s.\n", latest)
+		if err := portalloc.SyncDetectedPorts(portalloc.DefaultMinPort, portalloc.DefaultMaxPort); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: update succeeded but port registry sync failed: %v\n", err)
+		}
 
 		if IsRunningAsDaemon() {
 			fmt.Println()

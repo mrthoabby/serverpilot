@@ -184,6 +184,7 @@ func (s *Server) Start() error {
 	if err := portalloc.EnsureSetup(); err != nil {
 		log.Printf("portalloc: setup warning: %v (sp port may need root until /var/lib/serverpilot exists)", err)
 	}
+	portalloc.StartDetectedPortSync(log.Printf)
 
 	// Start the background memory history collector (snapshots every 5 min).
 	sysinfo.StartHistoryCollector()

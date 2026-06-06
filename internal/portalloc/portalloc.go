@@ -1,16 +1,22 @@
 package portalloc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/mrthoabby/serverpilot/internal/deps"
 )
 
 // Default port range for allocation.
@@ -23,6 +29,18 @@ const (
 // re-allocated. One minute gives the caller plenty of time to actually
 // bind the port after receiving it.
 const lockTTL = 1 * time.Minute
+
+const (
+	detectedOwnerPrefix       = "detected:"
+	detectedDockerOwnerPrefix = "detected:docker:"
+	detectedNginxOwnerPrefix  = "detected:nginx:"
+)
+
+var (
+	proxyPortRegex  = regexp.MustCompile(`\bproxy_pass\s+[^;]*:(\d+)(?:/|;|\s|$)`)
+	dailySyncOnce   sync.Once
+	dailySyncStopCh = make(chan struct{})
+)
 
 // ── Hardening: registry location ─────────────────────────────────────────
 //
@@ -137,6 +155,60 @@ func repairBaseDir() error {
 // happens. It is idempotent and silent on success.
 func EnsureSetup() error { return ensureBaseDir() }
 
+// StartDetectedPortSync starts a lightweight background job for the daemon. It
+// scans immediately, then once per day near local midnight. Allocation paths
+// also scan on demand; this periodic pass keeps the registry warm for non-root
+// deploy users whose shell may not be able to inspect Docker or Nginx.
+func StartDetectedPortSync(logf func(string, ...interface{})) {
+	dailySyncOnce.Do(func() {
+		go func() {
+			if err := SyncDetectedPorts(DefaultMinPort, DefaultMaxPort); err != nil && logf != nil {
+				logf("portalloc: detected port sync warning: %v", err)
+			}
+			for {
+				wait := time.Until(nextLocalMidnight(time.Now()))
+				timer := time.NewTimer(wait)
+				select {
+				case <-timer.C:
+					if err := SyncDetectedPorts(DefaultMinPort, DefaultMaxPort); err != nil && logf != nil {
+						logf("portalloc: detected port sync warning: %v", err)
+					}
+				case <-dailySyncStopCh:
+					timer.Stop()
+					return
+				}
+			}
+		}()
+	})
+}
+
+func nextLocalMidnight(now time.Time) time.Time {
+	y, m, d := now.Date()
+	return time.Date(y, m, d+1, 0, 0, 0, 0, now.Location())
+}
+
+func SyncDetectedPorts(minPort, maxPort int) error {
+	if minPort < 1 || maxPort < minPort || maxPort > 65535 {
+		return fmt.Errorf("invalid port range %d-%d", minPort, maxPort)
+	}
+	if err := ensureBaseDir(); err != nil {
+		return err
+	}
+
+	fileMu.Lock()
+	defer fileMu.Unlock()
+
+	unlock, err := lockFile(lockPath())
+	if err != nil {
+		return fmt.Errorf("cannot acquire lock: %w", err)
+	}
+	defer unlock()
+
+	reg := loadRegistry()
+	syncDetectedPortsLocked(reg, minPort, maxPort)
+	return saveRegistry(reg)
+}
+
 func repairRegistryFile(path string, deployGid int) error {
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
@@ -246,6 +318,10 @@ func Allocate(minPort, maxPort int) (int, error) {
 	defer unlock()
 
 	reg := loadRegistry()
+	syncDetectedPortsLocked(reg, minPort, maxPort)
+	if err := saveRegistry(reg); err != nil {
+		return 0, fmt.Errorf("failed to persist detected ports: %w", err)
+	}
 	now := time.Now()
 
 	reserved := make(map[int]bool, len(reg.Reservations))
@@ -305,6 +381,10 @@ func ReserveOwner(owner string, minPort, maxPort int) (int, error) {
 	defer unlock()
 
 	reg := loadRegistry()
+	syncDetectedPortsLocked(reg, minPort, maxPort)
+	if err := saveRegistry(reg); err != nil {
+		return 0, fmt.Errorf("failed to persist detected ports: %w", err)
+	}
 	now := time.Now()
 	reserved := make(map[int]string, len(reg.Reservations))
 	var alive []Reservation
@@ -451,6 +531,187 @@ func ListReservations() []Reservation {
 		}
 	}
 	return alive
+}
+
+func syncDetectedPortsLocked(reg *registry, minPort, maxPort int) {
+	detected := make(map[int]string)
+	var refreshedPrefixes []string
+	if dockerPorts, ok := detectDockerPorts(); ok {
+		refreshedPrefixes = append(refreshedPrefixes, detectedDockerOwnerPrefix)
+		for port, owner := range dockerPorts {
+			if port >= minPort && port <= maxPort {
+				detected[port] = owner
+			}
+		}
+	}
+	if nginxPorts, ok := detectNginxProxyPorts(); ok {
+		refreshedPrefixes = append(refreshedPrefixes, detectedNginxOwnerPrefix)
+		for port, owner := range nginxPorts {
+			if port >= minPort && port <= maxPort {
+				if _, exists := detected[port]; !exists {
+					detected[port] = owner
+				}
+			}
+		}
+	}
+	applyDetectedReservations(reg, detected, refreshedPrefixes, time.Now())
+}
+
+func applyDetectedReservations(reg *registry, detected map[int]string, refreshedPrefixes []string, now time.Time) {
+	next := reg.Reservations[:0]
+	reserved := make(map[int]bool, len(reg.Reservations))
+	for _, r := range reg.Reservations {
+		if detectedOwnerWasRefreshed(r.Owner, refreshedPrefixes) {
+			continue
+		}
+		if r.Owner != "" || now.Before(r.ExpiresAt) {
+			reserved[r.Port] = true
+			next = append(next, r)
+		}
+	}
+	for port, owner := range detected {
+		if reserved[port] {
+			continue
+		}
+		next = append(next, Reservation{
+			Port:      port,
+			LockedAt:  now,
+			ExpiresAt: time.Time{},
+			Owner:     owner,
+		})
+	}
+	reg.Reservations = next
+}
+
+func detectedOwnerWasRefreshed(owner string, refreshedPrefixes []string) bool {
+	if !strings.HasPrefix(owner, detectedOwnerPrefix) {
+		return false
+	}
+	for _, prefix := range refreshedPrefixes {
+		if strings.HasPrefix(owner, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+type dockerInspectPortData struct {
+	Name       string `json:"Name"`
+	HostConfig struct {
+		PortBindings map[string][]struct {
+			HostIP   string `json:"HostIp"`
+			HostPort string `json:"HostPort"`
+		} `json:"PortBindings"`
+	} `json:"HostConfig"`
+	NetworkSettings struct {
+		Ports map[string][]struct {
+			HostIP   string `json:"HostIp"`
+			HostPort string `json:"HostPort"`
+		} `json:"Ports"`
+	} `json:"NetworkSettings"`
+}
+
+func detectDockerPorts() (map[int]string, bool) {
+	out := map[int]string{}
+	dockerBin, err := deps.DockerPath()
+	if err != nil {
+		return out, false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	psOut, err := exec.CommandContext(ctx, dockerBin, "ps", "-aq", "--no-trunc").Output()
+	if err != nil {
+		return out, false
+	}
+	ids := strings.Fields(string(psOut))
+	if len(ids) == 0 {
+		return out, true
+	}
+
+	args := append([]string{"inspect"}, ids...)
+	inspectOut, err := exec.CommandContext(ctx, dockerBin, args...).Output()
+	if err != nil {
+		return out, false
+	}
+	var containers []dockerInspectPortData
+	if err := json.Unmarshal(inspectOut, &containers); err != nil {
+		return out, false
+	}
+	for _, c := range containers {
+		name := strings.TrimPrefix(c.Name, "/")
+		if name == "" {
+			name = "container"
+		}
+		for _, bindings := range c.HostConfig.PortBindings {
+			for _, b := range bindings {
+				if port, ok := parsePort(b.HostPort); ok {
+					out[port] = detectedDockerOwnerPrefix + name
+				}
+			}
+		}
+		for _, bindings := range c.NetworkSettings.Ports {
+			for _, b := range bindings {
+				if port, ok := parsePort(b.HostPort); ok {
+					out[port] = detectedDockerOwnerPrefix + name
+				}
+			}
+		}
+	}
+	return out, true
+}
+
+func detectNginxProxyPorts() (map[int]string, bool) {
+	out := map[int]string{}
+	const sitesAvailableDir = "/etc/nginx/sites-available"
+	entries, err := os.ReadDir(sitesAvailableDir)
+	if err != nil {
+		return out, false
+	}
+	baseAbs, err := filepath.Abs(sitesAvailableDir)
+	if err != nil {
+		return out, false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(sitesAvailableDir, entry.Name())
+		pathAbs, err := filepath.Abs(path)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(baseAbs, pathAbs)
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			continue
+		}
+		info, err := os.Lstat(pathAbs)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			continue
+		}
+		data, err := os.ReadFile(pathAbs)
+		if err != nil {
+			continue
+		}
+		matches := proxyPortRegex.FindAllStringSubmatch(string(data), -1)
+		for _, match := range matches {
+			if len(match) < 2 {
+				continue
+			}
+			if port, ok := parsePort(match[1]); ok {
+				out[port] = detectedNginxOwnerPrefix + entry.Name()
+			}
+		}
+	}
+	return out, true
+}
+
+func parsePort(value string) (int, bool) {
+	port, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || port < 1 || port > 65535 {
+		return 0, false
+	}
+	return port, true
 }
 
 // isPortFree tries to bind on TCP 0.0.0.0:port. If the bind succeeds the

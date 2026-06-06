@@ -19,9 +19,12 @@ var portCmd = &cobra.Command{
 	Short: "Allocate the next available port (default range 3000-3999)",
 	Long: `Scans a port range and returns the first port that is:
   1. Not bound by any running process
-  2. Not reserved by a previous 'sp port' call in the last 60 seconds
+  2. Not reserved by another ServerPilot owner
+  3. Not already used by Docker or an existing Nginx proxy_pass site
 
-The reserved port is locked for 1 minute so concurrent callers
+Before allocating, ServerPilot refreshes its registry from Docker and Nginx
+so ports used by stopped/restarting containers with existing sites remain
+blocked. Anonymous allocations are locked for 1 minute so concurrent callers
 never receive the same port.
 
 Examples:
@@ -31,6 +34,9 @@ Examples:
 
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if portList {
+			if err := portalloc.SyncDetectedPorts(portMin, portMax); err != nil {
+				return fmt.Errorf("port registry sync failed: %w", err)
+			}
 			reservations := portalloc.ListReservations()
 			if len(reservations) == 0 {
 				fmt.Fprintln(os.Stderr, "No active reservations.")
