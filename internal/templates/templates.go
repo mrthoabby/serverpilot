@@ -2,9 +2,12 @@ package templates
 
 import (
 	"fmt"
+	"html"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -35,6 +38,14 @@ var domainRegex = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$`
 type TemplateData struct {
 	Domain string
 	Port   int
+}
+
+type RedirectData struct {
+	Domain     string
+	TargetBase string
+	Code       int
+	Delay      int
+	HTML       string
 }
 
 const nestjsTemplate = `server {
@@ -232,6 +243,26 @@ const minioTemplate = `server {
 }
 `
 
+const redirectTemplate = `server {
+    listen 80;
+    server_name {{.Domain}};
+
+    # serverpilot_redirect_target {{.TargetBase}}
+    return {{.Code}} {{.TargetBase}}$request_uri;
+}
+`
+
+const delayedRedirectTemplate = `server {
+    listen 80;
+    server_name {{.Domain}};
+
+    # serverpilot_redirect_target {{.TargetBase}}
+    # serverpilot_redirect_delay {{.Delay}}
+    default_type text/html;
+    return 200 "{{.HTML}}";
+}
+`
+
 // GetTemplate returns the rendered nginx config string for the given template type.
 func GetTemplate(templateType TemplateType, domain string, port int) (string, error) {
 	if !isValidDomain(domain) {
@@ -323,6 +354,114 @@ func applyTemplate(templateType TemplateType, domain string, containerPort int, 
 	}
 
 	return nil
+}
+
+// ApplyRedirectTemplate creates an nginx redirect site and reloads nginx.
+func ApplyRedirectTemplate(domain, targetBase string, code int, includeWWW bool, delaySeconds int, message string) error {
+	if !isValidDomain(domain) {
+		return fmt.Errorf("invalid domain format")
+	}
+	if targetBase == "" || strings.ContainsAny(targetBase, " \t\r\n;{}") {
+		return fmt.Errorf("invalid redirect target")
+	}
+	if !isValidRedirectTargetBase(targetBase) {
+		return fmt.Errorf("invalid redirect target")
+	}
+	if code != 301 && code != 302 {
+		return fmt.Errorf("invalid redirect code")
+	}
+	if delaySeconds < 0 || delaySeconds > 300 {
+		return fmt.Errorf("invalid redirect delay")
+	}
+
+	tmplStr := redirectTemplate
+	data := RedirectData{Domain: domain, TargetBase: targetBase, Code: code}
+	if delaySeconds > 0 {
+		data.Delay = delaySeconds
+		data.HTML = buildDelayedRedirectHTML(targetBase, delaySeconds, message)
+		tmplStr = delayedRedirectTemplate
+	}
+
+	tmpl, err := template.New("redirect").Parse(tmplStr)
+	if err != nil {
+		return fmt.Errorf("failed to parse redirect template: %w", err)
+	}
+	var buf strings.Builder
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return fmt.Errorf("failed to execute redirect template: %w", err)
+	}
+	config := buf.String()
+	if includeWWW {
+		config, _, err = nginx.AddWWWAliasToConfig(config, domain)
+		if err != nil {
+			return err
+		}
+	}
+
+	configPath := filepath.Join("/etc/nginx/sites-available", domain)
+	absPath, err := filepath.Abs(configPath)
+	if err != nil {
+		return fmt.Errorf("invalid config path: %w", err)
+	}
+	if !strings.HasPrefix(absPath, "/etc/nginx/") {
+		return fmt.Errorf("config path is outside nginx directory")
+	}
+	file, err := os.OpenFile(absPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if err != nil {
+		if os.IsExist(err) {
+			return fmt.Errorf("site already exists")
+		}
+		return fmt.Errorf("failed to write config: %w", err)
+	}
+	if _, err := file.WriteString(config); err != nil {
+		_ = file.Close()
+		_ = os.Remove(absPath)
+		return fmt.Errorf("failed to write config: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(absPath)
+		return fmt.Errorf("failed to close config: %w", err)
+	}
+
+	if err := nginx.EnableSite(domain); err != nil {
+		_ = os.Remove(absPath)
+		return fmt.Errorf("failed to enable site: %w", err)
+	}
+	if err := nginx.ReloadNginx(); err != nil {
+		return fmt.Errorf("failed to reload nginx: %w", err)
+	}
+	return nil
+}
+
+func isValidRedirectTargetBase(targetBase string) bool {
+	u, err := url.Parse(targetBase)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return false
+	}
+	if u.Port() != "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+		return false
+	}
+	return isValidDomain(u.Hostname())
+}
+
+func buildDelayedRedirectHTML(targetBase string, delaySeconds int, message string) string {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		message = "You are being redirected."
+	}
+	delay := strconv.Itoa(delaySeconds)
+	escapedTarget := html.EscapeString(targetBase + "$request_uri")
+	escapedMessage := html.EscapeString(message)
+	doc := `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="` + delay + `;url=` + escapedTarget + `"><title>Redirecting</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:Arial,sans-serif;background:#f6f7f9;color:#14171f}main{max-width:560px;padding:32px;text-align:center}h1{font-size:28px;margin:0 0 12px}p{font-size:16px;line-height:1.5;color:#3e4654}a{color:#0b6bcb}</style></head><body><main><h1>Redirecting</h1><p>` + escapedMessage + `</p><p>Continuing in ` + delay + ` seconds.</p><p><a href="` + escapedTarget + `">Continue now</a></p></main></body></html>`
+	return escapeNginxDoubleQuoted(doc)
+}
+
+func escapeNginxDoubleQuoted(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `"`, `\"`)
+	value = strings.ReplaceAll(value, "\r", "")
+	value = strings.ReplaceAll(value, "\n", "")
+	return value
 }
 
 func isValidDomain(domain string) bool {

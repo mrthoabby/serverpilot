@@ -63,3 +63,47 @@ func TestNginxSitePathRejectsTraversal(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeRedirectTarget(t *testing.T) {
+	cases := []struct {
+		name     string
+		raw      string
+		wantBase string
+		wantHost string
+	}{
+		{name: "domain", raw: "new.example.com", wantBase: "https://new.example.com", wantHost: "new.example.com"},
+		{name: "https", raw: "https://new.example.com", wantBase: "https://new.example.com", wantHost: "new.example.com"},
+		{name: "http", raw: "http://new.example.com/", wantBase: "http://new.example.com", wantHost: "new.example.com"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotBase, gotHost, err := normalizeRedirectTarget(tc.raw)
+			if err != nil {
+				t.Fatalf("normalizeRedirectTarget() error = %v", err)
+			}
+			if gotBase != tc.wantBase || gotHost != tc.wantHost {
+				t.Fatalf("normalizeRedirectTarget() = (%q, %q), want (%q, %q)", gotBase, gotHost, tc.wantBase, tc.wantHost)
+			}
+		})
+	}
+}
+
+func TestNormalizeRedirectTargetRejectsUnsupportedValues(t *testing.T) {
+	bad := []string{
+		"",
+		"ftp://new.example.com",
+		"https://new.example.com/path",
+		"https://new.example.com:8443",
+		"https://new.example.com?x=1",
+		"https://user:pass@new.example.com",
+		"new.example.com;return 200",
+	}
+	for _, raw := range bad {
+		t.Run(raw, func(t *testing.T) {
+			if _, _, err := normalizeRedirectTarget(raw); err == nil {
+				t.Fatal("expected rejection")
+			}
+		})
+	}
+}

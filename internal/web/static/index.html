@@ -1204,8 +1204,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         <span class="refresh-bar-ts" id="ts-sites">--</span>
       </div>
       <div class="card">
-        <div class="card-header">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;">
           <h2>Nginx Sites</h2>
+          <button class="btn btn-sm btn-primary" id="createRedirectBtn">Create Redirect</button>
         </div>
         <div id="sitesContent">
           <div class="spinner"><div class="spinner-ring"></div>Loading sites...</div>
@@ -2255,6 +2256,60 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         </div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Redirect Site Modal -->
+<div class="modal-overlay" id="redirectModal">
+  <div class="modal">
+    <h3>Create Redirect</h3>
+    <p class="modal-sub">Redirect all requests from one domain to another domain</p>
+    <form id="redirectForm">
+      <div class="form-group">
+        <label for="redirectDomain">Source domain</label>
+        <input type="text" id="redirectDomain" required placeholder="old.example.com">
+      </div>
+      <div class="form-group">
+        <label for="redirectTarget">Target domain</label>
+        <input type="text" id="redirectTarget" required placeholder="new.example.com">
+        <div style="font-size:0.7rem;color:var(--text-muted);margin-top:4px;line-height:1.4;">
+          Paths and query strings are preserved automatically.
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="redirectCode">Redirect type</label>
+        <select id="redirectCode">
+          <option value="301">301 Permanent</option>
+          <option value="302">302 Temporary</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:0.5rem;font-weight:500;">
+          <input type="checkbox" id="redirectIncludeWWW" style="width:auto;">
+          Include www alias
+        </label>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:0.5rem;font-weight:500;">
+          <input type="checkbox" id="redirectDelayed" style="width:auto;">
+          Show message before redirect
+        </label>
+      </div>
+      <div id="redirectDelayOptions" style="display:none;">
+        <div class="form-group">
+          <label for="redirectDelaySeconds">Delay seconds</label>
+          <input type="number" id="redirectDelaySeconds" min="1" max="300" value="5">
+        </div>
+        <div class="form-group">
+          <label for="redirectMessage">Message</label>
+          <textarea id="redirectMessage" rows="3" maxlength="500" placeholder="This site has moved. You will be redirected shortly."></textarea>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="redirectCancelBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="redirectSubmitBtn">Create Redirect</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -3771,7 +3826,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     var thead = document.createElement("thead");
     var trh = document.createElement("tr");
-    ["Domain", "Engine", "Port", "Proxy Pass", "SSL", "WWW", "Auto-Renew", "Status", "Actions"].forEach(function(h) {
+    ["Domain", "Engine", "Port", "Target", "SSL", "WWW", "Auto-Renew", "Status", "Actions"].forEach(function(h) {
       var th = document.createElement("th");
       setText(th, h);
       trh.appendChild(th);
@@ -3792,7 +3847,20 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       tdDomain.appendChild(domStrong);
       tr.appendChild(tdDomain);
 
-      appendEngineCell(tr, siteMapping, "");
+      if (s.redirect_target) {
+        var tdRedirectEngine = document.createElement("td");
+        var redirectBadge = document.createElement("span");
+        redirectBadge.className = "badge badge-running";
+        if (s.redirect_delay) {
+          setText(redirectBadge, "Redirect " + s.redirect_delay + "s");
+        } else {
+          setText(redirectBadge, "Redirect " + (s.redirect_code || 301));
+        }
+        tdRedirectEngine.appendChild(redirectBadge);
+        tr.appendChild(tdRedirectEngine);
+      } else {
+        appendEngineCell(tr, siteMapping, "");
+      }
 
       // Port
       var tdPort = document.createElement("td");
@@ -3808,7 +3876,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       proxyCode.style.fontFamily = '"SF Mono","Fira Code",monospace';
       proxyCode.style.fontSize = "0.8125rem";
       proxyCode.style.color = "var(--text-secondary)";
-      setText(proxyCode, s.proxy_pass || "-");
+      setText(proxyCode, s.redirect_target || s.proxy_pass || "-");
       tdProxy.appendChild(proxyCode);
       tr.appendChild(tdProxy);
 
@@ -4630,6 +4698,59 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   });
 
   // ── Associate Site Modal ──
+  var redirectModal = document.getElementById("redirectModal");
+  var redirectDelayed = document.getElementById("redirectDelayed");
+  var redirectDelayOptions = document.getElementById("redirectDelayOptions");
+  function updateRedirectDelayOptions() {
+    redirectDelayOptions.style.display = redirectDelayed.checked ? "block" : "none";
+  }
+  redirectDelayed.addEventListener("change", updateRedirectDelayOptions);
+  document.getElementById("createRedirectBtn").addEventListener("click", function() {
+    document.getElementById("redirectDomain").value = "";
+    document.getElementById("redirectTarget").value = "";
+    document.getElementById("redirectCode").value = "301";
+    document.getElementById("redirectIncludeWWW").checked = false;
+    redirectDelayed.checked = false;
+    document.getElementById("redirectDelaySeconds").value = "5";
+    document.getElementById("redirectMessage").value = "";
+    updateRedirectDelayOptions();
+    redirectModal.classList.add("show");
+  });
+  document.getElementById("redirectCancelBtn").addEventListener("click", function() {
+    redirectModal.classList.remove("show");
+  });
+  redirectModal.addEventListener("click", function(e) {
+    if (e.target === redirectModal) redirectModal.classList.remove("show");
+  });
+  document.getElementById("redirectForm").addEventListener("submit", async function(e) {
+    e.preventDefault();
+    var btn = document.getElementById("redirectSubmitBtn");
+    btn.disabled = true;
+    setText(btn, "Creating...");
+    try {
+      var useDelay = document.getElementById("redirectDelayed").checked;
+      await apiFetch("/api/sites/redirect", {
+        method: "POST",
+        body: {
+          domain: document.getElementById("redirectDomain").value,
+          target: document.getElementById("redirectTarget").value,
+          code: parseInt(document.getElementById("redirectCode").value, 10),
+          include_www: document.getElementById("redirectIncludeWWW").checked,
+          delay_seconds: useDelay ? parseInt(document.getElementById("redirectDelaySeconds").value, 10) : 0,
+          message: useDelay ? document.getElementById("redirectMessage").value : ""
+        }
+      });
+      redirectModal.classList.remove("show");
+      showToast("Redirect created successfully", "success");
+      await Promise.all([loadSites(), loadMappings(), loadContainers()]);
+    } catch(err) {
+      showToast("Failed to create redirect: " + err.message, "error");
+    } finally {
+      btn.disabled = false;
+      setText(btn, "Create Redirect");
+    }
+  });
+
   var assocModal = document.getElementById("associateModal");
 
   // _assocPendingContainer is the container the modal currently points at.

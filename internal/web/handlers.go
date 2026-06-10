@@ -14,6 +14,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -99,6 +100,15 @@ type siteCreateRequest struct {
 	TemplateType string `json:"template_type"`
 	Port         int    `json:"port"`
 	IncludeWWW   bool   `json:"include_www"`
+}
+
+type siteRedirectRequest struct {
+	Domain       string `json:"domain"`
+	Target       string `json:"target"`
+	Code         int    `json:"code"`
+	IncludeWWW   bool   `json:"include_www"`
+	DelaySeconds int    `json:"delay_seconds"`
+	Message      string `json:"message"`
 }
 
 type siteUpdateDomainRequest struct {
@@ -1335,6 +1345,100 @@ func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
 		"message": "Site created for " + req.Domain,
 		"port":    strconv.Itoa(req.Port),
 	}})
+}
+
+func (s *Server) handleSiteRedirectCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	var req siteRedirectRequest
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	req.Domain = strings.ToLower(strings.TrimSpace(req.Domain))
+	if !isValidDomain(req.Domain) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid source domain format"})
+		return
+	}
+	if req.IncludeWWW && strings.HasPrefix(req.Domain, "www.") {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "source domain already starts with www"})
+		return
+	}
+	targetBase, targetHost, err := normalizeRedirectTarget(req.Target)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid redirect target"})
+		return
+	}
+	if strings.EqualFold(req.Domain, targetHost) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "source and target domains must be different"})
+		return
+	}
+	code := req.Code
+	if code == 0 {
+		code = 301
+	}
+	if code != 301 && code != 302 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid redirect code"})
+		return
+	}
+	req.Message = strings.TrimSpace(req.Message)
+	if req.DelaySeconds < 0 || req.DelaySeconds > 300 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "redirect delay must be 0 or between 1 and 300 seconds"})
+		return
+	}
+	if req.DelaySeconds > 0 && len(req.Message) > 500 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "redirect message is too long"})
+		return
+	}
+
+	if err := templates.ApplyRedirectTemplate(req.Domain, targetBase, code, req.IncludeWWW, req.DelaySeconds, req.Message); err != nil {
+		log.Printf("Error creating redirect site %s -> %s: %v", req.Domain, targetBase, err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to create redirect"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
+		"message": "Redirect created for " + req.Domain,
+		"target":  targetBase,
+		"code":    strconv.Itoa(code),
+		"delay":   strconv.Itoa(req.DelaySeconds),
+	}})
+}
+
+func normalizeRedirectTarget(raw string) (string, string, error) {
+	raw = strings.TrimSpace(strings.ToLower(raw))
+	if raw == "" || containsHTML(raw) || strings.ContainsAny(raw, " \t\r\n;{}") {
+		return "", "", fmt.Errorf("invalid target")
+	}
+	if !strings.Contains(raw, "://") {
+		if !isValidDomain(raw) {
+			return "", "", fmt.Errorf("invalid target domain")
+		}
+		return "https://" + raw, raw, nil
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", "", fmt.Errorf("invalid target URL")
+	}
+	host := u.Hostname()
+	if !isValidDomain(host) {
+		return "", "", fmt.Errorf("invalid target host")
+	}
+	if u.Port() != "" {
+		return "", "", fmt.Errorf("target ports are not supported")
+	}
+	if u.Path != "" && u.Path != "/" {
+		return "", "", fmt.Errorf("target path is not supported")
+	}
+	if u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+		return "", "", fmt.Errorf("target query, fragment, and credentials are not supported")
+	}
+	return u.Scheme + "://" + host, host, nil
 }
 
 func (s *Server) handleSiteEnable(w http.ResponseWriter, r *http.Request) {

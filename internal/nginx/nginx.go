@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/mrthoabby/serverpilot/internal/deps"
@@ -43,15 +44,18 @@ server {
 
 // Site represents an Nginx site configuration.
 type Site struct {
-	Domain      string   `json:"domain"`
-	ServerNames []string `json:"server_names,omitempty"`
-	ConfigPath  string   `json:"config_path"`
-	ListenPort  string   `json:"listen_port"`
-	ProxyPass   string   `json:"proxy_pass"`
-	SSLEnabled  bool     `json:"ssl_enabled"`
-	SSLAutoRnw  bool     `json:"ssl_auto_renew"`
-	WWWEnabled  bool     `json:"www_enabled"`
-	Enabled     bool     `json:"enabled"`
+	Domain         string   `json:"domain"`
+	ServerNames    []string `json:"server_names,omitempty"`
+	ConfigPath     string   `json:"config_path"`
+	ListenPort     string   `json:"listen_port"`
+	ProxyPass      string   `json:"proxy_pass"`
+	RedirectTarget string   `json:"redirect_target,omitempty"`
+	RedirectCode   int      `json:"redirect_code,omitempty"`
+	RedirectDelay  int      `json:"redirect_delay,omitempty"`
+	SSLEnabled     bool     `json:"ssl_enabled"`
+	SSLAutoRnw     bool     `json:"ssl_auto_renew"`
+	WWWEnabled     bool     `json:"www_enabled"`
+	Enabled        bool     `json:"enabled"`
 }
 
 // ListSites returns all nginx sites from sites-available, indicating whether they are enabled.
@@ -137,6 +141,29 @@ func ParseConfig(path string) (*Site, error) {
 		if strings.HasPrefix(line, "proxy_pass ") {
 			proxyPass := strings.TrimSuffix(strings.TrimPrefix(line, "proxy_pass "), ";")
 			site.ProxyPass = strings.TrimSpace(proxyPass)
+		}
+
+		if strings.HasPrefix(line, "# serverpilot_redirect_target ") {
+			site.RedirectTarget = strings.TrimSpace(strings.TrimPrefix(line, "# serverpilot_redirect_target "))
+		}
+
+		if strings.HasPrefix(line, "# serverpilot_redirect_delay ") {
+			rawDelay := strings.TrimSpace(strings.TrimPrefix(line, "# serverpilot_redirect_delay "))
+			if delay, err := strconv.Atoi(rawDelay); err == nil && delay > 0 {
+				site.RedirectDelay = delay
+			}
+		}
+
+		if strings.HasPrefix(line, "return ") {
+			fields := strings.Fields(strings.TrimSuffix(strings.TrimPrefix(line, "return "), ";"))
+			if len(fields) >= 2 {
+				if code, err := strconv.Atoi(fields[0]); err == nil {
+					if code == 301 || code == 302 {
+						site.RedirectCode = code
+						site.RedirectTarget = strings.TrimSuffix(strings.TrimSpace(fields[1]), "$request_uri")
+					}
+				}
+			}
 		}
 
 		if strings.HasPrefix(line, "ssl_certificate ") {
