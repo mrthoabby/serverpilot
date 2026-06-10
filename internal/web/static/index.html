@@ -1275,6 +1275,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
           <div class="res-card-label">Uptime</div>
           <div class="res-card-value" id="resUptime">--</div>
           <div class="res-card-sub" id="resHostname">--</div>
+          <div class="res-card-sub" id="resPublicIP" style="font-size:0.75rem;color:var(--accent);margin-top:2px;">Public IP: --</div>
         </div>
       </div>
 
@@ -7815,6 +7816,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     setText(document.getElementById("resUptime"), d.uptime || "--");
     setText(document.getElementById("resHostname"), d.hostname || "--");
+    setText(document.getElementById("resPublicIP"), "Public IP: " + (d.public_ip || "unavailable"));
 
     // Memory Pie Chart
     renderMemoryPie(d);
@@ -8512,11 +8514,14 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (otherMB > 100) {
       items.push({
         path: "(other)",
+        browse_path: "/",
         name: "No escaneado / Sistema",
         size_mb: otherMB,
         size_gb: Math.round(otherMB / 1024 * 100) / 100,
         is_dir: false,
-        type: "other"
+        type: "other",
+        synthetic: true,
+        protected_reason: "synthetic disk accounting row"
       });
     }
 
@@ -8624,17 +8629,22 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       var color = DISK_COLORS[i % DISK_COLORS.length];
       var isChecked = diskSelectedPaths[entry.path] ? "checked" : "";
       var safePath = entry.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+      var browseTarget = entry.browse_path || entry.path;
+      var safeBrowseTarget = browseTarget.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
       var nameHtml;
-      if (entry.is_dir || entry.type === "dir") {
-        nameHtml = '<a href="#" onclick="diskDrillInto(\'' + safePath + '\');return false;" style="color:var(--accent);text-decoration:none;font-weight:500;">' + escapeHtml(entry.name) + '</a>';
+      if (entry.is_dir || entry.type === "dir" || entry.browse_path) {
+        nameHtml = '<a href="#" onclick="diskDrillInto(\'' + safeBrowseTarget + '\');return false;" style="color:var(--accent);text-decoration:none;font-weight:500;">' + escapeHtml(entry.name) + '</a>';
       } else {
         nameHtml = '<span style="color:var(--text-primary);">' + escapeHtml(entry.name) + '</span>';
       }
+      var checkboxHtml = entry.synthetic
+        ? '<input type="checkbox" disabled title="' + escapeHtml(entry.protected_reason || "not a real path") + '" style="cursor:not-allowed;opacity:0.45;">'
+        : '<input type="checkbox" ' + isChecked + ' onchange="diskToggleSelect(\'' + safePath + '\', this.checked)" style="cursor:pointer;">';
       // Color dot matching the pie chart slice color.
       var colorDot = '<span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:' + color + ';"></span>';
       var tr = document.createElement("tr");
       tr.innerHTML =
-        '<td style="padding:4px;border-bottom:1px solid var(--border);text-align:center;"><input type="checkbox" ' + isChecked + ' onchange="diskToggleSelect(\'' + safePath + '\', this.checked)" style="cursor:pointer;"></td>' +
+        '<td style="padding:4px;border-bottom:1px solid var(--border);text-align:center;">' + checkboxHtml + '</td>' +
         '<td style="padding:4px 8px;border-bottom:1px solid var(--border);">' + nameHtml + '<br><span style="font-size:0.7rem;color:var(--text-muted);">' + escapeHtml(entry.path) + '</span></td>' +
         '<td style="padding:4px;border-bottom:1px solid var(--border);text-align:center;">' + colorDot + '</td>' +
         '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">' + entry.size_gb.toFixed(2) + '</td>' +

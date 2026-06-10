@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,15 +54,20 @@ func releaseMemory() {
 // Cache to avoid hammering docker stats and systemctl on every request.
 // The expensive operations (docker stats, systemctl) are cached for cacheTTL.
 var (
-	cacheMu   sync.Mutex
-	cached    *SystemInfo
-	cacheTime time.Time
-	cacheTTL  = 5 * time.Second
+	cacheMu            sync.Mutex
+	cached             *SystemInfo
+	cacheTime          time.Time
+	cacheTTL           = 5 * time.Second
+	publicIPCache      string
+	publicIPCacheTime  time.Time
+	publicIPCacheTTL   = 10 * time.Minute
+	publicIPCacheMutex sync.Mutex
 )
 
 // SystemInfo holds all system resource information.
 type SystemInfo struct {
 	Hostname      string               `json:"hostname"`
+	PublicIP      string               `json:"public_ip,omitempty"`
 	Uptime        string               `json:"uptime"`
 	GoVersion     string               `json:"go_version"`
 	NumCPU        int                  `json:"num_cpu"`
@@ -276,6 +283,7 @@ func Collect() (*SystemInfo, error) {
 	if h, err := os.Hostname(); err == nil {
 		info.Hostname = h
 	}
+	info.PublicIP = readPublicIP()
 
 	// These read /proc — essentially free.
 	info.Uptime = readUptime()
@@ -313,6 +321,44 @@ func Collect() (*SystemInfo, error) {
 	cacheTime = time.Now()
 	releaseMemory()
 	return info, nil
+}
+
+func readPublicIP() string {
+	publicIPCacheMutex.Lock()
+	if publicIPCache != "" && time.Since(publicIPCacheTime) < publicIPCacheTTL {
+		ip := publicIPCache
+		publicIPCacheMutex.Unlock()
+		return ip
+	}
+	publicIPCacheMutex.Unlock()
+
+	client := &http.Client{Timeout: 1200 * time.Millisecond}
+	endpoints := []string{
+		"https://api.ipify.org",
+		"https://ifconfig.me/ip",
+	}
+	for _, endpoint := range endpoints {
+		resp, err := client.Get(endpoint)
+		if err != nil {
+			continue
+		}
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 128))
+		_ = resp.Body.Close()
+		if readErr != nil || resp.StatusCode != http.StatusOK {
+			continue
+		}
+		candidate := strings.TrimSpace(string(body))
+		if net.ParseIP(candidate) == nil {
+			continue
+		}
+
+		publicIPCacheMutex.Lock()
+		publicIPCache = candidate
+		publicIPCacheTime = time.Now()
+		publicIPCacheMutex.Unlock()
+		return candidate
+	}
+	return ""
 }
 
 // CollectDiskBreakdown runs the (slow) disk breakdown scan independently.
