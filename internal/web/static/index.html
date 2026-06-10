@@ -1399,6 +1399,16 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         </div>
       </div>
 
+      <div id="diskUnaccountedPanel" style="display:none;margin-top:1rem;">
+        <div class="card">
+          <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;">
+            <h2>Unaccounted disk usage</h2>
+            <button onclick="closeDiskUnaccounted()" style="background:none;border:none;color:var(--text-muted);font-size:1.2rem;cursor:pointer;line-height:1;" title="Close">&#x2715;</button>
+          </div>
+          <div id="diskUnaccountedContent" style="padding:1rem;color:var(--text-secondary);font-size:0.82rem;"></div>
+        </div>
+      </div>
+
       <!-- Top Largest Files (with Hidden tab) -->
       <div class="card" style="margin-top:1rem;">
         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
@@ -8514,7 +8524,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (otherMB > 100) {
       items.push({
         path: "(other)",
-        browse_path: "/",
+        diagnostic: "unaccounted",
         name: "No escaneado / Sistema",
         size_mb: otherMB,
         size_gb: Math.round(otherMB / 1024 * 100) / 100,
@@ -8632,7 +8642,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       var browseTarget = entry.browse_path || entry.path;
       var safeBrowseTarget = browseTarget.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
       var nameHtml;
-      if (entry.is_dir || entry.type === "dir" || entry.browse_path) {
+      if (entry.diagnostic === "unaccounted") {
+        nameHtml = '<a href="#" onclick="openDiskUnaccounted();return false;" style="color:var(--accent);text-decoration:none;font-weight:500;">' + escapeHtml(entry.name) + '</a>';
+      } else if (entry.is_dir || entry.type === "dir" || entry.browse_path) {
         nameHtml = '<a href="#" onclick="diskDrillInto(\'' + safeBrowseTarget + '\');return false;" style="color:var(--accent);text-decoration:none;font-weight:500;">' + escapeHtml(entry.name) + '</a>';
       } else {
         nameHtml = '<span style="color:var(--text-primary);">' + escapeHtml(entry.name) + '</span>';
@@ -8758,6 +8770,64 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     showDiskActionBar();
     if (sysData && sysData.disk_breakdown) renderDiskBreakdown(sysData);
   };
+
+  window.openDiskUnaccounted = async function() {
+    var panel = document.getElementById("diskUnaccountedPanel");
+    var content = document.getElementById("diskUnaccountedContent");
+    if (!panel || !content) return;
+    panel.style.display = "block";
+    content.innerHTML = '<div style="color:var(--text-muted);">Inspecting deleted-but-open files...</div>';
+    try {
+      var resp = await apiFetch("/api/system/disk-unaccounted?limit=50");
+      var data = resp.data || resp || {};
+      renderDiskUnaccounted(data);
+    } catch(err) {
+      content.innerHTML = '<div style="color:var(--red);">Failed to inspect unaccounted usage: ' + escapeHtml(err.message) + '</div>';
+    }
+  };
+
+  window.closeDiskUnaccounted = function() {
+    var panel = document.getElementById("diskUnaccountedPanel");
+    if (panel) panel.style.display = "none";
+  };
+
+  function renderDiskUnaccounted(data) {
+    var content = document.getElementById("diskUnaccountedContent");
+    if (!content) return;
+    var files = data.deleted_open_files || [];
+    var totalGB = Number(data.deleted_open_files_total_gb || 0);
+    var html = '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">' +
+      '<div style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);"><strong style="color:var(--text-primary);">' + totalGB.toFixed(2) + ' GB</strong><br><span style="font-size:0.72rem;color:var(--text-muted);">deleted open files</span></div>' +
+      '</div>';
+
+    if (data.notes && data.notes.length) {
+      html += '<div style="margin-bottom:0.75rem;color:var(--text-muted);line-height:1.45;">';
+      data.notes.forEach(function(n) { html += '<div>• ' + escapeHtml(n) + '</div>'; });
+      html += '</div>';
+    }
+
+    if (!files.length) {
+      html += '<div style="padding:0.75rem;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);">No deleted open files found. The remaining gap is likely filesystem reserved blocks/metadata or data hidden below mount points.</div>';
+      content.innerHTML = html;
+      return;
+    }
+
+    html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.82rem;">' +
+      '<thead><tr style="color:var(--text-muted);text-align:left;border-bottom:1px solid var(--border);">' +
+      '<th style="padding:6px 8px;">Process</th><th style="padding:6px 8px;">PID</th><th style="padding:6px 8px;">FD</th><th style="padding:6px 8px;text-align:right;">GB</th><th style="padding:6px 8px;">Deleted file path</th>' +
+      '</tr></thead><tbody>';
+    files.forEach(function(f) {
+      html += '<tr>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);color:var(--text-primary);">' + escapeHtml(f.process || "-") + '</td>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);font-variant-numeric:tabular-nums;">' + escapeHtml(String(f.pid || "")) + '</td>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);font-variant-numeric:tabular-nums;">' + escapeHtml(String(f.fd || "")) + '</td>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right;font-weight:600;color:var(--text-primary);font-variant-numeric:tabular-nums;">' + Number(f.size_gb || 0).toFixed(2) + '</td>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);font-family:monospace;font-size:0.74rem;color:var(--text-secondary);">' + escapeHtml(f.path || "") + '</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table></div>';
+    content.innerHTML = html;
+  }
 
   window.diskToggleSelect = function(path, checked) {
     if (checked) diskSelectedPaths[path] = true;

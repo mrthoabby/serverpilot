@@ -1632,6 +1632,30 @@ func (s *Server) handleDiskDetail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: entries})
 }
 
+// handleDiskUnaccounted returns diagnostics for disk usage counted by df but
+// not visible through normal directory scans.
+func (s *Server) handleDiskUnaccounted(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	limit := 25
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+
+	report, err := sysinfo.DiskUnaccounted(limit)
+	if err != nil {
+		log.Printf("Disk unaccounted diagnostics error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to inspect unaccounted disk usage"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: report})
+}
+
 // handleDiskTopFiles finds the N largest files under a given path.
 // GET /api/system/disk-top-files?path=/&limit=5
 func (s *Server) handleDiskTopFiles(w http.ResponseWriter, r *http.Request) {

@@ -80,6 +80,7 @@ func (s *Server) Start() error {
 	mux.Handle("/api/system/memory-detail", s.authMiddleware(http.HandlerFunc(s.handleMemoryDetail)))
 	mux.Handle("/api/system/disk-breakdown", s.authMiddleware(http.HandlerFunc(s.handleDiskBreakdown)))
 	mux.Handle("/api/system/disk-detail", s.authMiddleware(http.HandlerFunc(s.handleDiskDetail)))
+	mux.Handle("/api/system/disk-unaccounted", s.authMiddleware(http.HandlerFunc(s.handleDiskUnaccounted)))
 	mux.Handle("/api/system/disk-top-files", s.authMiddleware(http.HandlerFunc(s.handleDiskTopFiles)))
 	mux.Handle("/api/system/disk-clean", s.requireSecureReauth(http.HandlerFunc(s.handleDiskClean)))
 	mux.Handle("/api/system/kill-process", s.requireSecureReauth(http.HandlerFunc(s.handleKillProcess)))

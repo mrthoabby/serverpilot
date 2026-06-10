@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -147,6 +148,28 @@ type DiskTopFile struct {
 	Type             string  `json:"type"`
 	Cleanable        bool    `json:"cleanable"`
 	CleanBlockReason string  `json:"clean_block_reason,omitempty"`
+}
+
+// DeletedOpenFile is a file that has been unlinked from the filesystem tree
+// but is still held open by a process. df counts its blocks, while du cannot
+// see it by walking directories.
+type DeletedOpenFile struct {
+	PID     int     `json:"pid"`
+	Process string  `json:"process"`
+	FD      string  `json:"fd"`
+	Path    string  `json:"path"`
+	SizeMB  float64 `json:"size_mb"`
+	SizeGB  float64 `json:"size_gb"`
+}
+
+// DiskUnaccountedReport explains disk usage that is not visible in normal
+// directory scans.
+type DiskUnaccountedReport struct {
+	DeletedOpenFiles        []DeletedOpenFile `json:"deleted_open_files"`
+	DeletedOpenFilesTotalMB float64           `json:"deleted_open_files_total_mb"`
+	DeletedOpenFilesTotalGB float64           `json:"deleted_open_files_total_gb"`
+	Notes                   []string          `json:"notes"`
+	Timestamp               int64             `json:"timestamp"`
 }
 
 // ContainerStat from docker stats.
@@ -1016,6 +1039,107 @@ func DiskTopFiles(root string, limit int) ([]DiskTopFile, error) {
 
 	releaseMemory()
 	return files, nil
+}
+
+// DiskUnaccounted scans for common reasons why df reports much more used
+// space than directory walks can attribute.
+func DiskUnaccounted(limit int) (*DiskUnaccountedReport, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 25
+	}
+
+	report := &DiskUnaccountedReport{
+		Timestamp: time.Now().Unix(),
+		Notes: []string{
+			"df counts allocated blocks on the filesystem; du only sees reachable files in directories.",
+			"Large gaps are commonly caused by deleted files still open by a process, filesystem reserved blocks/metadata, or data hidden under mounted directories.",
+		},
+	}
+
+	deleted, totalMB := scanDeletedOpenFiles(limit)
+	report.DeletedOpenFiles = deleted
+	report.DeletedOpenFilesTotalMB = math.Round(totalMB*100) / 100
+	report.DeletedOpenFilesTotalGB = math.Round(totalMB/1024*100) / 100
+	if totalMB > 0 {
+		report.Notes = append(report.Notes, "Deleted open files free their space only when the owning process closes the fd or restarts.")
+	}
+	return report, nil
+}
+
+func scanDeletedOpenFiles(limit int) ([]DeletedOpenFile, float64) {
+	procEntries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, 0
+	}
+
+	type inodeKey struct {
+		dev uint64
+		ino uint64
+	}
+	seen := make(map[inodeKey]bool)
+	var files []DeletedOpenFile
+	var totalMB float64
+
+	for _, procEntry := range procEntries {
+		if !procEntry.IsDir() {
+			continue
+		}
+		pid, err := strconv.Atoi(procEntry.Name())
+		if err != nil {
+			continue
+		}
+
+		fdDir := filepath.Join("/proc", procEntry.Name(), "fd")
+		fdEntries, err := os.ReadDir(fdDir)
+		if err != nil {
+			continue
+		}
+		process := readProcessComm(procEntry.Name())
+		for _, fdEntry := range fdEntries {
+			fdPath := filepath.Join(fdDir, fdEntry.Name())
+			target, err := os.Readlink(fdPath)
+			if err != nil || !strings.Contains(target, "(deleted)") {
+				continue
+			}
+			info, err := os.Stat(fdPath)
+			if err != nil || info.IsDir() || info.Size() <= 0 {
+				continue
+			}
+			st, ok := info.Sys().(*syscall.Stat_t)
+			if ok {
+				key := inodeKey{dev: uint64(st.Dev), ino: uint64(st.Ino)}
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+			}
+
+			sizeMB := float64(info.Size()) / (1024 * 1024)
+			totalMB += sizeMB
+			files = append(files, DeletedOpenFile{
+				PID:     pid,
+				Process: process,
+				FD:      fdEntry.Name(),
+				Path:    strings.TrimSuffix(target, " (deleted)"),
+				SizeMB:  math.Round(sizeMB*100) / 100,
+				SizeGB:  math.Round(sizeMB/1024*100) / 100,
+			})
+		}
+	}
+
+	sort.Slice(files, func(i, j int) bool { return files[i].SizeMB > files[j].SizeMB })
+	if len(files) > limit {
+		files = files[:limit]
+	}
+	return files, totalMB
+}
+
+func readProcessComm(pid string) string {
+	data, err := os.ReadFile(filepath.Join("/proc", pid, "comm"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // ProcessMemInfo holds memory usage for a single system process.
