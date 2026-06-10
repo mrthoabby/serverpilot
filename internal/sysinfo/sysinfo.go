@@ -2,6 +2,7 @@ package sysinfo
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -132,11 +133,13 @@ type DiskDetailEntry struct {
 
 // DiskTopFile represents one of the largest files on disk.
 type DiskTopFile struct {
-	Path   string  `json:"path"`
-	Name   string  `json:"name"`
-	SizeMB float64 `json:"size_mb"`
-	SizeGB float64 `json:"size_gb"`
-	Type   string  `json:"type"`
+	Path             string  `json:"path"`
+	Name             string  `json:"name"`
+	SizeMB           float64 `json:"size_mb"`
+	SizeGB           float64 `json:"size_gb"`
+	Type             string  `json:"type"`
+	Cleanable        bool    `json:"cleanable"`
+	CleanBlockReason string  `json:"clean_block_reason,omitempty"`
 }
 
 // ContainerStat from docker stats.
@@ -161,10 +164,10 @@ type ProcessInfo struct {
 
 // ServiceInfo for system services (Docker, Nginx, ServerPilot).
 type ServiceInfo struct {
-	Name       string          `json:"name"`
-	Status     string          `json:"status"`
-	Active     bool            `json:"active"`
-	MemMB      float64         `json:"mem_mb"`
+	Name       string           `json:"name"`
+	Status     string           `json:"status"`
+	Active     bool             `json:"active"`
+	MemMB      float64          `json:"mem_mb"`
 	MemHistory []MemorySnapshot `json:"mem_history,omitempty"`
 }
 
@@ -183,9 +186,9 @@ const (
 )
 
 var (
-	historyMu       sync.Mutex
-	serviceHistory  = make(map[string][]MemorySnapshot) // name -> snapshots
-	historyStarted  bool
+	historyMu      sync.Mutex
+	serviceHistory = make(map[string][]MemorySnapshot) // name -> snapshots
+	historyStarted bool
 )
 
 // StartHistoryCollector starts a background goroutine that takes memory
@@ -888,32 +891,28 @@ func DiskTopFiles(root string, limit int) ([]DiskTopFile, error) {
 		limit = 10
 	}
 
-	// /usr/bin/find -- <path> -xdev -type f -printf '%s %p\n'
-	// "--" stops option processing so a path that starts with "-" is treated
-	// as a positional argument, not a flag.
-	cmd := exec.Command("/usr/bin/find",
-		"--", clean,
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	// /usr/bin/find <path> -xdev -type f -printf '%s %p\n'
+	// The path has already been required to be absolute, so it cannot be
+	// mistaken for a find option. We read stdout incrementally and keep only
+	// the current top N files, which lets the dashboard show useful partial
+	// results even when a full root scan is too large to finish quickly.
+	cmd := exec.CommandContext(ctx, "/usr/bin/find",
+		clean,
 		"-xdev",
 		"-type", "f",
 		"-printf", "%s %p\n",
 	)
 	cmd.Stderr = io.Discard
 
-	done := make(chan []byte, 1)
-	go func() {
-		out, _ := cmd.Output()
-		done <- out
-	}()
-
-	var output []byte
-	select {
-	case output = <-done:
-	case <-time.After(15 * time.Second):
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-		go func() { <-done }()
-		return nil, fmt.Errorf("scan timed out")
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to start scan")
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start scan")
 	}
 
 	type sized struct {
@@ -921,10 +920,11 @@ func DiskTopFiles(root string, limit int) ([]DiskTopFile, error) {
 		path string
 	}
 	var all []sized
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
-		if line == "" {
-			continue
-		}
+
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
 		parts := strings.SplitN(line, " ", 2)
 		if len(parts) < 2 {
 			continue
@@ -934,7 +934,21 @@ func DiskTopFiles(root string, limit int) ([]DiskTopFile, error) {
 			continue
 		}
 		all = append(all, sized{size: sizeBytes, path: parts[1]})
+		sort.Slice(all, func(i, j int) bool { return all[i].size > all[j].size })
+		if len(all) > limit {
+			all = all[:limit]
+		}
 	}
+	scanErr := scanner.Err()
+	waitErr := cmd.Wait()
+
+	if scanErr != nil && ctx.Err() != context.DeadlineExceeded {
+		return nil, fmt.Errorf("scan failed")
+	}
+	if waitErr != nil && ctx.Err() != context.DeadlineExceeded && len(all) == 0 {
+		return nil, fmt.Errorf("scan failed")
+	}
+
 	// Largest first.
 	sort.Slice(all, func(i, j int) bool { return all[i].size > all[j].size })
 	if len(all) > limit {

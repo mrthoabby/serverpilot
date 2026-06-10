@@ -1700,6 +1700,13 @@ func (s *Server) handleDiskTopFiles(w http.ResponseWriter, r *http.Request) {
 	if len(files) > limit {
 		files = files[:limit]
 	}
+	for i := range files {
+		ok, _, reason := isCleanablePath(files[i].Path)
+		files[i].Cleanable = ok
+		if !ok {
+			files[i].CleanBlockReason = reason
+		}
+	}
 
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: files})
 }
