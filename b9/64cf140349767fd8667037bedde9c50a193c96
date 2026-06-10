@@ -1,0 +1,24 @@
+internal/sysinfo/sysinfo.go
+  s_174c03c13d92aa::t_bd62287cd63bac 286
+  s_174c03c13d92aa::t_15f71b8d1d471b 326-363
+  s_174c03c13d92aa::t_f808f77d14059e 10-11,57-64,70
+internal/web/static/index.html
+  s_174c03c13d92aa::t_66a03010e42ff7 8517,8522-8524,8632-8633,8635-8636,8640-8642,8647
+  s_174c03c13d92aa::t_9c3975aa0ffca5 1278,7819
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "b964cf140349767fd8667037bedde9c50a193c96",
+  "prompts": {},
+  "sessions": {
+    "s_174c03c13d92aa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9ede-fddc-73d1-b2ee-371aa4edac00",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
