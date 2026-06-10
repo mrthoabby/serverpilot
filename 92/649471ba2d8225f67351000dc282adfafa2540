@@ -1,0 +1,25 @@
+internal/web/handlers.go
+  s_174c03c13d92aa::t_a4e7ec6436c83c 1703-1709
+internal/web/static/index.html
+  s_174c03c13d92aa::t_610c0c62c2e752 8797,8805-8807,8842-8849,8852-8853,8942
+internal/sysinfo/sysinfo.go
+  s_174c03c13d92aa::t_9201e560c70a57 141
+  s_174c03c13d92aa::t_113990b6f61578 167-170,189-191
+  s_174c03c13d92aa::t_d855fc0e2d0d68 5,136-140,142,894-903,910-915,923-927,937-946,948-951
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "92649471ba2d8225f67351000dc282adfafa2540",
+  "prompts": {},
+  "sessions": {
+    "s_174c03c13d92aa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9ede-fddc-73d1-b2ee-371aa4edac00",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
