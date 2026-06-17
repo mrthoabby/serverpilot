@@ -1,0 +1,28 @@
+go.mod
+  s_46428ca027a280::t_eb451fb97089c7 15,19
+internal/web/static/index.html
+  s_46428ca027a280::t_4af70fc19c4d2a 7
+  s_46428ca027a280::t_9ad0cd39a0e657 2264-2285
+  s_46428ca027a280::t_156efb3f807373 9698-9831
+  s_46428ca027a280::t_a1b94b41ce6379 1185-1188
+internal/web/terminal.go
+  s_46428ca027a280::t_1090229a2113de 1-147
+internal/web/server.go
+  s_46428ca027a280::t_f8e80c0fac330a 171-175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "7419b2231c4453450333ce1c141836d21b2c11d2",
+  "prompts": {},
+  "sessions": {
+    "s_46428ca027a280": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d771cba-2c7f-4ccb-ace2-df7299cf7ac9",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
