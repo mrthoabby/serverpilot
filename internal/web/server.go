@@ -168,6 +168,11 @@ func (s *Server) Start() error {
 	mux.Handle("/api/permissions/system/grant", s.requireSecureReauth(http.HandlerFunc(s.handlePermissionsSystemGrant)))
 	mux.Handle("/api/permissions/audit", s.authMiddleware(http.HandlerFunc(s.handlePermissionsAudit)))
 
+	// Terminal — WebSocket PTY bridge.
+	// requireReauth ensures a valid session + recent re-authentication before
+	// the WS upgrade; the handler itself validates Origin via nhooyr.io/websocket.
+	mux.Handle("/api/terminal/ws", s.requireReauth(http.HandlerFunc(s.handleTerminalWS)))
+
 	// Static files.
 	mux.Handle("/static/", http.FileServer(http.FS(staticFiles)))
 
