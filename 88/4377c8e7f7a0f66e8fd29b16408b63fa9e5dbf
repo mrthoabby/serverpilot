@@ -1,0 +1,41 @@
+internal/web/terminal.go
+  s_8a7927a2163f66::t_2badf609d8a4b8 7,11
+  s_8a7927a2163f66::t_d965119fb725f6 43-44
+  s_8a7927a2163f66::t_8e976b061c1ee9 148-172
+internal/web/middleware.go
+  s_8a7927a2163f66::t_0e3dcaabecd1e3 261-264,271-274
+internal/web/static/index.html
+  s_8a7927a2163f66::t_a20f8de5e70c93 10166-10171,10173,10175-10181,10186
+  s_8a7927a2163f66::t_32ef200b1f6c82 10029,10031,10033-10047,10049-10076
+  s_8a7927a2163f66::t_bf19e1a1d73f2f 10018
+  s_8a7927a2163f66::t_94d1b0a229122f 10048
+  s_8a7927a2163f66::t_1cbcbeff7d3d7e 10172,10182
+  s_8a7927a2163f66::t_eb52f259b4093a 10004
+  s_8a7927a2163f66::t_7aa6ba8eb8f255 10032
+  s_8a7927a2163f66::t_6d67f8c56686c7 10030
+  s_8a7927a2163f66::t_faf83f57dea464 6663-6664
+  s_8a7927a2163f66::t_de3970198c6e44 10142
+internal/web/security_handlers.go
+  s_8a7927a2163f66::t_206eba88c3e9b2 78-100
+internal/web/session_security.go
+  s_8a7927a2163f66::t_ed77f171a72414 89-92,100-101
+  s_8a7927a2163f66::t_8054f93ee80a99 102-103
+internal/web/server.go
+  s_8a7927a2163f66::t_ac1c086c06e724 54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "884377c8e7f7a0f66e8fd29b16408b63fa9e5dbf",
+  "prompts": {},
+  "sessions": {
+    "s_8a7927a2163f66": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "9dbd6ee7-df0c-43b7-b93d-f5e13ff0e2e4",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
