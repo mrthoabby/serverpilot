@@ -609,8 +609,16 @@ func parseDockerSizeMB(s string) float64 {
 // This is the ONLY reliable way to measure Docker disk usage — `du /var/lib/docker`
 // overcounts because overlay2 merged/ directories are counted multiple times.
 func readDockerDiskInfo() []DockerDiskStat {
+	dockerBin, err := deps.DockerPath()
+	if err != nil {
+		return nil
+	}
+	// `docker system df` talks to the daemon and is normally fast; cap it so a
+	// hung daemon can't stall the whole system-info collection.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	// Use tab-separated format so multi-word types ("Local Volumes") parse cleanly.
-	cmd := exec.Command("/usr/bin/docker", "system", "df",
+	cmd := exec.CommandContext(ctx, dockerBin, "system", "df",
 		"--format", "{{.Type}}\t{{.Size}}\t{{.Reclaimable}}\t{{.Total}}\t{{.Active}}")
 	cmd.Stderr = io.Discard
 	output, err := cmd.Output()
@@ -654,30 +662,32 @@ func readDockerDiskInfo() []DockerDiskStat {
 // mount points, which would cause massive overcounting of Docker layer data.
 // Timeout is 30s per directory (large dirs like /usr can be slow).
 func readDiskBreakdown() []DiskBreakdownEntry {
-	// /var/lib/docker is intentionally EXCLUDED from this list.
-	// du on that path traverses overlay2 merged/ mount points and triple-counts
-	// image layers. Docker disk usage is measured separately via readDockerDiskInfo().
+	// /var/lib/docker is intentionally NOT du-scanned here.
+	// du on that path walks millions of overlay2 layer files (slow, times out)
+	// and triple-counts image layers. Docker disk usage is measured accurately
+	// and cheaply via `docker system df` (readDockerDiskInfo). /var/lib is scanned
+	// with docker excluded so it stays fast and does not double-count Docker.
 	dirs := []struct {
-		path  string
-		label string
+		path    string
+		label   string
+		exclude string // optional du --exclude (skips heavy subtrees like Docker)
 	}{
-		{"/var/lib/docker", "Docker (images, containers, volumes)"},
-		{"/var/log", "System Logs"},
-		{"/home", "Home Directories"},
-		{"/tmp", "Temporary Files"},
-		{"/var/lib/mysql", "MySQL Data"},
-		{"/var/lib/postgresql", "PostgreSQL Data"},
-		{"/opt", "Optional Software (/opt)"},
-		{"/usr", "System Programs (/usr)"},
-		{"/var/cache", "Package Cache"},
-		{"/etc", "Configuration (/etc)"},
-		{"/snap", "Snap Packages"},
-		{"/var/www", "Web Files (/var/www)"},
-		{"/root", "Root Home (/root)"},
-		{"/srv", "Server Data (/srv)"},
-		{"/var/lib", "Variable Data (/var/lib)"},
-		{"/var/spool", "Mail/Print Spool (/var/spool)"},
-		{"/var/backups", "Backups (/var/backups)"},
+		{"/var/log", "System Logs", ""},
+		{"/home", "Home Directories", ""},
+		{"/tmp", "Temporary Files", ""},
+		{"/var/lib/mysql", "MySQL Data", ""},
+		{"/var/lib/postgresql", "PostgreSQL Data", ""},
+		{"/opt", "Optional Software (/opt)", ""},
+		{"/usr", "System Programs (/usr)", ""},
+		{"/var/cache", "Package Cache", ""},
+		{"/etc", "Configuration (/etc)", ""},
+		{"/snap", "Snap Packages", ""},
+		{"/var/www", "Web Files (/var/www)", ""},
+		{"/root", "Root Home (/root)", ""},
+		{"/srv", "Server Data (/srv)", ""},
+		{"/var/lib", "Variable Data (/var/lib, excl. Docker)", "/var/lib/docker"},
+		{"/var/spool", "Mail/Print Spool (/var/spool)", ""},
+		{"/var/backups", "Backups (/var/backups)", ""},
 	}
 
 	type duResult struct {
@@ -692,33 +702,39 @@ func readDiskBreakdown() []DiskBreakdownEntry {
 	var wg sync.WaitGroup
 
 	validDirs := []struct {
-		idx   int
-		path  string
-		label string
+		idx     int
+		path    string
+		label   string
+		exclude string
 	}{}
 	for i, d := range dirs {
 		if _, err := os.Stat(d.path); os.IsNotExist(err) {
 			continue
 		}
 		validDirs = append(validDirs, struct {
-			idx   int
-			path  string
-			label string
-		}{i, d.path, d.label})
+			idx     int
+			path    string
+			label   string
+			exclude string
+		}{i, d.path, d.label, d.exclude})
 	}
 
 	for _, vd := range validDirs {
 		wg.Add(1)
-		go func(idx int, path string) {
+		go func(idx int, path, exclude string) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
 			// -s: summarize, -m: megabytes, -x: same filesystem only.
-			// The -x flag is critical: it prevents du from entering Docker overlay2
-			// merged/ directories (which are overlay mount points on a different fs
-			// type), avoiding the 3-4x overcounting that happens without it.
-			cmd := exec.Command("/usr/bin/du", "-smx", "--", path)
+			// The -x flag prevents du from entering overlay mount points; --exclude
+			// skips heavy subtrees (Docker) so /var/lib stays fast and accurate.
+			args := []string{"-smx"}
+			if exclude != "" {
+				args = append(args, "--exclude="+exclude)
+			}
+			args = append(args, "--", path)
+			cmd := exec.Command("/usr/bin/du", args...)
 			done := make(chan []byte, 1)
 			go func() {
 				out, _ := cmd.Output()
@@ -729,7 +745,7 @@ func readDiskBreakdown() []DiskBreakdownEntry {
 			var timedOut bool
 			select {
 			case output = <-done:
-			case <-time.After(30 * time.Second): // increased from 10s — /usr can be large
+			case <-time.After(90 * time.Second): // generous: /usr and /var/lib can be large
 				if cmd.Process != nil {
 					cmd.Process.Kill()
 				}
@@ -757,7 +773,7 @@ func readDiskBreakdown() []DiskBreakdownEntry {
 				return
 			}
 			resultsCh <- duResult{idx: idx, sizeMB: sizeMB}
-		}(vd.idx, vd.path)
+		}(vd.idx, vd.path, vd.exclude)
 	}
 
 	wg.Wait()
@@ -773,19 +789,16 @@ func readDiskBreakdown() []DiskBreakdownEntry {
 		resultByIdx[r.idx] = idxResult{sizeMB: r.sizeMB, partial: r.partial}
 	}
 
-	// Subtract child sizes from parent to avoid double-counting.
-	// /var/lib includes /var/lib/docker (with -x, this is the actual layer data),
-	// /var/lib/mysql, and /var/lib/postgresql.
+	// Subtract child sizes from parent to avoid double-counting. /var/lib is
+	// already measured with Docker excluded, but still includes /var/lib/mysql
+	// and /var/lib/postgresql, which are listed as their own rows.
 	varLibIdx := -1
-	dockerIdx := -1
 	mysqlIdx := -1
 	pgIdx := -1
 	for i, d := range dirs {
 		switch d.path {
 		case "/var/lib":
 			varLibIdx = i
-		case "/var/lib/docker":
-			dockerIdx = i
 		case "/var/lib/mysql":
 			mysqlIdx = i
 		case "/var/lib/postgresql":
@@ -795,7 +808,7 @@ func readDiskBreakdown() []DiskBreakdownEntry {
 	if varLibIdx >= 0 {
 		if parent, ok := resultByIdx[varLibIdx]; ok {
 			parentSize := parent.sizeMB
-			for _, childIdx := range []int{dockerIdx, mysqlIdx, pgIdx} {
+			for _, childIdx := range []int{mysqlIdx, pgIdx} {
 				if childIdx >= 0 {
 					if child, ok := resultByIdx[childIdx]; ok {
 						parentSize -= child.sizeMB

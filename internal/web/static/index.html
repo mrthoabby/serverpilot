@@ -8670,8 +8670,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       });
     }
 
-    // Calculate scanned total (excluding docker_disk items to avoid double-counting
-    // with the /var/lib/docker du entry, which now uses -x and is much smaller).
+    // Calculate scanned total. du rows already EXCLUDE Docker (/var/lib is scanned
+    // with --exclude=/var/lib/docker and /var/lib/docker itself is not du-scanned),
+    // so Docker is counted exactly once via docker system df (dockerTotalMB below).
     var scannedMB = 0;
     items.forEach(function(e) { if (!e.docker) scannedMB += e.size_mb; });
 
