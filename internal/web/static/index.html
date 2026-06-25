@@ -1428,6 +1428,43 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         </div>
       </div>
 
+      <div class="card" id="dockerPruneCard" style="margin-top:1rem;">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;">
+          <h2>Limpieza Docker (prune)</h2>
+          <span id="dockerPruneLoading" style="font-size:0.75rem;color:var(--text-muted);"></span>
+        </div>
+        <div id="dockerPruneContent" style="padding:0.75rem;font-size:0.82rem;color:var(--text-secondary);">
+          <div style="color:var(--text-muted);margin-bottom:0.75rem;line-height:1.45;">
+            Libera espacio en disco eliminando recursos Docker que ya no se usan.
+            Los contenedores <strong>corriendo</strong> y sus imágenes/volúmenes no se tocan en la limpieza básica.
+          </div>
+          <div id="dockerPruneModesList">Cargando opciones…</div>
+        </div>
+      </div>
+
+      <!-- Docker Prune Confirm Modal -->
+      <div class="modal-overlay" id="dockerPruneModal" style="display:none;">
+        <div class="modal" style="max-width:520px;">
+          <h3 id="dockerPruneModalTitle">Confirmar limpieza Docker</h3>
+          <div id="dockerPruneModalRisk" style="margin:0.5rem 0;font-size:0.78rem;font-weight:600;"></div>
+          <p id="dockerPruneModalDesc" style="font-size:0.82rem;color:var(--text-secondary);line-height:1.45;margin:0.5rem 0;"></p>
+          <div id="dockerPruneModalRemoves" style="font-size:0.78rem;margin:0.5rem 0;"></div>
+          <div id="dockerPruneModalKeeps" style="font-size:0.78rem;margin:0.5rem 0;"></div>
+          <div id="dockerPruneTypeConfirmWrap" style="display:none;margin:0.75rem 0;">
+            <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:0.35rem;">
+              Escribe <code id="dockerPruneTypeConfirmLabel" style="color:var(--red);"></code> para confirmar:
+            </label>
+            <input type="text" id="dockerPruneTypeConfirmInput" autocomplete="off" spellcheck="false"
+              style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);color:var(--text-primary);font-family:monospace;font-size:0.82rem;">
+          </div>
+          <div id="dockerPruneModalOutput" style="display:none;margin-top:0.75rem;padding:0.65rem;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;font-family:monospace;font-size:0.72rem;white-space:pre-wrap;color:var(--text-secondary);max-height:160px;overflow:auto;"></div>
+          <div class="modal-actions" style="margin-top:1rem;">
+            <button type="button" class="btn btn-outline" id="dockerPruneCancelBtn">Cancelar</button>
+            <button type="button" class="btn btn-primary" id="dockerPruneExecuteBtn">Ejecutar prune</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Top Largest Files (with Hidden tab) -->
       <div class="card" style="margin-top:1rem;">
         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
@@ -7911,6 +7948,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       gdappModal.classList.remove("show");
       pendingConfirm = null;
       closeConfigEditor();
+      if (typeof closeDockerPruneModal === "function") closeDockerPruneModal();
       if (progressCloseBtn.style.display !== "none") closeProgressModal();
     }
   });
@@ -7926,6 +7964,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var sysPromise = apiFetch("/api/system").catch(function() { return null; });
     var diskPromise = apiFetch("/api/system/disk-breakdown").catch(function() { return null; });
     var dockerDiskPromise = apiFetch("/api/system/docker-container-disk").catch(function() { return null; });
+    var dockerPrunePromise = apiFetch("/api/system/docker-prune/modes").catch(function() { return null; });
 
     // Render main data as soon as it arrives (don't wait for disk breakdown).
     var resp = await sysPromise;
@@ -7959,6 +7998,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       renderDockerContainerDisk(dockerDiskResp.data || dockerDiskResp || []);
     } else {
       renderDockerContainerDisk([]);
+    }
+
+    var dockerPruneResp = await dockerPrunePromise;
+    if (dockerPruneResp) {
+      renderDockerPruneModes(dockerPruneResp.data || dockerPruneResp || []);
     }
 
     resourcesFirstLoad = false;
@@ -9252,6 +9296,135 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     html += '</tbody></table></div>';
     el.innerHTML = html;
   }
+
+  var _dockerPruneModes = [];
+  var _dockerPrunePending = null;
+
+  function dockerPruneRiskStyle(risk) {
+    if (risk === "high") return { color: "var(--red)", label: "Riesgo alto" };
+    if (risk === "medium") return { color: "var(--orange)", label: "Riesgo medio" };
+    return { color: "var(--green)", label: "Riesgo bajo" };
+  }
+
+  function renderDockerPruneModes(modes) {
+    _dockerPruneModes = modes || [];
+    var el = document.getElementById("dockerPruneModesList");
+    if (!el) return;
+    if (!_dockerPruneModes.length) {
+      el.innerHTML = '<div style="color:var(--text-muted);">Docker no disponible o sin opciones de limpieza.</div>';
+      return;
+    }
+    var html = '<div style="display:flex;flex-direction:column;gap:0.65rem;">';
+    _dockerPruneModes.forEach(function(m) {
+      var risk = dockerPruneRiskStyle(m.risk);
+      html += '<div style="border:1px solid var(--border);border-radius:8px;padding:0.75rem;background:var(--bg-input);">' +
+        '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">' +
+          '<div style="flex:1;min-width:220px;">' +
+            '<div style="font-weight:600;color:var(--text-primary);margin-bottom:0.25rem;">' + escapeHtml(m.title || m.mode) +
+              ' <span style="font-size:0.7rem;color:' + risk.color + ';">● ' + risk.label + '</span></div>' +
+            '<div style="font-size:0.78rem;color:var(--text-secondary);line-height:1.4;">' + escapeHtml(m.description || "") + '</div>' +
+          '</div>' +
+          '<button type="button" onclick="openDockerPruneModal(' + attrJSON(m.mode) + ')" ' +
+            'style="background:' + (m.risk === "high" ? "var(--red)" : (m.risk === "medium" ? "var(--orange)" : "var(--accent)")) +
+            ';color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:0.78rem;cursor:pointer;white-space:nowrap;">Ejecutar</button>' +
+        '</div></div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+  }
+
+  window.openDockerPruneModal = function(mode) {
+    var info = null;
+    for (var i = 0; i < _dockerPruneModes.length; i++) {
+      if (_dockerPruneModes[i].mode === mode) { info = _dockerPruneModes[i]; break; }
+    }
+    if (!info) return;
+    _dockerPrunePending = info;
+
+    var risk = dockerPruneRiskStyle(info.risk);
+    document.getElementById("dockerPruneModalTitle").textContent = info.title || "Confirmar limpieza Docker";
+    document.getElementById("dockerPruneModalRisk").innerHTML = '<span style="color:' + risk.color + ';">' + risk.label + '</span>';
+    document.getElementById("dockerPruneModalDesc").textContent = info.description || "";
+
+    var removesEl = document.getElementById("dockerPruneModalRemoves");
+    var keepsEl = document.getElementById("dockerPruneModalKeeps");
+    removesEl.innerHTML = '<strong style="color:var(--text-primary);">Elimina:</strong><ul style="margin:0.35rem 0 0 1.1rem;padding:0;">' +
+      (info.removes || []).map(function(x) { return '<li>' + escapeHtml(x) + '</li>'; }).join("") + '</ul>';
+    keepsEl.innerHTML = '<strong style="color:var(--text-primary);">No toca:</strong><ul style="margin:0.35rem 0 0 1.1rem;padding:0;">' +
+      (info.keeps || []).map(function(x) { return '<li>' + escapeHtml(x) + '</li>'; }).join("") + '</ul>';
+
+    var typeWrap = document.getElementById("dockerPruneTypeConfirmWrap");
+    var typeInput = document.getElementById("dockerPruneTypeConfirmInput");
+    var typeLabel = document.getElementById("dockerPruneTypeConfirmLabel");
+    if (info.requires_type_confirm) {
+      typeWrap.style.display = "block";
+      typeLabel.textContent = info.mode;
+      typeInput.value = "";
+    } else {
+      typeWrap.style.display = "none";
+      typeInput.value = "";
+    }
+
+    document.getElementById("dockerPruneModalOutput").style.display = "none";
+    document.getElementById("dockerPruneModalOutput").textContent = "";
+    document.getElementById("dockerPruneExecuteBtn").disabled = false;
+    document.getElementById("dockerPruneExecuteBtn").textContent = "Ejecutar prune";
+    document.getElementById("dockerPruneModal").style.display = "flex";
+  };
+
+  window.closeDockerPruneModal = function() {
+    _dockerPrunePending = null;
+    document.getElementById("dockerPruneModal").style.display = "none";
+  };
+
+  async function executeDockerPrune() {
+    if (!_dockerPrunePending) return;
+    var info = _dockerPrunePending;
+    var btn = document.getElementById("dockerPruneExecuteBtn");
+    var confirmVal = "";
+    if (info.requires_type_confirm) {
+      confirmVal = (document.getElementById("dockerPruneTypeConfirmInput").value || "").trim();
+      if (confirmVal !== info.mode) {
+        showToast('Escribe "' + info.mode + '" para confirmar', "warning");
+        return;
+      }
+    }
+
+    if (btn) { btn.disabled = true; btn.textContent = "Ejecutando…"; }
+
+    try {
+      var resp = await apiFetch("/api/system/docker-prune", {
+        method: "POST",
+        body: { mode: info.mode, confirm: confirmVal || info.mode }
+      });
+      var data = (resp && resp.data) ? resp.data : resp;
+      var outEl = document.getElementById("dockerPruneModalOutput");
+      if (outEl && data && data.output) {
+        outEl.style.display = "block";
+        outEl.textContent = data.output;
+      }
+      showToast("Limpieza Docker completada", "success");
+      if (btn) btn.textContent = "Completado";
+      // Refresh disk views so reclaimed space shows up.
+      setTimeout(function() { loadResources(); }, 800);
+    } catch (err) {
+      showToast("Prune falló: " + (err.message || "error"), "error");
+      if (btn) { btn.disabled = false; btn.textContent = "Ejecutar prune"; }
+    }
+  }
+
+  (function initDockerPruneModal() {
+    var modal = document.getElementById("dockerPruneModal");
+    var cancelBtn = document.getElementById("dockerPruneCancelBtn");
+    var execBtn = document.getElementById("dockerPruneExecuteBtn");
+    if (cancelBtn) cancelBtn.addEventListener("click", closeDockerPruneModal);
+    if (execBtn) execBtn.addEventListener("click", executeDockerPrune);
+    if (modal) {
+      modal.addEventListener("click", function(e) {
+        if (e.target === modal) closeDockerPruneModal();
+      });
+    }
+  })();
 
   window.diskToggleSelect = function(path, checked) {
     if (checked) diskSelectedPaths[path] = true;

@@ -1853,6 +1853,57 @@ func (s *Server) handleDockerContainerDisk(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: entries})
 }
 
+// handleDockerPruneModes lists supported docker prune operations and their risks.
+// GET /api/system/docker-prune/modes
+func (s *Server) handleDockerPruneModes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: docker.PruneModes()})
+}
+
+// handleDockerPrune runs one allowlisted docker prune command.
+// POST /api/system/docker-prune  {"mode":"safe","confirm":"safe"}
+func (s *Server) handleDockerPrune(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	var req struct {
+		Mode    string `json:"mode"`
+		Confirm string `json:"confirm"`
+	}
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	mode := docker.PruneMode(strings.TrimSpace(req.Mode))
+	if !mode.Valid() {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid prune mode"})
+		return
+	}
+	if mode.RequiresTypeConfirm() && strings.TrimSpace(req.Confirm) != string(mode) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "confirmation required: type the mode name exactly"})
+		return
+	}
+
+	actor := sanitizeLogField(s.actorFromRequest(r), 64)
+	log.Printf("docker-prune: actor=%q mode=%q starting", actor, mode)
+
+	result, err := docker.RunPrune(mode)
+	if err != nil {
+		log.Printf("docker-prune: actor=%q mode=%q error=%v", actor, mode, err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "docker prune failed"})
+		return
+	}
+
+	log.Printf("docker-prune: actor=%q mode=%q result=ok", actor, mode)
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: result})
+}
+
 // handleDiskTopFiles finds the N largest files under a given path.
 // GET /api/system/disk-top-files?path=/&limit=5
 func (s *Server) handleDiskTopFiles(w http.ResponseWriter, r *http.Request) {
