@@ -1,0 +1,24 @@
+internal/sysinfo/sysinfo.go
+  s_8a7927a2163f66::t_e7ae6ce6b9b938 705-708,715-719,724,730-737,748,776
+  s_8a7927a2163f66::t_a3e547c693604f 612-619,621
+  s_8a7927a2163f66::t_a778e3f42cf20b 665-669,671-673,675-690
+  s_8a7927a2163f66::t_e38541966464e4 792-794,811
+internal/web/static/index.html
+  s_8a7927a2163f66::t_af12dc1421b32b 8673-8675
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "4276fac7d58a8ed449404da98a4dd3ea5923fc00",
+  "prompts": {},
+  "sessions": {
+    "s_8a7927a2163f66": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "9dbd6ee7-df0c-43b7-b93d-f5e13ff0e2e4",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
