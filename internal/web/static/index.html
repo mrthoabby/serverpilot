@@ -1135,6 +1135,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         <button class="btn btn-sm btn-success" id="updateBtn">Update</button>
       </div>
       <button class="btn btn-sm btn-outline" id="checkUpdatesBtn" title="Check for new versions">&#x1F50D; Check Updates</button>
+      <button class="btn btn-sm btn-outline" id="copyPublicIpBtn" title="Copy server public IP">&#x1F4CB; Copy IP</button>
       <button class="btn btn-sm btn-outline" id="refreshBtn" title="Refresh current tab">&#x21bb; Refresh</button>
       <button class="btn btn-sm btn-outline" id="logoutBtn">Logout</button>
     </div>
@@ -9448,6 +9449,50 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   }
 
   document.getElementById("checkUpdatesBtn").addEventListener("click", checkForUpdates);
+
+  // ── Copy server public IP ──
+  function copyTextToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function(resolve, reject) {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      try { document.execCommand("copy") ? resolve() : reject(new Error("copy failed")); }
+      catch(e) { reject(e); }
+      finally { document.body.removeChild(ta); }
+    });
+  }
+
+  async function copyPublicIp() {
+    var btn = document.getElementById("copyPublicIpBtn");
+    btn.disabled = true;
+    var original = "\uD83D\uDCCB Copy IP";
+    setText(btn, "Loading...");
+    try {
+      var resp = await apiFetch("/api/system");
+      var data = resp && resp.data ? resp.data : resp;
+      var ip = data && data.public_ip;
+      if (!ip) {
+        showToast("Public IP unavailable", "error");
+        return;
+      }
+      await copyTextToClipboard(ip);
+      showToast("Public IP copied: " + ip, "success");
+    } catch(e) {
+      showToast("Failed to copy IP: " + e.message, "error");
+    } finally {
+      btn.disabled = false;
+      setText(btn, original);
+    }
+  }
+
+  document.getElementById("copyPublicIpBtn").addEventListener("click", copyPublicIp);
 
   document.getElementById("updateBtn").addEventListener("click", async function() {
     var btn = document.getElementById("updateBtn");
