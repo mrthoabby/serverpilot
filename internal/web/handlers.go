@@ -130,6 +130,10 @@ type siteWWWRequest struct {
 // requests this was a major source of gradual memory growth.
 var indexHTML []byte
 
+// faviconSVG caches the embedded favicon so the dashboard tab shows the
+// ServerPilot logo. Served for both /favicon.svg and /favicon.ico.
+var faviconSVG []byte
+
 func init() {
 	data, err := staticFiles.ReadFile("static/index.html")
 	if err != nil {
@@ -137,6 +141,25 @@ func init() {
 		panic("failed to read embedded index.html: " + err.Error())
 	}
 	indexHTML = data
+
+	icon, err := staticFiles.ReadFile("static/favicon.svg")
+	if err != nil {
+		panic("failed to read embedded favicon.svg: " + err.Error())
+	}
+	faviconSVG = icon
+}
+
+// handleFavicon serves the embedded SVG favicon. It is intentionally public
+// (no auth) so the icon renders on the login page too, and cacheable to avoid
+// repeated requests.
+func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(faviconSVG)
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {

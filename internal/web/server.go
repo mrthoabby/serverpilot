@@ -40,6 +40,11 @@ func (s *Server) Start() error {
 	// Dashboard route.
 	mux.HandleFunc("/", s.handleDashboard)
 
+	// Favicon — served from the embedded SVG. Browsers request /favicon.ico
+	// by default; we answer both paths with the same SVG (public, no auth).
+	mux.HandleFunc("/favicon.svg", s.handleFavicon)
+	mux.HandleFunc("/favicon.ico", s.handleFavicon)
+
 	// Auth API routes (no auth middleware).
 	mux.HandleFunc("/api/login", s.handleLogin)
 
