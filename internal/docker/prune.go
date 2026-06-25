@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"fmt"
+	"math"
 	"os/exec"
 	"strings"
 	"time"
@@ -25,13 +26,115 @@ const dockerPruneTimeout = 10 * time.Minute
 
 // PruneModeInfo describes one prune option for the dashboard.
 type PruneModeInfo struct {
-	Mode                PruneMode `json:"mode"`
-	Title               string    `json:"title"`
-	Risk                string    `json:"risk"` // low, medium, high
-	Description         string    `json:"description"`
-	Removes             []string  `json:"removes"`
-	Keeps               []string  `json:"keeps"`
-	RequiresTypeConfirm bool      `json:"requires_type_confirm"`
+	Mode                PruneMode           `json:"mode"`
+	Title               string              `json:"title"`
+	Risk                string              `json:"risk"` // low, medium, high
+	Description         string              `json:"description"`
+	Removes             []string            `json:"removes"`
+	Keeps               []string            `json:"keeps"`
+	RequiresTypeConfirm bool                `json:"requires_type_confirm"`
+	EstimateAvailable   bool                `json:"estimate_available"`
+	EstimatedReclaimMB  float64             `json:"estimated_reclaim_mb,omitempty"`
+	EstimatedReclaimGB  float64             `json:"estimated_reclaim_gb,omitempty"`
+	EstimateParts       []PruneEstimatePart `json:"estimate_parts,omitempty"`
+	EstimateNote        string              `json:"estimate_note,omitempty"`
+}
+
+// PruneEstimatePart is one line in the reclaim estimate breakdown.
+type PruneEstimatePart struct {
+	Label string  `json:"label"`
+	GB    float64 `json:"gb"`
+}
+
+// ReclaimRow is one category from `docker system df` used for estimates.
+type ReclaimRow struct {
+	Type      string
+	ReclaimMB float64
+}
+
+// ReclaimSnapshot indexes reclaimable space by docker system df category.
+type ReclaimSnapshot struct {
+	ImagesMB     float64
+	ContainersMB float64
+	VolumesMB    float64
+	BuildCacheMB float64
+}
+
+// BuildReclaimSnapshot builds a snapshot from docker system df rows.
+func BuildReclaimSnapshot(rows []ReclaimRow) ReclaimSnapshot {
+	var snap ReclaimSnapshot
+	for _, row := range rows {
+		switch row.Type {
+		case "Images":
+			snap.ImagesMB = row.ReclaimMB
+		case "Containers":
+			snap.ContainersMB = row.ReclaimMB
+		case "Local Volumes":
+			snap.VolumesMB = row.ReclaimMB
+		case "Build Cache":
+			snap.BuildCacheMB = row.ReclaimMB
+		}
+	}
+	return snap
+}
+
+// EstimatePruneReclaim estimates how much space a prune mode would free,
+// using RECLAIMABLE columns from `docker system df` (same source Docker uses).
+func (s ReclaimSnapshot) EstimatePruneReclaim(mode PruneMode) (totalMB float64, parts []PruneEstimatePart, note string) {
+	add := func(label string, mb float64) {
+		if mb <= 0 {
+			return
+		}
+		totalMB += mb
+		parts = append(parts, PruneEstimatePart{
+			Label: label,
+			GB:    math.Round(mb/1024*100) / 100,
+		})
+	}
+
+	switch mode {
+	case PruneSafe:
+		// system prune (no -a): stopped containers, dangling images, networks, build cache.
+		// Images RECLAIMABLE in `docker system df` is for prune -a; not included here.
+		add("Contenedores parados", s.ContainersMB)
+		add("Build cache", s.BuildCacheMB)
+		note = "No incluye imágenes sin usar completas (usa «Todas las imágenes sin usar»). Puede liberar un poco más en imágenes dangling (<none>)."
+	case PruneBuilder:
+		add("Build cache", s.BuildCacheMB)
+	case PruneImages:
+		// system prune -a: all unused images + stopped containers + cache.
+		add("Imágenes sin usar", s.ImagesMB)
+		add("Contenedores parados", s.ContainersMB)
+		add("Build cache", s.BuildCacheMB)
+	case PruneVolumes:
+		add("Volúmenes huérfanos", s.VolumesMB)
+	case PruneAggressive:
+		add("Imágenes sin usar", s.ImagesMB)
+		add("Contenedores parados", s.ContainersMB)
+		add("Volúmenes huérfanos", s.VolumesMB)
+		add("Build cache", s.BuildCacheMB)
+	}
+	totalMB = math.Round(totalMB*100) / 100
+	return totalMB, parts, note
+}
+
+// PruneModesWithEstimates returns prune metadata enriched with reclaim estimates.
+func PruneModesWithEstimates(rows []ReclaimRow) []PruneModeInfo {
+	modes := PruneModes()
+	snap := BuildReclaimSnapshot(rows)
+	hasData := len(rows) > 0
+	for i := range modes {
+		if !hasData {
+			continue
+		}
+		mb, parts, note := snap.EstimatePruneReclaim(modes[i].Mode)
+		modes[i].EstimateAvailable = true
+		modes[i].EstimatedReclaimMB = mb
+		modes[i].EstimatedReclaimGB = math.Round(mb/1024*100) / 100
+		modes[i].EstimateParts = parts
+		modes[i].EstimateNote = note
+	}
+	return modes
 }
 
 // PruneResult is returned after a prune run.

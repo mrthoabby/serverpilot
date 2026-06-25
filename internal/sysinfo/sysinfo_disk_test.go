@@ -57,6 +57,28 @@ func TestParseMountVolumeNames(t *testing.T) {
 	}
 }
 
+func TestParseDockerSystemDFTable(t *testing.T) {
+	output := `TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE
+Images          25        10        23.04GB   15.53GB (67%)
+Containers      7         4         1.042GB   800MB (76%)
+Local Volumes   5         3         2.5GB     1GB (40%)
+Build Cache     15        0         500MB     500MB
+`
+	stats := parseDockerSystemDFTable(output)
+	if len(stats) != 4 {
+		t.Fatalf("len(stats) = %d, want 4", len(stats))
+	}
+	if stats[0].Type != "Images" || stats[0].SizeMB != 23040 {
+		t.Fatalf("Images = %+v, want 23040 MB", stats[0])
+	}
+	if stats[2].Type != "Local Volumes" || stats[2].SizeMB != 2500 {
+		t.Fatalf("Local Volumes = %+v, want 2500 MB", stats[2])
+	}
+	if stats[3].ReclaimMB != 500 {
+		t.Fatalf("Build Cache reclaim = %v, want 500", stats[3].ReclaimMB)
+	}
+}
+
 func TestParseDockerVolumeSizesFromOutput(t *testing.T) {
 	output := "Images space usage:\n\nLocal Volumes space usage:\n\nVOLUME NAME   LINKS   SIZE\nmydata        1       1.2GB\nunused_vol    0       512MB\n\nBuild cache usage:\n"
 	sizes := parseDockerVolumeSizesFromOutput(output)

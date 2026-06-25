@@ -1726,7 +1726,11 @@ func (s *Server) handleDiskBreakdown(w http.ResponseWriter, r *http.Request) {
 	}
 
 	entries := sysinfo.CollectDiskBreakdown()
-	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: entries})
+	dockerDisk := sysinfo.ReadDockerDiskInfo()
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]interface{}{
+		"breakdown":   entries,
+		"docker_disk": dockerDisk,
+	}})
 }
 
 // handleDiskDetail drills into a directory and returns its children with sizes.
@@ -1860,7 +1864,16 @@ func (s *Server) handleDockerPruneModes(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
 		return
 	}
-	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: docker.PruneModes()})
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: dockerPruneModesWithEstimates()})
+}
+
+func dockerPruneModesWithEstimates() []docker.PruneModeInfo {
+	stats := sysinfo.ReadDockerDiskInfo()
+	rows := make([]docker.ReclaimRow, 0, len(stats))
+	for _, s := range stats {
+		rows = append(rows, docker.ReclaimRow{Type: s.Type, ReclaimMB: s.ReclaimMB})
+	}
+	return docker.PruneModesWithEstimates(rows)
 }
 
 // handleDockerPrune runs one allowlisted docker prune command.

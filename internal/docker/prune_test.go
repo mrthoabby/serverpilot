@@ -61,6 +61,41 @@ func TestPruneModesMetadata(t *testing.T) {
 	}
 }
 
+func TestEstimatePruneReclaim(t *testing.T) {
+	snap := BuildReclaimSnapshot([]ReclaimRow{
+		{Type: "Images", ReclaimMB: 70000},
+		{Type: "Containers", ReclaimMB: 500},
+		{Type: "Local Volumes", ReclaimMB: 10000},
+		{Type: "Build Cache", ReclaimMB: 2000},
+	})
+
+	safeMB, safeParts, _ := snap.EstimatePruneReclaim(PruneSafe)
+	if safeMB != 2500 {
+		t.Fatalf("safe reclaim = %v, want 2500", safeMB)
+	}
+	if len(safeParts) != 2 {
+		t.Fatalf("safe parts = %d, want 2", len(safeParts))
+	}
+
+	imgMB, _, _ := snap.EstimatePruneReclaim(PruneImages)
+	if imgMB != 72500 {
+		t.Fatalf("images reclaim = %v, want 72500", imgMB)
+	}
+
+	volMB, _, _ := snap.EstimatePruneReclaim(PruneVolumes)
+	if volMB != 10000 {
+		t.Fatalf("volumes reclaim = %v, want 10000", volMB)
+	}
+
+	aggMB, aggParts, _ := snap.EstimatePruneReclaim(PruneAggressive)
+	if aggMB != 82500 {
+		t.Fatalf("aggressive reclaim = %v, want 82500", aggMB)
+	}
+	if len(aggParts) != 4 {
+		t.Fatalf("aggressive parts = %d, want 4", len(aggParts))
+	}
+}
+
 func TestSanitizePruneOutput(t *testing.T) {
 	if got := sanitizePruneOutput(""); got == "" {
 		t.Fatal("expected non-empty default message")

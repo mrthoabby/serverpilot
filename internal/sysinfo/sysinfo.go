@@ -605,56 +605,70 @@ func parseDockerSizeMB(s string) float64 {
 	return 0
 }
 
+// ReadDockerDiskInfo returns per-category Docker disk usage from `docker system df`.
+func ReadDockerDiskInfo() []DockerDiskStat {
+	return readDockerDiskInfo()
+}
+
+// parseDockerSystemDFTable parses the default table output of `docker system df`.
+// `docker system df` does not support --format on many installs; the table layout
+// is stable across Docker versions.
+func parseDockerSystemDFTable(output string) []DockerDiskStat {
+	var stats []DockerDiskStat
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "TYPE") {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 5 {
+			continue
+		}
+		n := len(parts)
+		// Reclaimable is often "15.53GB (67%)" — Fields() splits the percentage.
+		if strings.HasPrefix(parts[n-1], "(") {
+			n--
+		}
+		if n < 5 {
+			continue
+		}
+		reclaimStr := parts[n-1]
+		sizeStr := parts[n-2]
+		active, err1 := strconv.Atoi(parts[n-3])
+		total, err2 := strconv.Atoi(parts[n-4])
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		typeName := strings.Join(parts[:n-4], " ")
+		stats = append(stats, DockerDiskStat{
+			Type:      typeName,
+			Total:     total,
+			Active:    active,
+			SizeMB:    math.Round(parseDockerSizeMB(sizeStr)*100) / 100,
+			ReclaimMB: math.Round(parseDockerSizeMB(reclaimStr)*100) / 100,
+		})
+	}
+	return stats
+}
+
 // readDockerDiskInfo runs `docker system df` to get accurate per-category disk usage.
 // This is the ONLY reliable way to measure Docker disk usage — `du /var/lib/docker`
-// overcounts because overlay2 merged/ directories are counted multiple times.
+// cannot see overlay2 layer data correctly (-x undercounts, without -x overcounts).
 func readDockerDiskInfo() []DockerDiskStat {
 	dockerBin, err := deps.DockerPath()
 	if err != nil {
 		return nil
 	}
-	// `docker system df` talks to the daemon and is normally fast; cap it so a
-	// hung daemon can't stall the whole system-info collection.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	// Use tab-separated format so multi-word types ("Local Volumes") parse cleanly.
-	cmd := exec.CommandContext(ctx, dockerBin, "system", "df",
-		"--format", "{{.Type}}\t{{.Size}}\t{{.Reclaimable}}\t{{.Total}}\t{{.Active}}")
+
+	cmd := exec.CommandContext(ctx, dockerBin, "system", "df")
 	cmd.Stderr = io.Discard
 	output, err := cmd.Output()
-	if err != nil {
+	if err != nil || ctx.Err() == context.DeadlineExceeded {
 		return nil
 	}
-
-	var stats []DockerDiskStat
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, "\t")
-		if len(parts) < 5 {
-			continue
-		}
-		typeName := parts[0]
-		sizeMB := parseDockerSizeMB(parts[1])
-		// Reclaimable format: "1.2GB (34%)" — extract size before the space.
-		reclaimStr := parts[2]
-		if idx := strings.Index(reclaimStr, " "); idx > 0 {
-			reclaimStr = reclaimStr[:idx]
-		}
-		reclaimMB := parseDockerSizeMB(reclaimStr)
-		total, _ := strconv.Atoi(parts[3])
-		active, _ := strconv.Atoi(parts[4])
-
-		stats = append(stats, DockerDiskStat{
-			Type:      typeName,
-			Total:     total,
-			Active:    active,
-			SizeMB:    math.Round(sizeMB*100) / 100,
-			ReclaimMB: math.Round(reclaimMB*100) / 100,
-		})
-	}
-	return stats
+	return parseDockerSystemDFTable(string(output))
 }
 
 // readDiskBreakdown runs du on key directories to show what occupies disk space.

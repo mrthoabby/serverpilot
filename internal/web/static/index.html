@@ -1448,6 +1448,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
           <h3 id="dockerPruneModalTitle">Confirmar limpieza Docker</h3>
           <div id="dockerPruneModalRisk" style="margin:0.5rem 0;font-size:0.78rem;font-weight:600;"></div>
           <p id="dockerPruneModalDesc" style="font-size:0.82rem;color:var(--text-secondary);line-height:1.45;margin:0.5rem 0;"></p>
+          <div id="dockerPruneModalReclaim" style="display:none;margin:0.5rem 0;padding:0.65rem 0.75rem;border:1px solid var(--green);border-radius:6px;background:rgba(46,160,67,0.08);"></div>
           <div id="dockerPruneModalRemoves" style="font-size:0.78rem;margin:0.5rem 0;"></div>
           <div id="dockerPruneModalKeeps" style="font-size:0.78rem;margin:0.5rem 0;"></div>
           <div id="dockerPruneTypeConfirmWrap" style="display:none;margin:0.75rem 0;">
@@ -7975,21 +7976,21 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     // When disk breakdown arrives, merge it in.
     var diskResp = await diskPromise;
     if (diskResp) {
-      var breakdown = diskResp.data || diskResp;
-      if (sysData) sysData.disk_breakdown = breakdown;
+      var payload = diskResp.data || diskResp;
+      var breakdown = Array.isArray(payload) ? payload : (payload.breakdown || []);
+      var dockerFromBreakdown = Array.isArray(payload) ? null : payload.docker_disk;
+      if (sysData) {
+        sysData.disk_breakdown = breakdown;
+        if (dockerFromBreakdown && dockerFromBreakdown.length) {
+          sysData.docker_disk = dockerFromBreakdown;
+        }
+      }
 
       if (diskCurrentPath) {
-        // User is browsing a specific directory — DON'T touch their view.
-        // Silently update the breakdown data so that when they navigate back
-        // to overview, it will show the fresh data.
-        // Also silently re-fetch the directory they're in + top files.
         diskDrillIntoSilent(diskCurrentPath);
         loadTopFiles();
       } else {
-        // User is on the overview — render the breakdown directly.
-        // On first load this is fine (shows initial data). On subsequent
-        // refreshes the DOM swap is near-instant since data is already in memory.
-        renderDiskBreakdown(sysData || { disk_breakdown: breakdown });
+        renderDiskBreakdown(sysData || { disk_breakdown: breakdown, docker_disk: dockerFromBreakdown || [] });
       }
     }
 
@@ -8739,10 +8740,18 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
 
     if (otherMB > 100) {
+      var unaccountedName = "No escaneado / Sistema";
+      if (dockerTotalMB < 1 && otherMB > 5000) {
+        unaccountedName = "No escaneado / Sistema (probablemente Docker — clic para ver)";
+      } else if (dockerTotalMB < 1) {
+        unaccountedName = "No escaneado / Sistema (clic para desglosar)";
+      } else {
+        unaccountedName = "No escaneado / Sistema (resto — clic para desglosar)";
+      }
       items.push({
         path: "(other)",
         diagnostic: "unaccounted",
-        name: "No escaneado / Sistema",
+        name: unaccountedName,
         size_mb: otherMB,
         size_gb: Math.round(otherMB / 1024 * 100) / 100,
         is_dir: false,
@@ -9009,6 +9018,21 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       renderDiskUnaccountedDeletedSection();
     });
 
+    // Docker is the usual explanation for "No escaneado" — fetch it first.
+    Promise.all([
+      apiFetch("/api/system/disk-breakdown").catch(function() { return null; }),
+      apiFetch("/api/system/docker-container-disk").catch(function() { return null; })
+    ]).then(function(results) {
+      var diskResp = results[0];
+      var containerResp = results[1];
+      var payload = diskResp ? (diskResp.data || diskResp) : {};
+      var dockerDisk = Array.isArray(payload) ? [] : (payload.docker_disk || []);
+      var containers = containerResp ? (containerResp.data || containerResp || []) : [];
+      if (sysData && dockerDisk.length) sysData.docker_disk = dockerDisk;
+      renderDiskUnaccountedDockerSection(dockerDisk, containers);
+      if (!diskCurrentPath && sysData && dockerDisk.length) renderDiskBreakdown(sysData);
+    });
+
     streamDiskRootScan().catch(function(err) {
       var statusEl = document.getElementById("diskRootScanStatus");
       if (statusEl) statusEl.innerHTML = '<span style="color:var(--red);">Error: ' + escapeHtml(err.message) + '</span>';
@@ -9101,7 +9125,16 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var content = document.getElementById("diskUnaccountedContent");
     if (!content) return;
     content.innerHTML =
-      '<h3 style="margin:0 0 0.5rem;font-size:0.9rem;color:var(--text-primary);">Directorios de nivel superior en /</h3>' +
+      '<div id="diskUnaccountedDockerSection" style="margin-bottom:1.25rem;padding-bottom:1rem;border-bottom:1px solid var(--border);">' +
+        '<h3 style="margin:0 0 0.5rem;font-size:0.9rem;color:var(--text-primary);">Docker — uso real de disco</h3>' +
+        '<div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.65rem;line-height:1.45;">' +
+          'El bloque <strong>No escaneado / Sistema</strong> casi siempre es Docker en <code>/var/lib/docker</code>. ' +
+          '<code>du</code> no puede medir overlay2 correctamente; <code>docker system df</code> sí.' +
+        '</div>' +
+        '<div id="diskUnaccountedDockerBody" style="color:var(--text-muted);font-size:0.82rem;">Consultando Docker…</div>' +
+      '</div>' +
+      '<h3 style="margin:0 0 0.5rem;font-size:0.9rem;color:var(--text-primary);">Directorios de nivel superior en / (du)</h3>' +
+      '<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.35rem;">Complemento — no incluye datos overlay2 de Docker.</div>' +
       '<div id="diskRootScanStatus" style="margin-bottom:0.35rem;font-size:0.75rem;color:var(--text-muted);">Iniciando escaneo...</div>' +
       '<div style="overflow-x:auto;margin-bottom:1rem;"><table style="width:100%;border-collapse:collapse;font-size:0.82rem;">' +
       '<thead><tr style="color:var(--text-muted);text-align:left;border-bottom:1px solid var(--border);">' +
@@ -9109,6 +9142,65 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       '</tr></thead><tbody id="diskRootScanBody"></tbody></table></div>' +
       '<div id="diskUnaccountedDeletedSection"><div style="color:var(--text-muted);font-size:0.82rem;">Cargando archivos borrados abiertos...</div></div>';
     updateDiskRootScanTable();
+  }
+
+  function renderDiskUnaccountedDockerSection(dockerDisk, containerEntries) {
+    var el = document.getElementById("diskUnaccountedDockerBody");
+    if (!el) return;
+
+    if (!dockerDisk || !dockerDisk.length) {
+      el.innerHTML =
+        '<div style="padding:0.75rem;border:1px solid var(--orange);border-radius:6px;background:rgba(255,165,0,0.08);color:var(--text-secondary);line-height:1.45;">' +
+          '<strong style="color:var(--orange);">Docker no respondió.</strong> ' +
+          'Verifica que el daemon esté corriendo (<code>systemctl status docker</code>). ' +
+          'Si el espacio desaparecido es ~80 GB, casi seguro está en imágenes/capas Docker y aparecerá aquí cuando el daemon responda.' +
+        '</div>';
+      return;
+    }
+
+    var totalMB = 0, reclaimMB = 0;
+    dockerDisk.forEach(function(d) {
+      totalMB += d.size_mb || 0;
+      reclaimMB += d.reclaim_mb || 0;
+    });
+
+    var html =
+      '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">' +
+        '<div style="padding:10px 14px;border:1px solid var(--accent);border-radius:8px;background:rgba(88,166,255,0.08);">' +
+          '<strong style="color:var(--accent);font-size:1.15rem;">' + (totalMB / 1024).toFixed(2) + ' GB</strong><br>' +
+          '<span style="font-size:0.72rem;color:var(--text-muted);">total Docker (imágenes + contenedores + volúmenes + cache)</span>' +
+        '</div>' +
+        '<div style="padding:10px 14px;border:1px solid var(--green);border-radius:8px;">' +
+          '<strong style="color:var(--green);font-size:1.05rem;">' + (reclaimMB / 1024).toFixed(2) + ' GB</strong><br>' +
+          '<span style="font-size:0.72rem;color:var(--text-muted);">recuperable con prune (sin tocar lo activo)</span>' +
+        '</div>' +
+      '</div>' +
+      '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.82rem;">' +
+      '<thead><tr style="color:var(--text-muted);text-align:left;border-bottom:1px solid var(--border);">' +
+      '<th style="padding:6px 8px;">Tipo</th><th style="padding:6px 8px;text-align:right;">GB</th>' +
+      '<th style="padding:6px 8px;text-align:right;">Recuperable</th><th style="padding:6px 8px;">Items</th>' +
+      '</tr></thead><tbody>';
+
+    dockerDisk.forEach(function(d) {
+      html += '<tr>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);font-weight:500;color:var(--text-primary);">' + escapeHtml(d.type || "") + '</td>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right;font-weight:600;font-variant-numeric:tabular-nums;">' +
+          ((d.size_mb || 0) / 1024).toFixed(2) + '</td>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right;color:var(--green);font-variant-numeric:tabular-nums;">' +
+          ((d.reclaim_mb || 0) / 1024).toFixed(2) + ' GB</td>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">' +
+          (d.active || 0) + ' activos / ' + (d.total || 0) + ' total</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table></div>';
+
+    if (containerEntries && containerEntries.length) {
+      html += '<div style="margin-top:0.65rem;font-size:0.75rem;color:var(--text-muted);">' +
+        'Detalle por contenedor: tarjeta <strong>Docker disk by container</strong> (más abajo). ' +
+        'Para liberar espacio: tarjeta <strong>Limpieza Docker (prune)</strong>.</div>';
+    }
+
+    el.innerHTML = html;
   }
 
   function updateDiskRootScanTable() {
@@ -9306,6 +9398,29 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     return { color: "var(--green)", label: "Riesgo bajo" };
   }
 
+  function formatPruneReclaimLabel(m) {
+    if (!m.estimate_available) {
+      return '<span style="font-size:0.78rem;color:var(--text-muted);">Estimado: — (Docker no disponible)</span>';
+    }
+    var gb = Number(m.estimated_reclaim_gb || 0);
+    if (gb <= 0) {
+      return '<span style="font-size:0.85rem;color:var(--text-muted);">Liberaría: <strong>0 GB</strong> <span style="font-size:0.72rem;">(nada recuperable ahora)</span></span>';
+    }
+    var html = '<div style="margin:0.35rem 0 0.15rem;">' +
+      '<span style="font-size:0.95rem;font-weight:700;color:var(--green);">Liberaría ~' + gb.toFixed(2) + ' GB</span></div>';
+    if (m.estimate_parts && m.estimate_parts.length) {
+      html += '<div style="font-size:0.72rem;color:var(--text-muted);line-height:1.35;">';
+      m.estimate_parts.forEach(function(p) {
+        html += escapeHtml(p.label) + ': ' + Number(p.gb || 0).toFixed(2) + ' GB · ';
+      });
+      html = html.replace(/ · $/, '') + '</div>';
+    }
+    if (m.estimate_note) {
+      html += '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.2rem;line-height:1.35;">' + escapeHtml(m.estimate_note) + '</div>';
+    }
+    return html;
+  }
+
   function renderDockerPruneModes(modes) {
     _dockerPruneModes = modes || [];
     var el = document.getElementById("dockerPruneModesList");
@@ -9317,16 +9432,21 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var html = '<div style="display:flex;flex-direction:column;gap:0.65rem;">';
     _dockerPruneModes.forEach(function(m) {
       var risk = dockerPruneRiskStyle(m.risk);
+      var reclaimHtml = formatPruneReclaimLabel(m);
+      var btnDisabled = m.estimate_available && Number(m.estimated_reclaim_gb || 0) <= 0;
       html += '<div style="border:1px solid var(--border);border-radius:8px;padding:0.75rem;background:var(--bg-input);">' +
         '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">' +
           '<div style="flex:1;min-width:220px;">' +
             '<div style="font-weight:600;color:var(--text-primary);margin-bottom:0.25rem;">' + escapeHtml(m.title || m.mode) +
               ' <span style="font-size:0.7rem;color:' + risk.color + ';">● ' + risk.label + '</span></div>' +
-            '<div style="font-size:0.78rem;color:var(--text-secondary);line-height:1.4;">' + escapeHtml(m.description || "") + '</div>' +
+            reclaimHtml +
+            '<div style="font-size:0.78rem;color:var(--text-secondary);line-height:1.4;margin-top:0.35rem;">' + escapeHtml(m.description || "") + '</div>' +
           '</div>' +
           '<button type="button" onclick="openDockerPruneModal(' + attrJSON(m.mode) + ')" ' +
-            'style="background:' + (m.risk === "high" ? "var(--red)" : (m.risk === "medium" ? "var(--orange)" : "var(--accent)")) +
-            ';color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:0.78rem;cursor:pointer;white-space:nowrap;">Ejecutar</button>' +
+            (btnDisabled ? 'disabled title="Nada que liberar con esta opción ahora"' : '') +
+            ' style="background:' + (btnDisabled ? "var(--bg-secondary)" : (m.risk === "high" ? "var(--red)" : (m.risk === "medium" ? "var(--orange)" : "var(--accent)"))) +
+            ';color:' + (btnDisabled ? "var(--text-muted)" : "#fff") +
+            ';border:none;padding:6px 14px;border-radius:6px;font-size:0.78rem;cursor:' + (btnDisabled ? "not-allowed" : "pointer") + ';white-space:nowrap;">Ejecutar</button>' +
         '</div></div>';
     });
     html += '</div>';
@@ -9345,6 +9465,30 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     document.getElementById("dockerPruneModalTitle").textContent = info.title || "Confirmar limpieza Docker";
     document.getElementById("dockerPruneModalRisk").innerHTML = '<span style="color:' + risk.color + ';">' + risk.label + '</span>';
     document.getElementById("dockerPruneModalDesc").textContent = info.description || "";
+
+    var reclaimBanner = document.getElementById("dockerPruneModalReclaim");
+    if (reclaimBanner) {
+      if (info.estimate_available && Number(info.estimated_reclaim_gb || 0) > 0) {
+        var partsText = "";
+        if (info.estimate_parts && info.estimate_parts.length) {
+          partsText = info.estimate_parts.map(function(p) {
+            return p.label + ": " + Number(p.gb || 0).toFixed(2) + " GB";
+          }).join(" · ");
+        }
+        reclaimBanner.style.display = "block";
+        reclaimBanner.innerHTML =
+          '<strong style="color:var(--green);font-size:1rem;">Espacio estimado a liberar: ~' +
+          Number(info.estimated_reclaim_gb || 0).toFixed(2) + ' GB</strong>' +
+          (partsText ? '<div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem;">' + escapeHtml(partsText) + '</div>' : '') +
+          (info.estimate_note ? '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.25rem;">' + escapeHtml(info.estimate_note) + '</div>' : '');
+      } else if (info.estimate_available) {
+        reclaimBanner.style.display = "block";
+        reclaimBanner.innerHTML = '<span style="color:var(--text-muted);">No hay espacio recuperable con esta opción en este momento.</span>';
+      } else {
+        reclaimBanner.style.display = "none";
+        reclaimBanner.innerHTML = "";
+      }
+    }
 
     var removesEl = document.getElementById("dockerPruneModalRemoves");
     var keepsEl = document.getElementById("dockerPruneModalKeeps");
