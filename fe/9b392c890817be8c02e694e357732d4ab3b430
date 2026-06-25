@@ -1,0 +1,37 @@
+internal/docker/prune.go
+  s_8a7927a2163f66::t_d8a510d17537e2 118,127
+  s_8a7927a2163f66::t_485b2cd22f87d8 28-34
+  s_8a7927a2163f66::t_fb36a7a15c2fab 1-27,35-117,119-126,128-154,156-195
+  s_8a7927a2163f66::t_16a868348e9d8e 155
+internal/web/static/index.html
+  s_8a7927a2163f66::t_7945dbadd4b288 1431-1467
+  s_8a7927a2163f66::t_30b1de9a240497 7967
+  s_8a7927a2163f66::t_efc913c692cd2f 7951
+  s_8a7927a2163f66::t_cb1a145b49cbbe 9314
+  s_8a7927a2163f66::t_37d6594805f85c 8003-8007
+  s_8a7927a2163f66::t_d8a0c8b3a7e141 9300-9313,9315-9428
+internal/web/handlers.go
+  s_8a7927a2163f66::t_ac3fd550e023c7 1856-1906
+internal/docker/prune_test.go
+  s_8a7927a2163f66::t_f315f5725fc29d 19
+  s_8a7927a2163f66::t_659a3144de610f 1-18,20-54,56-57,59-81
+  s_8a7927a2163f66::t_5862a273c0a095 55,58
+internal/web/server.go
+  s_8a7927a2163f66::t_e7c6f6789ecedd 93-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "fe9b392c890817be8c02e694e357732d4ab3b430",
+  "prompts": {},
+  "sessions": {
+    "s_8a7927a2163f66": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "9dbd6ee7-df0c-43b7-b93d-f5e13ff0e2e4",
+        "model": "composer-2.5"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
