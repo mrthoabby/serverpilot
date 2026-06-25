@@ -1,0 +1,48 @@
+internal/sysinfo/sysinfo_disk_test.go
+  s_8a7927a2163f66::t_976af3eac733b4 1-69
+internal/web/handlers.go
+  s_8a7927a2163f66::t_f42689dd549927 1763-1794
+internal/sysinfo/sysinfo.go
+  s_8a7927a2163f66::t_b615f08542286a 177-207
+  s_8a7927a2163f66::t_5809d9cec26f1c 24-25
+  s_8a7927a2163f66::t_c010a0bf8556c0 1102-1298,1301,1303-1304,1306-1316,1318-1381
+  s_8a7927a2163f66::t_d2a57cca39c40a 1299-1300,1302,1305,1317
+internal/web/static/index.html
+  s_8a7927a2163f66::t_d643dddab39beb 8947,8949-8955,8966-8971,8974-9003,9006-9007,9018,9040-9091
+  s_5e85602b5a69df::t_015f7268e130e1 9880,9883-9889
+  s_8a7927a2163f66::t_5e83ca2e6b5a05 1412,1419-1426
+  s_8a7927a2163f66::t_37ee47a1d95705 7953-7959
+  s_5e85602b5a69df::t_1f44869ae8e873 9948-9953,9955,9961,9973-9991,9995-9996
+  s_5e85602b5a69df::t_69dcc2edf012f0 9926-9933
+  s_5e85602b5a69df::t_4a384ff2f61224 6660
+  s_8a7927a2163f66::t_c79070642f05ac 7924
+  s_8a7927a2163f66::t_717a7df91b6bcb 1427-1428
+  s_8a7927a2163f66::t_e87b0a70bb717a 9092-9093
+  s_5e85602b5a69df::t_c37687b7bc80e2 9890
+internal/web/server.go
+  s_8a7927a2163f66::t_c2b24621ce704f 85-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "2fea9b268441d1f4dfc8c594be340659f7ee2702",
+  "prompts": {},
+  "sessions": {
+    "s_5e85602b5a69df": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "e90f5e69-c950-44d9-bfa0-f2ef0c728318",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    },
+    "s_8a7927a2163f66": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "9dbd6ee7-df0c-43b7-b93d-f5e13ff0e2e4",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
