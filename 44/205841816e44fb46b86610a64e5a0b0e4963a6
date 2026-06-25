@@ -1,0 +1,40 @@
+internal/sysinfo/sysinfo_disk_test.go
+  s_8a7927a2163f66::t_6aa890cdf796fd 60-80
+  s_8a7927a2163f66::t_cceb68c4ed5e7a 81
+internal/docker/prune.go
+  s_8a7927a2163f66::t_bc9b5d98e47189 29-137
+  s_8a7927a2163f66::t_e35307109951a2 6
+internal/docker/prune_test.go
+  s_8a7927a2163f66::t_e8ab26c6d997fe 64-98
+internal/sysinfo/sysinfo.go
+  s_8a7927a2163f66::t_8edeb8d2df63a3 608-611,613-616,618-620,623,627-630,632-642,647-648,654-672
+  s_8a7927a2163f66::t_07f8a24d82f94a 673
+internal/web/handlers.go
+  s_8a7927a2163f66::t_bc26c78737df93 1867-1876
+  s_8a7927a2163f66::t_00f510599dbbc8 1729-1733
+internal/web/static/index.html
+  s_8a7927a2163f66::t_6dab257152fb67 9021-9035
+  s_8a7927a2163f66::t_d289012aa90487 9128-9137,9147-9203
+  s_8a7927a2163f66::t_8e0f96859710ce 9469-9492
+  s_8a7927a2163f66::t_84a7b16607706d 7979-7987,7993
+  s_8a7927a2163f66::t_f461b0b6d18b05 9204,9401-9423,9435-9436,9442-9443,9446-9449
+  s_8a7927a2163f66::t_ebec96e903013e 1451
+  s_8a7927a2163f66::t_6e3fe8810608d8 8743-8750,8754
+  s_8a7927a2163f66::t_48ba5c58ef586d 9205
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "44205841816e44fb46b86610a64e5a0b0e4963a6",
+  "prompts": {},
+  "sessions": {
+    "s_8a7927a2163f66": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "9dbd6ee7-df0c-43b7-b93d-f5e13ff0e2e4",
+        "model": "composer-2.5"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
