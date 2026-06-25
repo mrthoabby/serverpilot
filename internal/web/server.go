@@ -51,6 +51,7 @@ func (s *Server) Start() error {
 	// Protected API routes.
 	mux.Handle("/api/logout", s.authMiddleware(http.HandlerFunc(s.handleLogout)))
 	mux.Handle("/api/session/reauth", s.authMiddleware(http.HandlerFunc(s.handleSessionReauth)))
+	mux.Handle("/api/session/reauth-status", s.authMiddleware(http.HandlerFunc(s.handleSessionReauthStatus)))
 	mux.Handle("/api/sessions", s.authMiddleware(http.HandlerFunc(s.handleSessionsList)))
 	mux.Handle("/api/sessions/revoke", s.requireReauth(http.HandlerFunc(s.handleSessionRevoke)))
 	mux.Handle("/api/sessions/revoke-others", s.requireReauth(http.HandlerFunc(s.handleSessionRevokeOthers)))

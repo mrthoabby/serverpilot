@@ -86,11 +86,19 @@ func (s *Server) reauthMiddleware(next http.Handler, requireSecure bool) http.Ha
 		}
 		token, ok := s.currentSessionToken(r)
 		if !ok || !s.sessionStore.RecentlyReauthenticated(token) {
+			if isWebSocketUpgrade(r) {
+				http.Error(w, "recent reauthentication required", http.StatusForbidden)
+				return
+			}
 			writeJSON(w, http.StatusForbidden, apiResponse{Error: "recent reauthentication required"})
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isWebSocketUpgrade(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
 }
 
 func (s *Server) requireReauth(next http.Handler) http.Handler {

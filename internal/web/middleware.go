@@ -258,12 +258,20 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token, ok := s.currentSessionToken(r)
 		if !ok {
+			if isWebSocketUpgrade(r) {
+				http.Error(w, "authentication required", http.StatusUnauthorized)
+				return
+			}
 			writeJSON(w, http.StatusUnauthorized, apiResponse{Error: "authentication required"})
 			return
 		}
 
 		_, valid := s.sessionStore.ValidateSession(token)
 		if !valid {
+			if isWebSocketUpgrade(r) {
+				http.Error(w, "invalid or expired session", http.StatusUnauthorized)
+				return
+			}
 			writeJSON(w, http.StatusUnauthorized, apiResponse{Error: "invalid or expired session"})
 			return
 		}

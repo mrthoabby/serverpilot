@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,10 +40,8 @@ type termResizeMsg struct {
 //   - One PTY per connection; cleaned up on any disconnect or error.
 func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	opts := &websocket.AcceptOptions{}
-	if s.config.SSLEnabled && s.config.Domain != "" {
-		// When behind nginx the Host header equals the domain, so same-origin
-		// check passes. Adding it explicitly is belt-and-suspenders.
-		opts.OriginPatterns = []string{s.config.Domain}
+	if patterns := terminalOriginPatterns(r, s.config.Domain); len(patterns) > 0 {
+		opts.OriginPatterns = patterns
 	}
 
 	conn, err := websocket.Accept(w, r, opts)
@@ -144,4 +144,29 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 
 	wg.Wait()
 	conn.Close(websocket.StatusNormalClosure, "")
+}
+
+// terminalOriginPatterns builds allowed WebSocket Origin host patterns from the
+// live request Host and the configured SSL domain so nginx-proxied subdomains
+// still pass nhooyr origin validation.
+func terminalOriginPatterns(r *http.Request, configuredDomain string) []string {
+	seen := make(map[string]bool)
+	var patterns []string
+	add := func(host string) {
+		host = strings.TrimSpace(strings.ToLower(host))
+		if host == "" || seen[host] {
+			return
+		}
+		seen[host] = true
+		patterns = append(patterns, host)
+	}
+	add(r.Host)
+	if host, _, err := net.SplitHostPort(r.Host); err == nil {
+		add(host)
+	}
+	add(configuredDomain)
+	if host, _, err := net.SplitHostPort(configuredDomain); err == nil {
+		add(host)
+	}
+	return patterns
 }

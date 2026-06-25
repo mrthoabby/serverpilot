@@ -6660,6 +6660,8 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   // dynamic Function() — purely property assignment.)
   window.apiFetch          = apiFetch;
   window.promptReauth      = promptReauth;
+  window.showLogin         = showLogin;
+  window.showDashboard     = showDashboard;
   window.esc               = esc;
   window.escapeHtml        = escapeHtml;
   window.showToast         = showToast;
@@ -9999,6 +10001,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   var termInst    = null;
   var fitAddon    = null;
   var termReady   = false;
+  var termWSRetries = 0;
 
   function termSetStatus(msg, color) {
     var el = document.getElementById("termStatus");
@@ -10012,7 +10015,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (disc) disc.style.display = connected ? "" : "none";
   }
 
-  function termConnect(isReauthRetry) {
+  function termConnect() {
     if (termWS && termWS.readyState === WebSocket.OPEN) return;
 
     // The xterm.js library is loaded from a CDN. If the browser couldn't
@@ -10023,6 +10026,54 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       return;
     }
 
+    termSetStatus("Verifying authentication…", "var(--yellow)");
+    termWSRetries = 0;
+
+    ensureTerminalAuth().then(function() {
+      termOpenWebSocket();
+    }).catch(function(err) {
+      if (err && err.code === "session_expired") {
+        termSetStatus("Session expired — log in again", "var(--red)");
+        if (typeof window.showLogin === "function") window.showLogin();
+        return;
+      }
+      if (err && err.code === "reauth_cancelled") {
+        termSetStatus("Connection cancelled", "var(--text-muted)");
+        return;
+      }
+      termSetStatus("Could not connect — " + (err && err.message ? err.message : "authentication failed"), "var(--red)");
+    });
+  }
+
+  function ensureTerminalAuth() {
+    if (typeof window.apiFetch !== "function") {
+      return Promise.reject(new Error("dashboard not ready"));
+    }
+    return window.apiFetch("/api/session/reauth-status").then(function(resp) {
+      var data = resp.data || resp || {};
+      if (data.recently_reauthenticated) {
+        return;
+      }
+      if (typeof window.promptReauth !== "function") {
+        return Promise.reject(new Error("re-authentication unavailable"));
+      }
+      return window.promptReauth();
+    }).catch(function(err) {
+      if (err && err.message === "Unauthorized") {
+        var e = new Error("session expired");
+        e.code = "session_expired";
+        throw e;
+      }
+      if (err && err.message === "reauthentication cancelled") {
+        var cancelled = new Error("cancelled");
+        cancelled.code = "reauth_cancelled";
+        throw cancelled;
+      }
+      throw err;
+    });
+  }
+
+  function termOpenWebSocket() {
     // Initialise xterm.js once.
     if (!termReady) {
       termInst = new Terminal({
@@ -10088,6 +10139,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     ws.onopen = function() {
       opened = true;
+      termWSRetries = 0;
       termSetStatus("Connected", "var(--green)");
       termSetConnected(true);
       // Send initial size.
@@ -10111,19 +10163,27 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         return;
       }
 
-      // Closed before ever opening → likely needs re-authentication.
-      // Prompt for the password once, then retry the connection.
-      if (!isReauthRetry && typeof window.promptReauth === "function") {
-        termSetStatus("Re-authentication required…", "var(--yellow)");
+      // Upgrade rejected after auth check — retry once with forced reauth.
+      if (termWSRetries >= 1) {
+        termSetStatus("Could not connect — verify nginx WebSocket proxy or log in again", "var(--red)");
+        return;
+      }
+      termWSRetries++;
+      termSetStatus("Connection failed — retrying with fresh authentication…", "var(--yellow)");
+      if (typeof window.promptReauth === "function") {
         window.promptReauth().then(function() {
-          termConnect(true);
-        }).catch(function() {
-          termSetStatus("Disconnected — re-authentication required to connect", "var(--text-muted)");
+          termOpenWebSocket();
+        }).catch(function(err) {
+          if (err && err.message === "Unauthorized") {
+            termSetStatus("Session expired — log in again", "var(--red)");
+            if (typeof window.showLogin === "function") window.showLogin();
+            return;
+          }
+          termSetStatus("Connection cancelled", "var(--text-muted)");
         });
         return;
       }
-
-      termSetStatus("Could not connect — re-authentication required", "var(--red)");
+      termSetStatus("Could not connect — re-authentication unavailable", "var(--red)");
     };
 
     ws.onerror = function() {

@@ -75,6 +75,29 @@ func (s *Server) handleSessionReauth(w http.ResponseWriter, r *http.Request) {
 	}})
 }
 
+func (s *Server) handleSessionReauthStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	token, ok := s.currentSessionToken(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, apiResponse{Error: "authentication required"})
+		return
+	}
+	username, valid := s.sessionStore.ValidateSession(token)
+	if !valid {
+		writeJSON(w, http.StatusUnauthorized, apiResponse{Error: "invalid or expired session"})
+		return
+	}
+	recent := s.sessionStore.RecentlyReauthenticated(token)
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]interface{}{
+		"recently_reauthenticated": recent,
+		"reauth_max_sec":           int(auth.ReauthMaxAge.Seconds()),
+		"username":                 username,
+	}})
+}
+
 func (s *Server) handleSessionsList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
