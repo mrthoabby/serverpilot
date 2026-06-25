@@ -1409,10 +1409,20 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       <div id="diskUnaccountedPanel" style="display:none;margin-top:1rem;">
         <div class="card">
           <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;">
-            <h2>Unaccounted disk usage</h2>
+            <h2>Desglose del espacio no escaneado</h2>
             <button onclick="closeDiskUnaccounted()" style="background:none;border:none;color:var(--text-muted);font-size:1.2rem;cursor:pointer;line-height:1;" title="Close">&#x2715;</button>
           </div>
           <div id="diskUnaccountedContent" style="padding:1rem;color:var(--text-secondary);font-size:0.82rem;"></div>
+        </div>
+      </div>
+
+      <div class="card" id="dockerContainerDiskCard" style="margin-top:1rem;">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;">
+          <h2>Docker disk by container</h2>
+          <span id="dockerContainerDiskLoading" style="font-size:0.75rem;color:var(--text-muted);">(scanning...)</span>
+        </div>
+        <div id="dockerContainerDiskContent" style="padding:0.75rem;overflow-x:auto;font-size:0.82rem;color:var(--text-muted);">
+          Scanning container disk usage...
         </div>
       </div>
 
@@ -6647,6 +6657,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   // that second IIFE can resolve them. (CSP-compatible: no eval, no
   // dynamic Function() — purely property assignment.)
   window.apiFetch          = apiFetch;
+  window.promptReauth      = promptReauth;
   window.esc               = esc;
   window.escapeHtml        = escapeHtml;
   window.showToast         = showToast;
@@ -7910,6 +7921,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     // disk breakdown is slow (runs du on multiple directories).
     var sysPromise = apiFetch("/api/system").catch(function() { return null; });
     var diskPromise = apiFetch("/api/system/disk-breakdown").catch(function() { return null; });
+    var dockerDiskPromise = apiFetch("/api/system/docker-container-disk").catch(function() { return null; });
 
     // Render main data as soon as it arrives (don't wait for disk breakdown).
     var resp = await sysPromise;
@@ -7936,6 +7948,13 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         // refreshes the DOM swap is near-instant since data is already in memory.
         renderDiskBreakdown(sysData || { disk_breakdown: breakdown });
       }
+    }
+
+    var dockerDiskResp = await dockerDiskPromise;
+    if (dockerDiskResp) {
+      renderDockerContainerDisk(dockerDiskResp.data || dockerDiskResp || []);
+    } else {
+      renderDockerContainerDisk([]);
     }
 
     resourcesFirstLoad = false;
@@ -8925,11 +8944,15 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var content = document.getElementById("diskUnaccountedContent");
     if (!panel || !content) return;
     panel.style.display = "block";
-    content.innerHTML = '<div style="color:var(--text-muted);">Inspecting deleted-but-open files...</div>';
+    content.innerHTML = '<div style="color:var(--text-muted);">Escaneando el sistema de archivos...</div>';
     try {
-      var resp = await apiFetch("/api/system/disk-unaccounted?limit=50");
-      var data = resp.data || resp || {};
-      renderDiskUnaccounted(data);
+      var results = await Promise.all([
+        apiFetch("/api/system/disk-root-scan"),
+        apiFetch("/api/system/disk-unaccounted?limit=50")
+      ]);
+      var rootEntries = results[0].data || results[0] || [];
+      var data = results[1].data || results[1] || {};
+      renderDiskUnaccounted(data, rootEntries);
     } catch(err) {
       content.innerHTML = '<div style="color:var(--red);">Failed to inspect unaccounted usage: ' + escapeHtml(err.message) + '</div>';
     }
@@ -8940,12 +8963,48 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (panel) panel.style.display = "none";
   };
 
-  function renderDiskUnaccounted(data) {
+  var STANDARD_ROOT_DIRS = {
+    "/var": true, "/usr": true, "/home": true, "/tmp": true, "/opt": true,
+    "/etc": true, "/root": true, "/srv": true, "/snap": true
+  };
+
+  function renderDiskUnaccounted(data, rootEntries) {
     var content = document.getElementById("diskUnaccountedContent");
     if (!content) return;
+    var html = "";
+
+    if (rootEntries && rootEntries.length) {
+      var partial = rootEntries.some(function(e) { return e.partial; });
+      html += '<h3 style="margin:0 0 0.5rem;font-size:0.9rem;color:var(--text-primary);">Directorios de nivel superior en /</h3>';
+      if (partial) {
+        html += '<div style="margin-bottom:0.5rem;color:var(--orange);">El escaneo expiró — los resultados pueden estar incompletos.</div>';
+      }
+      html += '<div style="margin-bottom:0.35rem;font-size:0.75rem;color:var(--text-muted);">Las filas resaltadas no están cubiertas por el escaneo estándar del overview.</div>';
+      var maxMB = rootEntries[0].size_mb || 1;
+      html += '<div style="overflow-x:auto;margin-bottom:1rem;"><table style="width:100%;border-collapse:collapse;font-size:0.82rem;">' +
+        '<thead><tr style="color:var(--text-muted);text-align:left;border-bottom:1px solid var(--border);">' +
+        '<th style="padding:6px 8px;">Path</th><th style="padding:6px 8px;text-align:right;">GB</th><th style="padding:6px 8px;text-align:right;">MB</th><th style="padding:6px 8px;min-width:100px;">Bar</th>' +
+        '</tr></thead><tbody>';
+      rootEntries.forEach(function(e) {
+        var unusual = !STANDARD_ROOT_DIRS[e.path];
+        var rowStyle = unusual ? 'background:rgba(255,165,0,0.08);' : '';
+        var barPct = Math.min(100, (e.size_mb / maxMB) * 100);
+        html += '<tr style="' + rowStyle + '">' +
+          '<td style="padding:5px 8px;border-bottom:1px solid var(--border);font-family:monospace;color:var(--text-primary);">' + escapeHtml(e.path) + (unusual ? ' <span style="color:var(--orange);font-size:0.7rem;">● no escaneado</span>' : '') + '</td>' +
+          '<td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right;font-weight:600;font-variant-numeric:tabular-nums;">' + Number(e.size_gb || 0).toFixed(2) + '</td>' +
+          '<td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;">' + Math.round(e.size_mb || 0).toLocaleString() + '</td>' +
+          '<td style="padding:5px 8px;border-bottom:1px solid var(--border);"><div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="height:100%;width:' + barPct.toFixed(1) + '%;background:' + (unusual ? 'var(--orange)' : 'var(--accent)') + ';border-radius:4px;"></div></div></td>' +
+          '</tr>';
+      });
+      html += '</tbody></table></div>';
+    } else {
+      html += '<div style="margin-bottom:1rem;padding:0.75rem;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);">No se pudo obtener el desglose de directorios raíz.</div>';
+    }
+
     var files = data.deleted_open_files || [];
     var totalGB = Number(data.deleted_open_files_total_gb || 0);
-    var html = '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">' +
+    html += '<h3 style="margin:0 0 0.5rem;font-size:0.9rem;color:var(--text-primary);">Archivos borrados pero aún abiertos</h3>';
+    html += '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">' +
       '<div style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);"><strong style="color:var(--text-primary);">' + totalGB.toFixed(2) + ' GB</strong><br><span style="font-size:0.72rem;color:var(--text-muted);">deleted open files</span></div>' +
       '</div>';
 
@@ -8956,7 +9015,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
 
     if (!files.length) {
-      html += '<div style="padding:0.75rem;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);">No deleted open files found. The remaining gap is likely filesystem reserved blocks/metadata or data hidden below mount points.</div>';
+      html += '<div style="padding:0.75rem;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);">No deleted open files found. El espacio restante puede ser metadata del filesystem, bloques reservados o datos ocultos bajo mount points.</div>';
       content.innerHTML = html;
       return;
     }
@@ -8976,6 +9035,60 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     });
     html += '</tbody></table></div>';
     content.innerHTML = html;
+  }
+
+  window.toggleDockerVolumes = function(idx) {
+    var el = document.getElementById("dockerVolDetail" + idx);
+    if (el) el.style.display = el.style.display === "none" ? "block" : "none";
+  };
+
+  function renderDockerContainerDisk(entries) {
+    var el = document.getElementById("dockerContainerDiskContent");
+    var loading = document.getElementById("dockerContainerDiskLoading");
+    if (loading) loading.textContent = "";
+    if (!el) return;
+    if (!entries || !entries.length) {
+      el.innerHTML = '<div style="color:var(--text-muted);">No containers found or Docker is unavailable.</div>';
+      return;
+    }
+    var maxTotal = entries[0].total_mb || 1;
+    var html = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">' +
+      '<thead><tr style="color:var(--text-muted);text-align:left;border-bottom:1px solid var(--border);">' +
+      '<th style="padding:6px 8px;">Container</th>' +
+      '<th style="padding:6px 8px;">Image</th>' +
+      '<th style="padding:6px 8px;">Status</th>' +
+      '<th style="padding:6px 8px;">Age</th>' +
+      '<th style="padding:6px 8px;text-align:right;">Writable</th>' +
+      '<th style="padding:6px 8px;text-align:right;">Volumes</th>' +
+      '<th style="padding:6px 8px;text-align:right;">Total</th>' +
+      '<th style="padding:6px 8px;min-width:80px;">Bar</th>' +
+      '</tr></thead><tbody>';
+    entries.forEach(function(c, idx) {
+      var statusLower = (c.status || "").toLowerCase();
+      var statusColor = statusLower.indexOf("up") >= 0 ? "var(--green)" : "var(--text-muted)";
+      var volDetail = "";
+      if (c.volumes && c.volumes.length) {
+        volDetail = '<div style="margin-top:4px;"><span style="cursor:pointer;color:var(--accent);font-size:0.72rem;" onclick="toggleDockerVolumes(' + idx + ')">▼ volumes</span>' +
+          '<div id="dockerVolDetail' + idx + '" style="display:none;margin-top:4px;font-size:0.72rem;color:var(--text-secondary);">';
+        c.volumes.forEach(function(v) {
+          volDetail += '<div>' + escapeHtml(v.name) + ': ' + Number(v.size_gb || 0).toFixed(2) + ' GB</div>';
+        });
+        volDetail += '</div></div>';
+      }
+      var barPct = Math.min(100, (c.total_mb / maxTotal) * 100);
+      html += '<tr>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);font-weight:500;color:var(--text-primary);">' + escapeHtml(c.name || c.id) + '</td>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(c.image || "") + '">' + escapeHtml(c.image || "-") + '</td>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);color:' + statusColor + ';">' + escapeHtml(c.status || "-") + '</td>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);white-space:nowrap;">' + escapeHtml(c.created_at || "-") + '</td>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;">' + Number(c.writable_gb || 0).toFixed(2) + ' GB</td>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;">' + Number(c.volumes_gb || 0).toFixed(2) + ' GB' + volDetail + '</td>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right;font-weight:600;font-variant-numeric:tabular-nums;">' + Number(c.total_gb || 0).toFixed(2) + ' GB</td>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);"><div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="height:100%;width:' + barPct.toFixed(1) + '%;background:var(--accent);border-radius:4px;"></div></div></td>' +
+        '</tr>';
+    });
+    html += '</tbody></table></div>';
+    el.innerHTML = html;
   }
 
   window.diskToggleSelect = function(path, checked) {
@@ -9764,8 +9877,16 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (disc) disc.style.display = connected ? "" : "none";
   }
 
-  function termConnect() {
+  function termConnect(isReauthRetry) {
     if (termWS && termWS.readyState === WebSocket.OPEN) return;
+
+    // The xterm.js library is loaded from a CDN. If the browser couldn't
+    // fetch it (offline, ad-blocker, restrictive network) the Terminal/FitAddon
+    // globals are undefined and we'd fail silently. Surface a clear message.
+    if (typeof Terminal === "undefined" || typeof FitAddon === "undefined") {
+      termSetStatus("Terminal library failed to load — check your network/CDN access", "var(--red)");
+      return;
+    }
 
     // Initialise xterm.js once.
     if (!termReady) {
@@ -9802,6 +9923,14 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         if (termReady && fitAddon) fitAddon.fit();
       });
 
+      // Wire keyboard input → WebSocket. Registered once (not per-connect) so
+      // reconnects/retries don't attach duplicate handlers that double keystrokes.
+      termInst.onData(function(data) {
+        if (termWS && termWS.readyState === WebSocket.OPEN) {
+          termWS.send(new TextEncoder().encode(data));
+        }
+      });
+
       termReady = true;
     }
 
@@ -9816,18 +9945,20 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     ws.binaryType = "arraybuffer";
     termWS = ws;
 
+    // Track whether the socket ever opened. A WebSocket that closes BEFORE
+    // opening almost always means the HTTP upgrade was rejected — most often
+    // because this route requires a recent re-authentication (403). The browser
+    // WebSocket API hides the HTTP status, so we infer it from "closed before open".
+    var opened = false;
+
     ws.onopen = function() {
+      opened = true;
       termSetStatus("Connected", "var(--green)");
       termSetConnected(true);
       // Send initial size.
       var cols = termInst.cols, rows = termInst.rows;
       ws.send(JSON.stringify({ type: "resize", cols: cols, rows: rows }));
-      // Wire keyboard input → WebSocket.
-      termInst.onData(function(data) {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(new TextEncoder().encode(data));
-        }
-      });
+      termInst.focus();
     };
 
     ws.onmessage = function(evt) {
@@ -9837,15 +9968,32 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     };
 
     ws.onclose = function() {
-      termSetStatus("Disconnected", "var(--text-muted)");
       termSetConnected(false);
       termWS = null;
+
+      if (opened) {
+        termSetStatus("Disconnected", "var(--text-muted)");
+        return;
+      }
+
+      // Closed before ever opening → likely needs re-authentication.
+      // Prompt for the password once, then retry the connection.
+      if (!isReauthRetry && typeof window.promptReauth === "function") {
+        termSetStatus("Re-authentication required…", "var(--yellow)");
+        window.promptReauth().then(function() {
+          termConnect(true);
+        }).catch(function() {
+          termSetStatus("Disconnected — re-authentication required to connect", "var(--text-muted)");
+        });
+        return;
+      }
+
+      termSetStatus("Could not connect — re-authentication required", "var(--red)");
     };
 
     ws.onerror = function() {
-      termSetStatus("Connection error — re-authentication may be required", "var(--red)");
-      termSetConnected(false);
-      termWS = null;
+      // Let onclose handle status/retry — it fires right after onerror and we
+      // need its "opened" check to decide whether a reauth retry is warranted.
     };
   }
 

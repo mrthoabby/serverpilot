@@ -21,6 +21,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/mrthoabby/serverpilot/internal/deps"
 )
 
 func init() {
@@ -170,6 +172,37 @@ type DiskUnaccountedReport struct {
 	DeletedOpenFilesTotalGB float64           `json:"deleted_open_files_total_gb"`
 	Notes                   []string          `json:"notes"`
 	Timestamp               int64             `json:"timestamp"`
+}
+
+// DiskRootEntry is one top-level directory under / from a deep root scan.
+type DiskRootEntry struct {
+	Path    string  `json:"path"`
+	SizeMB  float64 `json:"size_mb"`
+	SizeGB  float64 `json:"size_gb"`
+	Partial bool    `json:"partial,omitempty"`
+}
+
+// DockerVolumeUsage holds the on-disk size of one named Docker volume.
+type DockerVolumeUsage struct {
+	Name   string  `json:"name"`
+	SizeMB float64 `json:"size_mb"`
+	SizeGB float64 `json:"size_gb"`
+}
+
+// DockerContainerDisk summarizes writable layer and volume disk usage for one container.
+type DockerContainerDisk struct {
+	Name       string              `json:"name"`
+	ID         string              `json:"id"`
+	Image      string              `json:"image"`
+	Status     string              `json:"status"`
+	CreatedAt  string              `json:"created_at"`
+	WritableMB float64             `json:"writable_mb"`
+	WritableGB float64             `json:"writable_gb"`
+	Volumes    []DockerVolumeUsage `json:"volumes,omitempty"`
+	VolumesMB  float64             `json:"volumes_mb"`
+	VolumesGB  float64             `json:"volumes_gb"`
+	TotalMB    float64             `json:"total_mb"`
+	TotalGB    float64             `json:"total_gb"`
 }
 
 // ContainerStat from docker stats.
@@ -1064,6 +1097,286 @@ func DiskUnaccounted(limit int) (*DiskUnaccountedReport, error) {
 		report.Notes = append(report.Notes, "Deleted open files free their space only when the owning process closes the fd or restarts.")
 	}
 	return report, nil
+}
+
+// DiskRootScan walks top-level directories under / with du to explain unaccounted disk usage.
+func DiskRootScan() ([]DiskRootEntry, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "/usr/bin/du", "-xm", "--max-depth=1", "/")
+	output, err := cmd.Output()
+	timedOut := ctx.Err() == context.DeadlineExceeded
+	if err != nil && !timedOut {
+		return nil, fmt.Errorf("root scan failed")
+	}
+
+	entries, _ := parseDURootLines(string(output))
+	if timedOut {
+		for i := range entries {
+			entries[i].Partial = true
+		}
+		if len(entries) == 0 {
+			return []DiskRootEntry{{
+				Path:    "/",
+				Partial: true,
+			}}, nil
+		}
+	}
+
+	sort.Slice(entries, func(i, j int) bool { return entries[i].SizeMB > entries[j].SizeMB })
+	return entries, nil
+}
+
+func parseDURootLines(output string) ([]DiskRootEntry, float64) {
+	var entries []DiskRootEntry
+	var totalMB float64
+
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 {
+			parts = strings.Fields(line)
+			if len(parts) < 2 {
+				continue
+			}
+			path := parts[len(parts)-1]
+			sizeStr := parts[0]
+			sizeMB, err := strconv.ParseFloat(sizeStr, 64)
+			if err != nil {
+				continue
+			}
+			if path == "/" {
+				totalMB = sizeMB
+				continue
+			}
+			if sizeMB < 1 {
+				continue
+			}
+			entries = append(entries, DiskRootEntry{
+				Path:   path,
+				SizeMB: math.Round(sizeMB*100) / 100,
+				SizeGB: math.Round(sizeMB/1024*100) / 100,
+			})
+			continue
+		}
+
+		sizeMB, err := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+		if err != nil {
+			continue
+		}
+		path := strings.TrimSpace(parts[1])
+		if path == "/" {
+			totalMB = sizeMB
+			continue
+		}
+		if sizeMB < 1 {
+			continue
+		}
+		entries = append(entries, DiskRootEntry{
+			Path:   path,
+			SizeMB: math.Round(sizeMB*100) / 100,
+			SizeGB: math.Round(sizeMB/1024*100) / 100,
+		})
+	}
+
+	return entries, totalMB
+}
+
+// DockerContainerDiskUsage reports writable layer and named volume usage per container.
+func DockerContainerDiskUsage() ([]DockerContainerDisk, error) {
+	dockerBin, err := deps.DockerPath()
+	if err != nil {
+		return []DockerContainerDisk{}, nil
+	}
+
+	volumeSizes := readDockerVolumeSizes(dockerBin)
+	containers, err := readDockerContainerDiskRows(dockerBin)
+	if err != nil {
+		return []DockerContainerDisk{}, nil
+	}
+
+	for i := range containers {
+		var vols []DockerVolumeUsage
+		var volumesMB float64
+		for _, name := range containers[i].volumeNames {
+			sizeMB := volumeSizes[name]
+			volumesMB += sizeMB
+			vols = append(vols, DockerVolumeUsage{
+				Name:   name,
+				SizeMB: math.Round(sizeMB*100) / 100,
+				SizeGB: math.Round(sizeMB/1024*100) / 100,
+			})
+		}
+		sort.Slice(vols, func(a, b int) bool { return vols[a].SizeMB > vols[b].SizeMB })
+		containers[i].Volumes = vols
+		containers[i].VolumesMB = math.Round(volumesMB*100) / 100
+		containers[i].VolumesGB = math.Round(volumesMB/1024*100) / 100
+		containers[i].TotalMB = math.Round((containers[i].WritableMB+volumesMB)*100) / 100
+		containers[i].TotalGB = math.Round(containers[i].TotalMB/1024*100) / 100
+	}
+
+	sort.Slice(containers, func(i, j int) bool { return containers[i].TotalMB > containers[j].TotalMB })
+
+	out := make([]DockerContainerDisk, len(containers))
+	for i, c := range containers {
+		out[i] = c.DockerContainerDisk
+	}
+	return out, nil
+}
+
+type dockerContainerDiskRow struct {
+	DockerContainerDisk
+	volumeNames []string
+}
+
+func readDockerContainerDiskRows(dockerBin string) ([]dockerContainerDiskRow, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, dockerBin, "ps", "-a", "-s", "--no-trunc",
+		"--format", `{"id":"{{.ID}}","names":"{{.Names}}","image":"{{.Image}}","status":"{{.Status}}","created_at":"{{.CreatedAt}}","running_for":"{{.RunningFor}}","size":"{{.Size}}","mounts":"{{.Mounts}}"}`)
+	cmd.Stderr = io.Discard
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var rows []dockerContainerDiskRow
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if line == "" {
+			continue
+		}
+		var raw struct {
+			ID         string `json:"id"`
+			Names      string `json:"names"`
+			Image      string `json:"image"`
+			Status     string `json:"status"`
+			CreatedAt  string `json:"created_at"`
+			RunningFor string `json:"running_for"`
+			Size       string `json:"size"`
+			Mounts     string `json:"mounts"`
+		}
+		if err := json.Unmarshal([]byte(line), &raw); err != nil {
+			continue
+		}
+
+		createdAt := strings.TrimSpace(raw.CreatedAt)
+		if createdAt == "" {
+			createdAt = strings.TrimSpace(raw.RunningFor)
+		}
+
+		writableMB := parseDockerContainerWritableSize(raw.Size)
+		rows = append(rows, dockerContainerDiskRow{
+			DockerContainerDisk: DockerContainerDisk{
+				Name:       raw.Names,
+				ID:         raw.ID,
+				Image:      raw.Image,
+				Status:     raw.Status,
+				CreatedAt:  createdAt,
+				WritableMB: math.Round(writableMB*100) / 100,
+				WritableGB: math.Round(writableMB/1024*100) / 100,
+			},
+			volumeNames: parseMountVolumeNames(raw.Mounts),
+		})
+	}
+	return rows, nil
+}
+
+func readDockerVolumeSizes(dockerBin string) map[string]float64 {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, dockerBin, "system", "df", "-v")
+	cmd.Stderr = io.Discard
+	output, err := cmd.Output()
+	if err != nil {
+		return map[string]float64{}
+	}
+	return parseDockerVolumeSizesFromOutput(string(output))
+}
+
+func parseDockerVolumeSizesFromOutput(output string) map[string]float64 {
+	sizes := make(map[string]float64)
+	inVolumes := false
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "Local Volumes space usage:") {
+			inVolumes = true
+			continue
+		}
+		if !inVolumes {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "Build cache") {
+			break
+		}
+		if strings.HasPrefix(trimmed, "VOLUME NAME") {
+			continue
+		}
+
+		fields := strings.Fields(trimmed)
+		if len(fields) < 3 {
+			continue
+		}
+		sizeStr := fields[len(fields)-1]
+		linksStr := fields[len(fields)-2]
+		if _, err := strconv.Atoi(linksStr); err != nil {
+			continue
+		}
+		name := strings.Join(fields[:len(fields)-2], " ")
+		sizes[name] = parseDockerSizeMB(sizeStr)
+	}
+	return sizes
+}
+
+func parseDockerContainerWritableSize(sizeField string) float64 {
+	sizeField = strings.TrimSpace(sizeField)
+	if sizeField == "" {
+		return 0
+	}
+	if idx := strings.Index(sizeField, " "); idx > 0 {
+		sizeField = sizeField[:idx]
+	}
+	if idx := strings.Index(sizeField, "("); idx > 0 {
+		sizeField = sizeField[:idx]
+	}
+	return parseDockerSizeMB(strings.TrimSpace(sizeField))
+}
+
+func parseMountVolumeNames(mounts string) []string {
+	mounts = strings.TrimSpace(mounts)
+	if mounts == "" {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var names []string
+	for _, part := range strings.Split(mounts, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		colon := strings.Index(part, ":")
+		if colon <= 0 {
+			continue
+		}
+		source := part[:colon]
+		if strings.HasPrefix(source, "/") {
+			continue
+		}
+		if seen[source] {
+			continue
+		}
+		seen[source] = true
+		names = append(names, source)
+	}
+	return names
 }
 
 func scanDeletedOpenFiles(limit int) ([]DeletedOpenFile, float64) {

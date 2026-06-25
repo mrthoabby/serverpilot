@@ -1760,6 +1760,38 @@ func (s *Server) handleDiskUnaccounted(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: report})
 }
 
+// handleDiskRootScan runs a deep du scan of top-level / directories.
+func (s *Server) handleDiskRootScan(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	entries, err := sysinfo.DiskRootScan()
+	if err != nil {
+		log.Printf("Disk root scan error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to scan root filesystem"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: entries})
+}
+
+// handleDockerContainerDisk returns per-container writable layer and volume disk usage.
+func (s *Server) handleDockerContainerDisk(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	entries, err := sysinfo.DockerContainerDiskUsage()
+	if err != nil {
+		log.Printf("Docker container disk error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to inspect docker disk usage"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: entries})
+}
+
 // handleDiskTopFiles finds the N largest files under a given path.
 // GET /api/system/disk-top-files?path=/&limit=5
 func (s *Server) handleDiskTopFiles(w http.ResponseWriter, r *http.Request) {
