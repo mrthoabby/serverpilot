@@ -176,10 +176,11 @@ type DiskUnaccountedReport struct {
 
 // DiskRootEntry is one top-level directory under / from a deep root scan.
 type DiskRootEntry struct {
-	Path    string  `json:"path"`
-	SizeMB  float64 `json:"size_mb"`
-	SizeGB  float64 `json:"size_gb"`
-	Partial bool    `json:"partial,omitempty"`
+	Path     string  `json:"path"`
+	SizeMB   float64 `json:"size_mb"`
+	SizeGB   float64 `json:"size_gb"`
+	Partial  bool    `json:"partial,omitempty"`
+	Scanning bool    `json:"scanning,omitempty"` // true while sub-directories are still being measured
 }
 
 // DockerVolumeUsage holds the on-disk size of one named Docker volume.
@@ -1128,13 +1129,21 @@ func DiskRootScanPaths() ([]string, error) {
 
 // DiskRootScan walks top-level directories under / with parallel du calls.
 // Each directory is scanned independently so a slow /var does not block the rest.
+// It returns only the final per-directory totals (progressive updates collapsed).
 func DiskRootScan() ([]DiskRootEntry, error) {
-	var results []DiskRootEntry
+	var mu sync.Mutex
+	latest := make(map[string]DiskRootEntry)
 	err := DiskRootScanStream(func(entry DiskRootEntry) {
-		results = append(results, entry)
+		mu.Lock()
+		latest[entry.Path] = entry
+		mu.Unlock()
 	})
 	if err != nil {
 		return nil, err
+	}
+	results := make([]DiskRootEntry, 0, len(latest))
+	for _, entry := range latest {
+		results = append(results, entry)
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].SizeMB > results[j].SizeMB })
 	return results, nil

@@ -15,16 +15,21 @@ import (
 )
 
 const (
-	diskScanMaxDepth       = 2
+	// diskScanMaxDepth bounds how deep a timed-out directory is broken into
+	// smaller pieces. Deeper trees split into finishable chunks so nothing is
+	// silently dropped.
+	diskScanMaxDepth       = 5
 	diskScanDuCacheTTL     = 45 * time.Second
 	diskScanDefaultWorkers = 4
 	diskScanMaxWorkers     = 8
+	diskScanMaxLeafTimeout = 4 * time.Minute
 )
 
-// scanJob is one unit of work in the priority scan pool.
+// scanJob is one unit of work in the priority scan pool. Every job rolls up
+// into exactly one top-level "root" directory (e.g. /var/lib/docker -> /var).
 type scanJob struct {
 	path     string
-	parent   string
+	root     string
 	priority int
 	depth    int
 	index    int
@@ -55,17 +60,17 @@ func (h *scanJobHeap) Pop() interface{} {
 	return job
 }
 
-type parentAggregate struct {
-	path    string
+// rootProgress accumulates the running total for one top-level directory.
+type rootProgress struct {
+	root    string
 	totalMB float64
-	pending int
-	partial bool
+	pending int  // outstanding jobs (this root + all descendants) still in flight
+	partial bool // a leaf could not be measured even after retries
 }
 
 type duCacheEntry struct {
-	sizeMB  float64
-	partial bool
-	at      time.Time
+	sizeMB float64
+	at     time.Time
 }
 
 var (
@@ -110,6 +115,8 @@ func pathScanPriority(path string) int {
 	}
 }
 
+// shouldDecomposeFirst fans a known-large directory into its children up front
+// instead of running a single slow du over the whole tree.
 func shouldDecomposeFirst(path string) bool {
 	switch path {
 	case "/var", "/usr":
@@ -130,30 +137,37 @@ func diskScanWorkerCount() int {
 	return n
 }
 
+// duTimeoutForDepth is generous: shallow jobs cover bigger trees so they get
+// more time, deeper (smaller) jobs get less but still comfortable budgets.
 func duTimeoutForDepth(depth int) time.Duration {
 	switch {
 	case depth <= 0:
-		return 75 * time.Second
+		return 120 * time.Second
 	case depth == 1:
-		return 45 * time.Second
+		return 90 * time.Second
+	case depth == 2:
+		return 60 * time.Second
 	default:
-		return 25 * time.Second
+		return 45 * time.Second
 	}
 }
 
+// cachedDuPathSummaryMB caches only successful results so a transient timeout is
+// never remembered as a real measurement.
 func cachedDuPathSummaryMB(path string, timeout time.Duration) (float64, bool) {
 	duCacheMu.Lock()
 	if hit, ok := duCache[path]; ok && time.Since(hit.at) < diskScanDuCacheTTL {
 		duCacheMu.Unlock()
-		return hit.sizeMB, hit.partial
+		return hit.sizeMB, false
 	}
 	duCacheMu.Unlock()
 
 	sizeMB, partial := duPathSummaryMB(path, timeout)
-
-	duCacheMu.Lock()
-	duCache[path] = duCacheEntry{sizeMB: sizeMB, partial: partial, at: time.Now()}
-	duCacheMu.Unlock()
+	if !partial {
+		duCacheMu.Lock()
+		duCache[path] = duCacheEntry{sizeMB: sizeMB, at: time.Now()}
+		duCacheMu.Unlock()
+	}
 	return sizeMB, partial
 }
 
@@ -175,43 +189,41 @@ func listScanChildPaths(dir string) ([]string, error) {
 	return paths, nil
 }
 
-func makeDiskRootEntry(path string, sizeMB float64, partial bool) DiskRootEntry {
+func makeDiskRootEntry(path string, sizeMB float64, partial, scanning bool) DiskRootEntry {
 	return DiskRootEntry{
-		Path:    path,
-		SizeMB:  math.Round(sizeMB*100) / 100,
-		SizeGB:  math.Round(sizeMB/1024*100) / 100,
-		Partial: partial,
+		Path:     path,
+		SizeMB:   math.Round(sizeMB*100) / 100,
+		SizeGB:   math.Round(sizeMB/1024*100) / 100,
+		Partial:  partial,
+		Scanning: scanning,
 	}
 }
 
 type diskScanEngine struct {
-	onEntry    func(DiskRootEntry)
-	workers    int
-	jobs       scanJobHeap
-	jobsMu     sync.Mutex
-	jobsCond   sync.Cond
-	shutdown   bool
-	pending    int64
-	done       chan struct{}
-	doneOnce   sync.Once
-	aggregates map[string]*parentAggregate
-	aggMu      sync.Mutex
+	onEntry  func(DiskRootEntry)
+	workers  int
+	jobs     scanJobHeap
+	jobsMu   sync.Mutex
+	jobsCond sync.Cond
+	shutdown bool
+	pending  int64
+	done     chan struct{}
+	doneOnce sync.Once
+
+	roots  map[string]*rootProgress
+	rootMu sync.Mutex
 }
 
 func newDiskScanEngine(onEntry func(DiskRootEntry)) *diskScanEngine {
 	e := &diskScanEngine{
-		onEntry:    onEntry,
-		workers:    diskScanWorkerCount(),
-		done:       make(chan struct{}),
-		aggregates: make(map[string]*parentAggregate),
+		onEntry: onEntry,
+		workers: diskScanWorkerCount(),
+		done:    make(chan struct{}),
+		roots:   make(map[string]*rootProgress),
 	}
 	e.jobsCond.L = &e.jobsMu
 	heap.Init(&e.jobs)
 	return e
-}
-
-func (e *diskScanEngine) trackJob() {
-	atomic.AddInt64(&e.pending, 1)
 }
 
 func (e *diskScanEngine) finishJob() {
@@ -220,8 +232,17 @@ func (e *diskScanEngine) finishJob() {
 	}
 }
 
-func (e *diskScanEngine) pushJob(job scanJob) {
-	e.trackJob()
+// scheduleRootJob registers the job against its root's pending counter and
+// enqueues it. Global pending is bumped here so the engine knows when all work
+// (including dynamically-spawned children) is complete.
+func (e *diskScanEngine) scheduleRootJob(job scanJob) {
+	e.rootMu.Lock()
+	if rp, ok := e.roots[job.root]; ok {
+		rp.pending++
+	}
+	e.rootMu.Unlock()
+
+	atomic.AddInt64(&e.pending, 1)
 	e.jobsMu.Lock()
 	heap.Push(&e.jobs, &job)
 	e.jobsCond.Signal()
@@ -240,50 +261,39 @@ func (e *diskScanEngine) popJob() (*scanJob, bool) {
 	return heap.Pop(&e.jobs).(*scanJob), true
 }
 
-func (e *diskScanEngine) registerAggregate(parent string, childCount int) {
-	e.aggMu.Lock()
-	e.aggregates[parent] = &parentAggregate{path: parent, pending: childCount}
-	e.aggMu.Unlock()
-}
-
-func (e *diskScanEngine) contributeToParent(parent string, sizeMB float64, partial bool) {
-	if parent == "" {
-		return
-	}
-	e.aggMu.Lock()
-	agg, ok := e.aggregates[parent]
+// completeRootJob records the outcome of one job and emits a progressive update
+// for its root. scanning stays true until the root has no outstanding jobs.
+func (e *diskScanEngine) completeRootJob(root string, sizeMB float64, partial bool) {
+	e.rootMu.Lock()
+	rp, ok := e.roots[root]
 	if !ok {
-		e.aggMu.Unlock()
+		e.rootMu.Unlock()
 		return
 	}
-	agg.totalMB += sizeMB
+	rp.totalMB += sizeMB
 	if partial {
-		agg.partial = true
+		rp.partial = true
 	}
-	agg.pending--
-	done := agg.pending <= 0
-	total := agg.totalMB
-	isPartial := agg.partial
-	parentPath := agg.path
-	if done {
-		delete(e.aggregates, parent)
-	}
-	e.aggMu.Unlock()
+	rp.pending--
+	scanning := rp.pending > 0
+	total := rp.totalMB
+	isPartial := rp.partial
+	e.rootMu.Unlock()
 
-	e.onEntry(makeDiskRootEntry(parentPath, total, isPartial && !done))
+	e.onEntry(makeDiskRootEntry(root, total, isPartial, scanning))
 }
 
-func (e *diskScanEngine) tryDecompose(job *scanJob) bool {
+// decompose fans a directory into its child directories, all rolling up into the
+// same root. Returns false when there is nothing to split.
+func (e *diskScanEngine) decompose(job *scanJob) bool {
 	children, err := listScanChildPaths(job.path)
 	if err != nil || len(children) == 0 {
 		return false
 	}
-
-	e.registerAggregate(job.path, len(children))
 	for _, child := range children {
-		e.pushJob(scanJob{
+		e.scheduleRootJob(scanJob{
 			path:     child,
-			parent:   job.path,
+			root:     job.root,
 			priority: pathScanPriority(child) - job.depth,
 			depth:    job.depth + 1,
 		})
@@ -291,36 +301,55 @@ func (e *diskScanEngine) tryDecompose(job *scanJob) bool {
 	return true
 }
 
+// retryLeaf gives a directory that timed out a second, longer attempt before we
+// give up on measuring it.
+func retryLeaf(path string, prev time.Duration) (float64, bool) {
+	longer := prev * 2
+	if longer > diskScanMaxLeafTimeout {
+		longer = diskScanMaxLeafTimeout
+	}
+	sizeMB, partial := duPathSummaryMB(path, longer)
+	if !partial {
+		duCacheMu.Lock()
+		duCache[path] = duCacheEntry{sizeMB: sizeMB, at: time.Now()}
+		duCacheMu.Unlock()
+	}
+	return sizeMB, partial
+}
+
 func (e *diskScanEngine) runJob(job *scanJob) {
 	defer e.finishJob()
 
-	if shouldDecomposeFirst(job.path) && job.depth == 0 {
-		if e.tryDecompose(job) {
+	// Known-large directories: split immediately instead of one slow walk.
+	if job.depth == 0 && shouldDecomposeFirst(job.path) {
+		if e.decompose(job) {
+			e.completeRootJob(job.root, 0, false)
 			return
 		}
 	}
 
-	sizeMB, partial := cachedDuPathSummaryMB(job.path, duTimeoutForDepth(job.depth))
+	timeout := duTimeoutForDepth(job.depth)
+	sizeMB, partial := cachedDuPathSummaryMB(job.path, timeout)
 
-	if partial && job.depth < diskScanMaxDepth {
-		if e.tryDecompose(job) {
+	if partial {
+		// Break the slow directory into smaller, finishable pieces.
+		if job.depth < diskScanMaxDepth && e.decompose(job) {
+			e.completeRootJob(job.root, 0, false)
 			return
 		}
+		// Can't split further (no subdirs / max depth) — be patient and retry
+		// once with a much longer budget before marking it unmeasured.
+		sizeMB, partial = retryLeaf(job.path, timeout)
 	}
 
-	if sizeMB < 0.01 && !partial {
-		if job.parent != "" {
-			e.contributeToParent(job.parent, 0, false)
-		}
+	if partial {
+		// Never inject a bogus 0; flag the root as partial but keep its real
+		// accumulated total.
+		e.completeRootJob(job.root, 0, true)
 		return
 	}
 
-	if job.parent != "" {
-		e.contributeToParent(job.parent, sizeMB, partial)
-		return
-	}
-
-	e.onEntry(makeDiskRootEntry(job.path, sizeMB, partial))
+	e.completeRootJob(job.root, sizeMB, false)
 }
 
 func (e *diskScanEngine) worker() {
@@ -333,13 +362,24 @@ func (e *diskScanEngine) worker() {
 	}
 }
 
-func (e *diskScanEngine) run(initial []scanJob) error {
+func (e *diskScanEngine) run(paths []string) error {
+	for _, p := range paths {
+		e.roots[p] = &rootProgress{root: p}
+	}
+
+	// Schedule all initial jobs BEFORE starting workers so global pending can
+	// never momentarily hit zero and close `done` prematurely.
+	sorted := make([]string, len(paths))
+	copy(sorted, paths)
+	sort.Slice(sorted, func(i, j int) bool {
+		return pathScanPriority(sorted[i]) > pathScanPriority(sorted[j])
+	})
+	for _, p := range sorted {
+		e.scheduleRootJob(scanJob{path: p, root: p, priority: pathScanPriority(p), depth: 0})
+	}
+
 	for i := 0; i < e.workers; i++ {
 		go e.worker()
-	}
-	for _, job := range initial {
-		j := job
-		e.pushJob(j)
 	}
 
 	<-e.done
@@ -355,17 +395,8 @@ func runPriorityDiskScan(paths []string, onEntry func(DiskRootEntry)) error {
 	if len(paths) == 0 {
 		return nil
 	}
-	jobs := make([]scanJob, 0, len(paths))
-	for _, path := range paths {
-		jobs = append(jobs, scanJob{
-			path:     path,
-			priority: pathScanPriority(path),
-			depth:    0,
-		})
-	}
-	sort.Slice(jobs, func(i, j int) bool { return jobs[i].priority > jobs[j].priority })
 	engine := newDiskScanEngine(onEntry)
-	return engine.run(jobs)
+	return engine.run(paths)
 }
 
 // DiskRootScanPathsSorted returns top-level scan paths ordered by likely size (highest first).
@@ -380,7 +411,8 @@ func DiskRootScanPathsSorted() ([]string, error) {
 	return paths, nil
 }
 
-// DiskRootScanStream scans top-level directories with intelligent work distribution.
+// DiskRootScanStream scans top-level directories with intelligent work
+// distribution, emitting progressive per-root updates until each root completes.
 func DiskRootScanStream(onEntry func(DiskRootEntry)) error {
 	paths, err := DiskRootScanPathsSorted()
 	if err != nil {
