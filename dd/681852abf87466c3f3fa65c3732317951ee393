@@ -1,0 +1,25 @@
+internal/web/static/favicon.svg
+  s_5e85602b5a69df::t_c6a6295082df43 1-10
+internal/web/server.go
+  s_5e85602b5a69df::t_6323294e6616b3 43-47
+internal/web/handlers.go
+  s_5e85602b5a69df::t_3b513c10c79122 133-136,144-162
+internal/web/static/index.html
+  s_5e85602b5a69df::t_d107bcf1390703 7-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "dd681852abf87466c3f3fa65c3732317951ee393",
+  "prompts": {},
+  "sessions": {
+    "s_5e85602b5a69df": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "e90f5e69-c950-44d9-bfa0-f2ef0c728318",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
