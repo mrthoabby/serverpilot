@@ -8813,7 +8813,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       var safeBrowseTarget = browseTarget.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
       var nameHtml;
       if (entry.diagnostic === "unaccounted") {
-        nameHtml = '<a href="#" onclick="openDiskUnaccounted();return false;" style="color:var(--accent);text-decoration:none;font-weight:500;">' + escapeHtml(entry.name) + '</a>';
+        nameHtml = '<a href="#" onclick="openDiskUnaccounted();return false;" style="color:var(--accent);text-decoration:underline;font-weight:500;cursor:pointer;">' + escapeHtml(entry.name) + '</a> <span style="font-size:0.68rem;color:var(--text-muted);">(clic para desglosar)</span>';
       } else if (entry.is_dir || entry.type === "dir" || entry.browse_path) {
         nameHtml = '<a href="#" onclick="diskDrillInto(\'' + safeBrowseTarget + '\');return false;" style="color:var(--accent);text-decoration:none;font-weight:500;">' + escapeHtml(entry.name) + '</a>';
       } else {
@@ -8946,82 +8946,198 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var content = document.getElementById("diskUnaccountedContent");
     if (!panel || !content) return;
     panel.style.display = "block";
-    content.innerHTML = '<div style="color:var(--text-muted);">Escaneando el sistema de archivos...</div>';
-    try {
-      var results = await Promise.all([
-        apiFetch("/api/system/disk-root-scan"),
-        apiFetch("/api/system/disk-unaccounted?limit=50")
-      ]);
-      var rootEntries = results[0].data || results[0] || [];
-      var data = results[1].data || results[1] || {};
-      renderDiskUnaccounted(data, rootEntries);
-    } catch(err) {
-      content.innerHTML = '<div style="color:var(--red);">Failed to inspect unaccounted usage: ' + escapeHtml(err.message) + '</div>';
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
+    _diskRootScanEntries = [];
+    _diskRootScanPending = {};
+    _diskRootScanDone = false;
+    _diskUnaccountedData = null;
+    renderDiskUnaccountedShell();
+    if (typeof showToast === "function") showToast("Escaneando espacio no contabilizado...", "info");
+
+    apiFetch("/api/system/disk-unaccounted?limit=50").then(function(resp) {
+      _diskUnaccountedData = resp.data || resp || {};
+      renderDiskUnaccountedDeletedSection();
+    }).catch(function() {
+      _diskUnaccountedData = { deleted_open_files: [], notes: [] };
+      renderDiskUnaccountedDeletedSection();
+    });
+
+    streamDiskRootScan().catch(function(err) {
+      var statusEl = document.getElementById("diskRootScanStatus");
+      if (statusEl) statusEl.innerHTML = '<span style="color:var(--red);">Error: ' + escapeHtml(err.message) + '</span>';
+    });
+  };
+
+  var _diskRootScanEntries = [];
+  var _diskRootScanPending = {};
+  var _diskRootScanDone = false;
+  var _diskUnaccountedData = null;
+
+  function streamDiskRootScan() {
+    return fetch("/api/system/disk-root-scan?stream=1", prepareApiFetchOptions({ method: "GET" })).then(function(response) {
+      if (response.status === 401) {
+        showLogin();
+        throw new Error("Unauthorized");
+      }
+      if (!response.ok) {
+        return response.text().then(function(t) {
+          throw new Error(parseStreamedError(response, t));
+        });
+      }
+      var reader = response.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = "";
+      function readChunk() {
+        return reader.read().then(function(result) {
+          if (result.done) {
+            if (buffer.trim()) processDiskRootScanSSE(buffer);
+            return;
+          }
+          buffer += decoder.decode(result.value, { stream: true });
+          var parts = buffer.split("\n\n");
+          buffer = parts.pop();
+          parts.forEach(processDiskRootScanSSE);
+          return readChunk();
+        });
+      }
+      return readChunk();
+    });
+  }
+
+  function processDiskRootScanSSE(raw) {
+    var event = "message";
+    var data = "";
+    raw.split("\n").forEach(function(line) {
+      if (line.indexOf("event: ") === 0) event = line.substring(7).trim();
+      else if (line.indexOf("data: ") === 0) data = line.substring(6);
+    });
+    if (!data) return;
+
+    if (event === "paths") {
+      var paths = JSON.parse(data);
+      paths.forEach(function(p) { _diskRootScanPending[p] = true; });
+      updateDiskRootScanTable();
+      return;
     }
-  };
+    if (event === "entry") {
+      var entry = JSON.parse(data);
+      delete _diskRootScanPending[entry.path];
+      var replaced = false;
+      for (var i = 0; i < _diskRootScanEntries.length; i++) {
+        if (_diskRootScanEntries[i].path === entry.path) {
+          _diskRootScanEntries[i] = entry;
+          replaced = true;
+          break;
+        }
+      }
+      if (!replaced) _diskRootScanEntries.push(entry);
+      _diskRootScanEntries.sort(function(a, b) { return (b.size_mb || 0) - (a.size_mb || 0); });
+      updateDiskRootScanTable();
+      return;
+    }
+    if (event === "done") {
+      _diskRootScanDone = true;
+      Object.keys(_diskRootScanPending).forEach(function(p) {
+        _diskRootScanEntries.push({ path: p, size_mb: 0, size_gb: 0, partial: true });
+        delete _diskRootScanPending[p];
+      });
+      _diskRootScanEntries.sort(function(a, b) { return (b.size_mb || 0) - (a.size_mb || 0); });
+      updateDiskRootScanTable();
+    }
+  }
 
-  window.closeDiskUnaccounted = function() {
-    var panel = document.getElementById("diskUnaccountedPanel");
-    if (panel) panel.style.display = "none";
-  };
-
-  var STANDARD_ROOT_DIRS = {
-    "/var": true, "/usr": true, "/home": true, "/tmp": true, "/opt": true,
-    "/etc": true, "/root": true, "/srv": true, "/snap": true
-  };
-
-  function renderDiskUnaccounted(data, rootEntries) {
+  function renderDiskUnaccountedShell() {
     var content = document.getElementById("diskUnaccountedContent");
     if (!content) return;
-    var html = "";
+    content.innerHTML =
+      '<h3 style="margin:0 0 0.5rem;font-size:0.9rem;color:var(--text-primary);">Directorios de nivel superior en /</h3>' +
+      '<div id="diskRootScanStatus" style="margin-bottom:0.35rem;font-size:0.75rem;color:var(--text-muted);">Iniciando escaneo...</div>' +
+      '<div style="overflow-x:auto;margin-bottom:1rem;"><table style="width:100%;border-collapse:collapse;font-size:0.82rem;">' +
+      '<thead><tr style="color:var(--text-muted);text-align:left;border-bottom:1px solid var(--border);">' +
+      '<th style="padding:6px 8px;">Path</th><th style="padding:6px 8px;text-align:right;">GB</th><th style="padding:6px 8px;text-align:right;">MB</th><th style="padding:6px 8px;min-width:100px;">Bar</th>' +
+      '</tr></thead><tbody id="diskRootScanBody"></tbody></table></div>' +
+      '<div id="diskUnaccountedDeletedSection"><div style="color:var(--text-muted);font-size:0.82rem;">Cargando archivos borrados abiertos...</div></div>';
+    updateDiskRootScanTable();
+  }
 
-    if (rootEntries && rootEntries.length) {
-      var partial = rootEntries.some(function(e) { return e.partial; });
-      html += '<h3 style="margin:0 0 0.5rem;font-size:0.9rem;color:var(--text-primary);">Directorios de nivel superior en /</h3>';
-      if (partial) {
-        html += '<div style="margin-bottom:0.5rem;color:var(--orange);">El escaneo expiró — los resultados pueden estar incompletos.</div>';
+  function updateDiskRootScanTable() {
+    var tbody = document.getElementById("diskRootScanBody");
+    var statusEl = document.getElementById("diskRootScanStatus");
+    if (!tbody) return;
+
+    var pendingPaths = Object.keys(_diskRootScanPending);
+    var partialCount = _diskRootScanEntries.filter(function(e) { return e.partial; }).length;
+    var doneCount = _diskRootScanEntries.filter(function(e) { return !e.partial || (e.size_mb || 0) > 0; }).length;
+    var totalCount = doneCount + pendingPaths.length;
+
+    if (statusEl) {
+      if (!_diskRootScanDone && pendingPaths.length > 0) {
+        statusEl.innerHTML = 'Escaneo inteligente: <strong>' + pendingPaths.length + '</strong> pendiente(s), ' +
+          doneCount + ' listo(s). /var y /usr se dividen en subdirectorios en paralelo.';
+      } else if (_diskRootScanDone && partialCount > 0) {
+        statusEl.innerHTML = '<span style="color:var(--orange);">' + partialCount + ' directorio(s) no terminaron a tiempo (⚠).</span> Clic en un path para explorar.';
+      } else if (_diskRootScanDone) {
+        statusEl.innerHTML = 'Escaneo completo (' + _diskRootScanEntries.length + ' directorios). Clic en un path para explorar subdirectorios.';
       }
-      html += '<div style="margin-bottom:0.35rem;font-size:0.75rem;color:var(--text-muted);">Las filas resaltadas no están cubiertas por el escaneo estándar del overview.</div>';
-      var maxMB = rootEntries[0].size_mb || 1;
-      html += '<div style="overflow-x:auto;margin-bottom:1rem;"><table style="width:100%;border-collapse:collapse;font-size:0.82rem;">' +
-        '<thead><tr style="color:var(--text-muted);text-align:left;border-bottom:1px solid var(--border);">' +
-        '<th style="padding:6px 8px;">Path</th><th style="padding:6px 8px;text-align:right;">GB</th><th style="padding:6px 8px;text-align:right;">MB</th><th style="padding:6px 8px;min-width:100px;">Bar</th>' +
-        '</tr></thead><tbody>';
-      rootEntries.forEach(function(e) {
-        var unusual = !STANDARD_ROOT_DIRS[e.path];
-        var rowStyle = unusual ? 'background:rgba(255,165,0,0.08);' : '';
-        var barPct = Math.min(100, (e.size_mb / maxMB) * 100);
-        html += '<tr style="' + rowStyle + '">' +
-          '<td style="padding:5px 8px;border-bottom:1px solid var(--border);font-family:monospace;color:var(--text-primary);">' + escapeHtml(e.path) + (unusual ? ' <span style="color:var(--orange);font-size:0.7rem;">● no escaneado</span>' : '') + '</td>' +
-          '<td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right;font-weight:600;font-variant-numeric:tabular-nums;">' + Number(e.size_gb || 0).toFixed(2) + '</td>' +
-          '<td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;">' + Math.round(e.size_mb || 0).toLocaleString() + '</td>' +
-          '<td style="padding:5px 8px;border-bottom:1px solid var(--border);"><div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="height:100%;width:' + barPct.toFixed(1) + '%;background:' + (unusual ? 'var(--orange)' : 'var(--accent)') + ';border-radius:4px;"></div></div></td>' +
-          '</tr>';
-      });
-      html += '</tbody></table></div>';
-    } else {
-      html += '<div style="margin-bottom:1rem;padding:0.75rem;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);">No se pudo obtener el desglose de directorios raíz.</div>';
     }
 
+    var rows = _diskRootScanEntries.slice();
+    pendingPaths.sort().forEach(function(p) {
+      rows.push({ path: p, size_mb: null, size_gb: null, pending: true });
+    });
+
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" style="padding:0.75rem;color:var(--text-muted);text-align:center;">Esperando lista de directorios...</td></tr>';
+      return;
+    }
+
+    var maxMB = Math.max.apply(null, rows.map(function(e) { return e.size_mb || 0; }).concat([1]));
+    var html = "";
+    rows.forEach(function(e) {
+      if (e.pending) {
+        html += '<tr style="opacity:0.7;">' +
+          '<td style="padding:5px 8px;border-bottom:1px solid var(--border);font-family:monospace;color:var(--text-muted);">' + escapeHtml(e.path) + ' <span style="font-size:0.7rem;color:var(--accent);">⟳ escaneando...</span></td>' +
+          '<td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right;color:var(--text-muted);">—</td>' +
+          '<td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right;color:var(--text-muted);">—</td>' +
+          '<td style="padding:5px 8px;border-bottom:1px solid var(--border);"><div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="height:100%;width:30%;background:var(--accent);border-radius:4px;opacity:0.5;"></div></div></td>' +
+          '</tr>';
+        return;
+      }
+      var unusual = !STANDARD_ROOT_DIRS[e.path];
+      var rowStyle = unusual ? 'background:rgba(255,165,0,0.08);' : '';
+      var barPct = Math.min(100, ((e.size_mb || 0) / maxMB) * 100);
+      var partialTag = e.partial ? ' <span style="color:var(--orange);font-size:0.7rem;">⚠ timeout</span>' : '';
+      var pathHtml = '<a href="#" onclick="diskDrillFromUnaccounted(\'' + e.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'") + '\');return false;" style="color:var(--accent);text-decoration:none;font-family:monospace;font-weight:500;">' + escapeHtml(e.path) + '</a>';
+      html += '<tr style="' + rowStyle + '">' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);color:var(--text-primary);">' + pathHtml + (unusual ? ' <span style="color:var(--orange);font-size:0.7rem;">● no escaneado</span>' : '') + partialTag + '</td>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right;font-weight:600;font-variant-numeric:tabular-nums;">' + Number(e.size_gb || 0).toFixed(2) + '</td>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;">' + Math.round(e.size_mb || 0).toLocaleString() + '</td>' +
+        '<td style="padding:5px 8px;border-bottom:1px solid var(--border);"><div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="height:100%;width:' + barPct.toFixed(1) + '%;background:' + (unusual ? 'var(--orange)' : 'var(--accent)') + ';border-radius:4px;"></div></div></td>' +
+        '</tr>';
+    });
+    tbody.innerHTML = html;
+  }
+
+  function renderDiskUnaccountedDeletedSection() {
+    var section = document.getElementById("diskUnaccountedDeletedSection");
+    if (!section) return;
+    var data = _diskUnaccountedData || { deleted_open_files: [], notes: [] };
     var files = data.deleted_open_files || [];
     var totalGB = Number(data.deleted_open_files_total_gb || 0);
-    html += '<h3 style="margin:0 0 0.5rem;font-size:0.9rem;color:var(--text-primary);">Archivos borrados pero aún abiertos</h3>';
+    var html = '<h3 style="margin:0.75rem 0 0.5rem;font-size:0.9rem;color:var(--text-primary);">Archivos borrados pero aún abiertos</h3>';
     html += '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">' +
       '<div style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);"><strong style="color:var(--text-primary);">' + totalGB.toFixed(2) + ' GB</strong><br><span style="font-size:0.72rem;color:var(--text-muted);">deleted open files</span></div>' +
       '</div>';
-
     if (data.notes && data.notes.length) {
       html += '<div style="margin-bottom:0.75rem;color:var(--text-muted);line-height:1.45;">';
       data.notes.forEach(function(n) { html += '<div>• ' + escapeHtml(n) + '</div>'; });
       html += '</div>';
     }
-
     if (!files.length) {
       html += '<div style="padding:0.75rem;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);">No deleted open files found. El espacio restante puede ser metadata del filesystem, bloques reservados o datos ocultos bajo mount points.</div>';
-      content.innerHTML = html;
+      section.innerHTML = html;
       return;
     }
-
     html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.82rem;">' +
       '<thead><tr style="color:var(--text-muted);text-align:left;border-bottom:1px solid var(--border);">' +
       '<th style="padding:6px 8px;">Process</th><th style="padding:6px 8px;">PID</th><th style="padding:6px 8px;">FD</th><th style="padding:6px 8px;text-align:right;">GB</th><th style="padding:6px 8px;">Deleted file path</th>' +
@@ -9036,8 +9152,25 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         '</tr>';
     });
     html += '</tbody></table></div>';
-    content.innerHTML = html;
+    section.innerHTML = html;
   }
+
+  window.closeDiskUnaccounted = function() {
+    var panel = document.getElementById("diskUnaccountedPanel");
+    if (panel) panel.style.display = "none";
+  };
+
+  window.diskDrillFromUnaccounted = function(path) {
+    closeDiskUnaccounted();
+    diskDrillInto(path);
+    var explorer = document.getElementById("diskBreakdownTitle");
+    if (explorer) explorer.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  var STANDARD_ROOT_DIRS = {
+    "/var": true, "/usr": true, "/home": true, "/tmp": true, "/opt": true,
+    "/etc": true, "/root": true, "/srv": true, "/snap": true
+  };
 
   window.toggleDockerVolumes = function(idx) {
     var el = document.getElementById("dockerVolDetail" + idx);

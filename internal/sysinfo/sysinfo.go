@@ -914,7 +914,7 @@ func DiskDetailDir(dirPath string) ([]DiskDetailEntry, error) {
 			var output []byte
 			select {
 			case output = <-done:
-			case <-time.After(5 * time.Second):
+			case <-time.After(15 * time.Second):
 				if cmd.Process != nil {
 					cmd.Process.Kill()
 				}
@@ -1099,33 +1099,75 @@ func DiskUnaccounted(limit int) (*DiskUnaccountedReport, error) {
 	return report, nil
 }
 
-// DiskRootScan walks top-level directories under / with du to explain unaccounted disk usage.
-func DiskRootScan() ([]DiskRootEntry, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "/usr/bin/du", "-xm", "--max-depth=1", "/")
-	output, err := cmd.Output()
-	timedOut := ctx.Err() == context.DeadlineExceeded
-	if err != nil && !timedOut {
+// DiskRootScanPaths returns top-level directories under / that will be scanned.
+func DiskRootScanPaths() ([]string, error) {
+	rootEntries, err := os.ReadDir("/")
+	if err != nil {
 		return nil, fmt.Errorf("root scan failed")
 	}
 
-	entries, _ := parseDURootLines(string(output))
-	if timedOut {
-		for i := range entries {
-			entries[i].Partial = true
-		}
-		if len(entries) == 0 {
-			return []DiskRootEntry{{
-				Path:    "/",
-				Partial: true,
-			}}, nil
-		}
+	skipDirs := map[string]bool{
+		"proc": true,
+		"sys":  true,
+		"dev":  true,
 	}
 
-	sort.Slice(entries, func(i, j int) bool { return entries[i].SizeMB > entries[j].SizeMB })
-	return entries, nil
+	var paths []string
+	for _, de := range rootEntries {
+		if !de.IsDir() {
+			continue
+		}
+		if skipDirs[de.Name()] {
+			continue
+		}
+		paths = append(paths, "/"+de.Name())
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
+// DiskRootScan walks top-level directories under / with parallel du calls.
+// Each directory is scanned independently so a slow /var does not block the rest.
+func DiskRootScan() ([]DiskRootEntry, error) {
+	var results []DiskRootEntry
+	err := DiskRootScanStream(func(entry DiskRootEntry) {
+		results = append(results, entry)
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(results, func(i, j int) bool { return results[i].SizeMB > results[j].SizeMB })
+	return results, nil
+}
+
+// duPathSummaryMB runs du -smx on one path and returns size in MB.
+// partial is true when du timed out or failed.
+func duPathSummaryMB(path string, timeout time.Duration) (float64, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "/usr/bin/du", "-smx", "--", path)
+	output, err := cmd.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		return 0, true
+	}
+	if err != nil {
+		return 0, true
+	}
+
+	line := strings.TrimSpace(string(output))
+	if line == "" {
+		return 0, true
+	}
+	parts := strings.Fields(line)
+	if len(parts) < 1 {
+		return 0, true
+	}
+	sizeMB, err := strconv.ParseFloat(parts[0], 64)
+	if err != nil {
+		return 0, true
+	}
+	return sizeMB, false
 }
 
 func parseDURootLines(output string) ([]DiskRootEntry, float64) {

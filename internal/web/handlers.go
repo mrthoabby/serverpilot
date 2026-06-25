@@ -1784,9 +1784,16 @@ func (s *Server) handleDiskUnaccounted(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleDiskRootScan runs a deep du scan of top-level / directories.
+// GET /api/system/disk-root-scan           — full JSON result when complete
+// GET /api/system/disk-root-scan?stream=1  — SSE stream, one entry per directory
 func (s *Server) handleDiskRootScan(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	if r.URL.Query().Get("stream") == "1" {
+		s.handleDiskRootScanStream(w, r)
 		return
 	}
 
@@ -1797,6 +1804,37 @@ func (s *Server) handleDiskRootScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: entries})
+}
+
+func (s *Server) handleDiskRootScanStream(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "streaming not supported"})
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	paths, err := sysinfo.DiskRootScanPathsSorted()
+	if err != nil {
+		log.Printf("Disk root scan paths error: %v", err)
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "failed to scan root filesystem"})
+		return
+	}
+	pathsJSON, _ := json.Marshal(paths)
+	sseWriteEvent(w, flusher, "paths", string(pathsJSON))
+
+	if err := sysinfo.DiskRootScanStream(func(entry sysinfo.DiskRootEntry) {
+		data, _ := json.Marshal(entry)
+		sseWriteEvent(w, flusher, "entry", string(data))
+	}); err != nil {
+		log.Printf("Disk root scan stream error: %v", err)
+		sseWriteDone(w, flusher, map[string]interface{}{"success": false, "error": "failed to scan root filesystem"})
+		return
+	}
+	sseWriteDone(w, flusher, map[string]interface{}{"success": true})
 }
 
 // handleDockerContainerDisk returns per-container writable layer and volume disk usage.
@@ -2174,6 +2212,9 @@ var browseAllowlist = []string{
 	// use "/" as a backdoor to read e.g. /etc/shadow — anything under
 	// "/" still has to go through one of the specific entries below.
 	"/",
+	"/var",
+	"/var/lib",
+	"/usr",
 	"/var/log",
 	"/var/lib/docker",
 	"/var/cache",
