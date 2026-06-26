@@ -1,0 +1,29 @@
+internal/portalloc/socket.go
+  s_5fdf20e03fb804::t_30e8cb98c9faba 1-225
+internal/web/server.go
+  s_5fdf20e03fb804::t_4891eb39be5a3f 210-212
+internal/portalloc/socket_test.go
+  s_5fdf20e03fb804::t_816aa19fea9ca9 1-17
+cmd/port.go
+  s_5fdf20e03fb804::t_ff97b02dba790c 37-38
+  s_5fdf20e03fb804::t_f1161bd997abeb 56
+internal/portalloc/portalloc.go
+  s_5fdf20e03fb804::t_ac7d6ce44b02ca 237
+  s_5fdf20e03fb804::t_e6fb5be87ac8c6 255
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "099e7dddd5bdd7a0fa45fdca4715ae7f7e2b560d",
+  "prompts": {},
+  "sessions": {
+    "s_5fdf20e03fb804": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "b859e90d-2b42-4ab3-a4e7-663d27828b8b",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
