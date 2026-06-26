@@ -1,0 +1,38 @@
+internal/web/static/index.html
+  s_5fdf20e03fb804::t_0ee82c2d5688f6 2746,5104-5112,5117-5121,5123-5127,5133,5136,5141-5143,5146-5147,5158-5160,5165-5166,5170,5174,5177,5188-5189,5193,5197,5203-5204,5208,5210,5214-5215
+  s_5fdf20e03fb804::t_c775958e16fdf1 2748-2751
+  s_5fdf20e03fb804::t_93e64d401893c3 4928
+  s_5fdf20e03fb804::t_45179cec9fe616 5054-5055,5058-5060
+  s_5fdf20e03fb804::t_a2dd28feec3d43 5364,5369-5372
+  s_5fdf20e03fb804::t_3aa92d47bcd534 5164
+  s_5fdf20e03fb804::t_c600661d6b468c 5543-5544,5547-5549
+  s_5fdf20e03fb804::t_d9934ca265f2a0 5187
+  s_5fdf20e03fb804::t_8bb161b6af5b18 5150,5152-5154,5157
+  s_5fdf20e03fb804::t_92f67a8e01dfdd 1976,1979,1981,1986-1987,1990
+  s_5fdf20e03fb804::t_58e9ad452fb9b2 2745
+  s_5fdf20e03fb804::t_caba5b7ed500c4 4889-4891,4899,4902-4903
+  s_5fdf20e03fb804::t_9bb2210b686393 10618-10621
+  s_5fdf20e03fb804::t_716511f1669070 5498-5499,5503-5506,5511-5513
+  s_5fdf20e03fb804::t_78f7918c135c4a 10629-10633
+  s_5fdf20e03fb804::t_d485ca8a78078e 4932,4934-4935,4937-4939
+  s_5fdf20e03fb804::t_d312326e8a0ff2 2747
+  s_5fdf20e03fb804::t_49ec6a4b5949b2 5053
+  s_5fdf20e03fb804::t_c8c12c6ebcc10a 5497
+  s_5fdf20e03fb804::t_de17a1f88e954d 5542
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "30a67b0aa4725f84ad586bfde02fe40c89ae7d8a",
+  "prompts": {},
+  "sessions": {
+    "s_5fdf20e03fb804": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "b859e90d-2b42-4ab3-a4e7-663d27828b8b",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
