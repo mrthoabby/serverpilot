@@ -1888,8 +1888,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
                  a typed password. SSH-key auth is strictly preferred. -->
             <div id="passFields" style="display:none;">
               <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">Password</label>
+              <!-- Hidden username field satisfies browser accessibility requirement for
+                   password managers to associate the new password with the correct account. -->
+              <input type="text" id="newUserPassUsername" autocomplete="username" style="display:none;" aria-hidden="true">
               <div style="display:flex;gap:0.5rem;">
-                <input type="password" id="newUserPass" placeholder="Min 8 characters"
+                <input type="password" id="newUserPass" placeholder="Min 8 characters" autocomplete="new-password"
                   style="flex:1;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.85rem;">
                 <button type="button" onclick="togglePasswordVis('newUserPass', this)" class="btn btn-secondary" style="padding:6px 10px;font-size:0.78rem;" title="Show/hide">
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3.5C4.136 3.5 1.04 6.008.152 7.59a.796.796 0 000 .82C1.04 9.992 4.136 12.5 8 12.5s6.96-2.508 7.848-4.09a.796.796 0 000-.82C14.96 6.008 11.864 3.5 8 3.5zM8 11a3 3 0 110-6 3 3 0 010 6z"/><circle cx="8" cy="8" r="1.5"/></svg>
@@ -1978,6 +1981,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:1.5rem;width:90%;max-width:400px;">
           <h3 style="margin:0 0 1rem 0;font-size:1rem;">Reset Password</h3>
           <form id="resetPassForm" onsubmit="submitResetPassword(); return false;">
+          <!-- Hidden username field required by browsers to associate the new
+               password with the correct account in the password manager. -->
+          <input type="text" id="resetPassUserHidden" autocomplete="username" style="display:none;" aria-hidden="true">
           <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.75rem;">New password for <strong id="resetPassUser"></strong>:</p>
           <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
             <input type="password" id="resetPassInput" placeholder="Min 8 characters" autocomplete="new-password"
@@ -7587,6 +7593,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     if (!username) { msgEl.style.color = "#f85149"; msgEl.textContent = "Username required"; return; }
 
+    // Sync hidden username field so the browser can associate the password
+    // with the correct account in its password manager.
+    var hiddenUser = document.getElementById("newUserPassUsername");
+    if (hiddenUser) hiddenUser.value = username;
+
     if (_authMode === "generate") {
       btn.disabled = true;
       msgEl.style.color = "var(--text-muted)";
@@ -7726,6 +7737,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     document.getElementById("resetPassUser").textContent = username;
     document.getElementById("resetPassInput").value = "";
     document.getElementById("resetPassMsg").textContent = "";
+    // Keep the hidden username field in sync so password managers associate
+    // the new password with the right account (browser accessibility requirement).
+    var hidden = document.getElementById("resetPassUserHidden");
+    if (hidden) hidden.value = username;
     var modal = document.getElementById("resetPassModal");
     modal.style.display = "flex";
   }
@@ -10669,9 +10684,18 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
   })();
 
-  // Shared helpers for other dashboard script blocks.
-  window.onEl = onEl;
-  window.setText = setText;
+  // Export core tab loaders and helpers so they are reachable from other
+  // script blocks, inline event handlers, and browser extensions without
+  // causing ReferenceErrors (the functions live in this IIFE's closure).
+  window.loadContainers = loadContainers;
+  window.loadSites      = loadSites;
+  window.loadImages     = loadImages;
+  window.loadMappings   = loadMappings;
+  window.loadResources  = loadResources;
+  window.showLogin      = showLogin;
+  window.showDashboard  = showDashboard;
+  window.onEl           = onEl;
+  window.setText        = setText;
 
 })();
 
