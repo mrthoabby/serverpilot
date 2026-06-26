@@ -10687,15 +10687,17 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   // Export core tab loaders and helpers so they are reachable from other
   // script blocks, inline event handlers, and browser extensions without
   // causing ReferenceErrors (the functions live in this IIFE's closure).
-  window.loadContainers = loadContainers;
-  window.loadSites      = loadSites;
-  window.loadImages     = loadImages;
-  window.loadMappings   = loadMappings;
-  window.loadResources  = loadResources;
-  window.showLogin      = showLogin;
-  window.showDashboard  = showDashboard;
-  window.onEl           = onEl;
-  window.setText        = setText;
+  window.loadContainers          = loadContainers;
+  window.loadSites               = loadSites;
+  window.loadImages              = loadImages;
+  window.loadMappings            = loadMappings;
+  window.loadResources           = loadResources;
+  window.showLogin               = showLogin;
+  window.showDashboard           = showDashboard;
+  window.onEl                    = onEl;
+  window.setText                 = setText;
+  window.termFetchConnectDiag    = termFetchConnectDiag;
+  window.termExplainConnectBlock = termExplainConnectBlock;
 
 })();
 
