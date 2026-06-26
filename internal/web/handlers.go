@@ -1904,17 +1904,42 @@ func (s *Server) handleDockerPrune(w http.ResponseWriter, r *http.Request) {
 	}
 
 	actor := sanitizeLogField(s.actorFromRequest(r), 64)
-	log.Printf("docker-prune: actor=%q mode=%q starting", actor, mode)
+	log.Printf("docker-prune: actor=%q mode=%q starting async", actor, mode)
 
-	result, err := docker.RunPrune(mode)
+	job, err := docker.StartPruneJob(mode)
 	if err != nil {
-		log.Printf("docker-prune: actor=%q mode=%q error=%v", actor, mode, err)
-		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "docker prune failed"})
+		if errors.Is(err, docker.ErrPruneAlreadyRunning) {
+			if existing, ok := docker.ActivePruneJob(); ok {
+				writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: existing})
+				return
+			}
+		}
+		log.Printf("docker-prune: actor=%q mode=%q start error=%v", actor, mode, err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to start docker prune"})
 		return
 	}
 
-	log.Printf("docker-prune: actor=%q mode=%q result=ok", actor, mode)
-	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: result})
+	writeJSON(w, http.StatusAccepted, apiResponse{Success: true, Data: job})
+}
+
+// handleDockerPruneStatus reports async docker prune job progress.
+// GET /api/system/docker-prune/status?job=<id>
+func (s *Server) handleDockerPruneStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+	jobID := strings.TrimSpace(r.URL.Query().Get("job"))
+	if jobID == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "job id required"})
+		return
+	}
+	job, ok := docker.GetPruneJob(jobID)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, apiResponse{Error: "job not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: job})
 }
 
 // handleDiskTopFiles finds the N largest files under a given path.

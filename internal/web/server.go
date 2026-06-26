@@ -92,6 +92,7 @@ func (s *Server) Start() error {
 	mux.Handle("/api/system/docker-container-disk", s.authMiddleware(http.HandlerFunc(s.handleDockerContainerDisk)))
 	mux.Handle("/api/system/docker-prune/modes", s.authMiddleware(http.HandlerFunc(s.handleDockerPruneModes)))
 	mux.Handle("/api/system/docker-prune", s.requireSecureReauth(http.HandlerFunc(s.handleDockerPrune)))
+	mux.Handle("/api/system/docker-prune/status", s.authMiddleware(http.HandlerFunc(s.handleDockerPruneStatus)))
 	mux.Handle("/api/system/disk-top-files", s.authMiddleware(http.HandlerFunc(s.handleDiskTopFiles)))
 	mux.Handle("/api/system/disk-clean", s.requireSecureReauth(http.HandlerFunc(s.handleDiskClean)))
 	mux.Handle("/api/system/kill-process", s.requireSecureReauth(http.HandlerFunc(s.handleKillProcess)))

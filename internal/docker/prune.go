@@ -22,7 +22,7 @@ const (
 	PruneBuilder    PruneMode = "builder"
 )
 
-const dockerPruneTimeout = 10 * time.Minute
+const dockerPruneTimeout = 30 * time.Minute
 
 // PruneModeInfo describes one prune option for the dashboard.
 type PruneModeInfo struct {

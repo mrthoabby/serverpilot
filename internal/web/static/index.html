@@ -9601,6 +9601,41 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     document.getElementById("dockerPruneModal").classList.remove("show");
   };
 
+  async function pollDockerPruneJob(jobId) {
+    var started = Date.now();
+    var maxWaitMs = 35 * 60 * 1000;
+    var lastLineAt = 0;
+    while (Date.now() - started < maxWaitMs) {
+      var resp = await apiFetch("/api/system/docker-prune/status?job=" + encodeURIComponent(jobId));
+      var job = (resp && resp.data) ? resp.data : resp;
+      if (!job) throw new Error("estado del job no disponible");
+
+      var elapsed = Math.floor((Date.now() - started) / 1000);
+      setText(progressStatusText, "Ejecutando en el servidor… " + elapsed + "s (puede tardar varios minutos con mucho build cache)");
+      if (Date.now() - lastLineAt > 12000) {
+        appendLogLine("[" + elapsed + "s] Docker prune sigue en curso en el servidor…");
+        lastLineAt = Date.now();
+      }
+
+      if (job.status === "completed") {
+        if (job.output) {
+          job.output.split("\n").forEach(function(line) {
+            if (line.trim()) appendLogLine(line);
+          });
+        }
+        finishProgress(true, "Limpieza Docker completada");
+        showToast("Limpieza Docker completada", "success");
+        setTimeout(function() { loadResources(); }, 800);
+        return;
+      }
+      if (job.status === "failed") {
+        throw new Error(job.error || "docker prune failed");
+      }
+      await new Promise(function(resolve) { setTimeout(resolve, 3000); });
+    }
+    throw new Error("timeout esperando resultado — el prune puede seguir en el servidor; revisa el disco en unos minutos");
+  }
+
   async function executeDockerPrune() {
     if (!_dockerPrunePending) return;
     var info = _dockerPrunePending;
@@ -9617,22 +9652,27 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (btn) { btn.disabled = true; btn.textContent = "Ejecutando…"; }
 
     try {
+      closeDockerPruneModal();
+      openProgressModal("Limpieza Docker", (info.title || info.mode) + " — puede tardar varios minutos; no cierres esta pestaña.");
+      appendLogLine("Iniciando " + (info.title || info.mode) + "…");
+
       var resp = await apiFetch("/api/system/docker-prune", {
         method: "POST",
         body: { mode: info.mode, confirm: confirmVal || info.mode }
       });
-      var data = (resp && resp.data) ? resp.data : resp;
-      var outEl = document.getElementById("dockerPruneModalOutput");
-      if (outEl && data && data.output) {
-        outEl.style.display = "block";
-        outEl.textContent = data.output;
+
+      var job = (resp && resp.data) ? resp.data : resp;
+      if (!job || !job.id) throw new Error("no se recibió job id del servidor");
+      if (job.status === "running") {
+        appendLogLine("Job " + job.id + " en curso en el servidor…");
+      } else {
+        appendLogLine("Job " + job.id + " iniciado.");
       }
-      showToast("Limpieza Docker completada", "success");
-      if (btn) btn.textContent = "Completado";
-      // Refresh disk views so reclaimed space shows up.
-      setTimeout(function() { loadResources(); }, 800);
+      await pollDockerPruneJob(job.id);
     } catch (err) {
+      finishProgress(false, err.message || "error");
       showToast("Prune falló: " + (err.message || "error"), "error");
+    } finally {
       if (btn) { btn.disabled = false; btn.textContent = "Ejecutar prune"; }
     }
   }
