@@ -1931,7 +1931,11 @@ func (s *Server) handleDockerPruneStatus(w http.ResponseWriter, r *http.Request)
 	}
 	jobID := strings.TrimSpace(r.URL.Query().Get("job"))
 	if jobID == "" {
-		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "job id required"})
+		if job, ok := docker.ActivePruneJob(); ok {
+			writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: job})
+			return
+		}
+		writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: nil})
 		return
 	}
 	job, ok := docker.GetPruneJob(jobID)

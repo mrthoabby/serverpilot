@@ -1,7 +1,6 @@
 package docker
 
 import (
-	"sync"
 	"testing"
 	"time"
 )
@@ -56,6 +55,25 @@ func TestGetPruneJobClone(t *testing.T) {
 	pruneJobsMu.Unlock()
 }
 
+func TestUpdatePruneJobProgressLocked(t *testing.T) {
+	job := &PruneJob{
+		Mode:              PruneBuilder,
+		Status:            PruneJobRunning,
+		BaselineReclaimMB: 65000,
+		StartedAt:         time.Now().Add(-30 * time.Second),
+	}
+	updatePruneJobProgressLocked(job, 30000)
+	if job.FreedMB != 35000 {
+		t.Fatalf("freed mb = %v, want 35000", job.FreedMB)
+	}
+	if job.ProgressPercent != 53.8 {
+		t.Fatalf("progress = %v, want 53.8", job.ProgressPercent)
+	}
+	if job.ElapsedSeconds < 29 {
+		t.Fatalf("elapsed = %d, want >= 29", job.ElapsedSeconds)
+	}
+}
+
 func TestActivePruneJob(t *testing.T) {
 	pruneJobsMu.Lock()
 	pruneJobs = map[string]*PruneJob{}
@@ -66,8 +84,6 @@ func TestActivePruneJob(t *testing.T) {
 		t.Fatal("expected no active job")
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(1)
 	pruneJobsMu.Lock()
 	pruneJobs["run1"] = &PruneJob{ID: "run1", Mode: PruneBuilder, Status: PruneJobRunning, StartedAt: time.Now()}
 	activePrune = "run1"
@@ -82,5 +98,4 @@ func TestActivePruneJob(t *testing.T) {
 	pruneJobs = map[string]*PruneJob{}
 	activePrune = ""
 	pruneJobsMu.Unlock()
-	wg.Done()
 }
