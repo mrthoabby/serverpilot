@@ -1,0 +1,19 @@
+version.go
+  s_46428ca027a280::t_851c9605766fc2 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "112f64dbb07c972e774afe27feda1aa78b467a0e",
+  "prompts": {},
+  "sessions": {
+    "s_46428ca027a280": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d771cba-2c7f-4ccb-ace2-df7299cf7ac9",
+        "model": "unknown"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
