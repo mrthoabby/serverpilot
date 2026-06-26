@@ -157,16 +157,70 @@ func missingWebSocketProxyBlocks(content string, dashboardPort int) []string {
 }
 
 func locationBlockHasUpgrade(lines []string, proxyLineIdx int) bool {
-	proxyIndent := leadingIndent(lines[proxyLineIdx])
-	for j := proxyLineIdx + 1; j < len(lines); j++ {
-		trimmed := strings.TrimSpace(lines[j])
-		if trimmed == "" {
-			continue
+	start, end := locationBlockRange(lines, proxyLineIdx)
+	if start < 0 || end <= start {
+		return false
+	}
+	for j := start; j <= end && j < len(lines); j++ {
+		if strings.Contains(lines[j], "proxy_set_header Upgrade") {
+			return true
 		}
-		if trimmed == "}" && leadingIndent(lines[j]) <= proxyIndent {
+	}
+	return false
+}
+
+func locationBlockRange(lines []string, proxyLineIdx int) (start, end int) {
+	start = -1
+	for i := proxyLineIdx; i >= 0; i-- {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "location ") {
+			start = i
 			break
 		}
-		if strings.Contains(lines[j], "proxy_set_header Upgrade") {
+	}
+	if start < 0 {
+		return -1, -1
+	}
+	depth := 0
+	for j := start; j < len(lines); j++ {
+		depth += strings.Count(lines[j], "{")
+		depth -= strings.Count(lines[j], "}")
+		if depth == 0 && j > start {
+			return start, j
+		}
+	}
+	return start, len(lines) - 1
+}
+
+func locationBlockText(lines []string, proxyLineIdx int) string {
+	start, end := locationBlockRange(lines, proxyLineIdx)
+	if start < 0 || end < start {
+		return ""
+	}
+	return strings.Join(lines[start:end+1], "\n")
+}
+
+func filterMissingProxyDirectives(blockText string, directives []string) []string {
+	if blockText == "" {
+		return directives
+	}
+	var out []string
+	for _, directive := range directives {
+		needle := strings.TrimSpace(directive)
+		needle = strings.TrimSuffix(needle, ";")
+		if directiveLinePresent(blockText, needle) {
+			continue
+		}
+		out = append(out, directive)
+	}
+	return out
+}
+
+func directiveLinePresent(blockText, needle string) bool {
+	if strings.HasPrefix(needle, "proxy_http_version") && strings.Contains(blockText, "proxy_http_version") {
+		return true
+	}
+	for _, line := range strings.Split(blockText, "\n") {
+		if strings.TrimSpace(line) == needle {
 			return true
 		}
 	}
@@ -284,9 +338,13 @@ func patchWebSocketProxyDirectives(content string, dashboardPort int) (string, b
 		if m != nil {
 			port, err := strconv.Atoi(m[2])
 			if err == nil && port == dashboardPort && !locationBlockHasUpgrade(lines, i) {
+				blockText := locationBlockText(lines, i)
+				toInsert := filterMissingProxyDirectives(blockText, insertBlock)
 				out = append(out, line)
-				out = append(out, insertBlock...)
-				changed = true
+				if len(toInsert) > 0 {
+					out = append(out, toInsert...)
+					changed = true
+				}
 				continue
 			}
 		}

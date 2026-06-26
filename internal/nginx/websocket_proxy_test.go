@@ -43,6 +43,25 @@ func TestPatchWebSocketProxyDirectivesNoOpWhenPresent(t *testing.T) {
 	}
 }
 
+func TestPatchWebSocketProxyDirectivesSkipsDuplicateHTTPVersion(t *testing.T) {
+	config := `location / {
+    proxy_pass http://127.0.0.1:8090;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+}
+`
+	after, changed := patchWebSocketProxyDirectives(config, 8090)
+	if !changed {
+		t.Fatal("expected patch to add missing Upgrade headers")
+	}
+	if strings.Count(after, "proxy_http_version") != 1 {
+		t.Fatalf("expected single proxy_http_version, got:\n%s", after)
+	}
+	if !strings.Contains(after, "proxy_set_header Upgrade") {
+		t.Fatalf("expected Upgrade header to be added:\n%s", after)
+	}
+}
+
 func TestPatchWebSocketProxyDirectivesPatches443Only(t *testing.T) {
 	config := `server {
     listen 80;
