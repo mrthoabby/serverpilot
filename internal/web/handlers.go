@@ -250,6 +250,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.sessionStore.AddSession(token, req.Username, clientIP, r.Header.Get("User-Agent"))
+	s.sessionStore.MarkReauthenticated(token)
 	s.setSessionCookie(w, token)
 
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{"message": "logged in"}})

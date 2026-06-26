@@ -259,6 +259,12 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		token, ok := s.currentSessionToken(r)
 		if !ok {
 			if isWebSocketUpgrade(r) {
+				// #region agent log
+				agentDebugLog("A", "middleware.go:authMiddleware", "ws upgrade rejected no cookie", map[string]interface{}{
+					"host": r.Host, "path": r.URL.Path,
+				})
+				// #endregion
+				recordTerminalWSReject(http.StatusUnauthorized, "authentication required")
 				http.Error(w, "authentication required", http.StatusUnauthorized)
 				return
 			}
@@ -269,6 +275,12 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		_, valid := s.sessionStore.ValidateSession(token)
 		if !valid {
 			if isWebSocketUpgrade(r) {
+				// #region agent log
+				agentDebugLog("A", "middleware.go:authMiddleware", "ws upgrade rejected invalid session", map[string]interface{}{
+					"host": r.Host, "path": r.URL.Path,
+				})
+				// #endregion
+				recordTerminalWSReject(http.StatusUnauthorized, "invalid or expired session")
 				http.Error(w, "invalid or expired session", http.StatusUnauthorized)
 				return
 			}

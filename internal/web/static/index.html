@@ -2691,6 +2691,71 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 (function() {
   "use strict";
 
+  // #region agent log
+  function spDebugLog(hypothesisId, location, message, data) {
+    var entry = {
+      sessionId: "9dbd6e",
+      hypothesisId: hypothesisId,
+      location: location,
+      message: message,
+      data: data || {},
+      timestamp: Date.now()
+    };
+    try {
+      var logs = JSON.parse(sessionStorage.getItem("sp_debug_9dbd6e") || "[]");
+      logs.push(entry);
+      sessionStorage.setItem("sp_debug_9dbd6e", JSON.stringify(logs.slice(-40)));
+    } catch (e) {}
+    fetch("http://127.0.0.1:7710/ingest/1a79b198-7230-45c7-a1a2-963620a5ae1a", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9dbd6e" },
+      body: JSON.stringify(entry)
+    }).catch(function() {});
+  }
+
+  function termFetchConnectDiag(phase) {
+    return fetch("/api/terminal/ws-check", {
+      credentials: "same-origin",
+      headers: { "Accept": "application/json" }
+    }).then(function(r) {
+      return r.json().then(function(j) {
+        var d = (j && j.data) ? j.data : (j || {});
+        d._phase = phase;
+        spDebugLog("CHK", "index.html:termFetchConnectDiag", "ws-check client", d);
+        return d;
+      });
+    });
+  }
+
+  function termExplainConnectBlock(diag) {
+    if (!diag) return "No se pudo conectar";
+    if (diag.block_reason === "session_expired") return "Sesión expirada — inicia sesión de nuevo";
+    if (diag.block_reason === "reauth_required") return "Confirma tu contraseña para usar la terminal";
+    if (diag.block_reason === "nginx_proxy") return diag.proxy_message || "Faltan cabeceras WebSocket en nginx (HTTPS)";
+    if (diag.last_ws_reject_status === 401) return "Sesión expirada — inicia sesión de nuevo";
+    if (diag.last_ws_reject_status === 403) return "Reautenticación requerida — introduce tu contraseña";
+    return "No se pudo conectar a la terminal";
+  }
+
+  function termHandleConnectBlock(diag) {
+    if (!diag || diag.can_connect) return false;
+    var msg = termExplainConnectBlock(diag);
+    termSetStatus(msg, "var(--red)");
+    if (diag.block_reason === "session_expired" || diag.last_ws_reject_status === 401) {
+      if (typeof window.showLogin === "function") window.showLogin();
+      return true;
+    }
+    if (diag.block_reason === "reauth_required" || diag.last_ws_reject_status === 403) {
+      return true;
+    }
+    if (diag.block_reason === "nginx_proxy") {
+      termShowFixProxy(true, msg + (diag.proxy_missing && diag.proxy_missing.length ? " (" + diag.proxy_missing.join(", ") + ")" : ""));
+      return true;
+    }
+    return true;
+  }
+  // #endregion
+
   // ── Helpers ──
   function esc(str) {
     var d = document.createElement("div");
@@ -10821,9 +10886,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   function termConnect() {
     if (termWS && termWS.readyState === WebSocket.OPEN) return;
 
-    // The xterm.js library is loaded from a CDN. If the browser couldn't
-    // fetch it (offline, ad-blocker, restrictive network) the Terminal/FitAddon
-    // globals are undefined and we'd fail silently. Surface a clear message.
+    // #region agent log
+    spDebugLog("A", "index.html:termConnect", "termConnect clicked", { host: location.hostname });
+    // #endregion
+
     if (typeof Terminal === "undefined" || typeof FitAddon === "undefined") {
       termSetStatus("Terminal library failed to load — check your network/CDN access", "var(--red)");
       return;
@@ -10832,9 +10898,30 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     termSetStatus("Verifying authentication…", "var(--yellow)");
     termWSRetries = 0;
 
-    ensureTerminalAuth().then(function() {
+    termFetchConnectDiag("start").then(function(diag) {
+      if (diag.block_reason === "session_expired") {
+        termHandleConnectBlock(diag);
+        return;
+      }
+      if (diag.block_reason === "reauth_required") {
+        if (typeof window.promptReauth !== "function") {
+          throw new Error("re-authentication unavailable");
+        }
+        return window.promptReauth().then(function() {
+          return termFetchConnectDiag("after-reauth");
+        }).then(function(diag2) {
+          if (termHandleConnectBlock(diag2)) return;
+          termOpenWebSocket();
+        });
+      }
+      if (termHandleConnectBlock(diag)) return;
       termOpenWebSocket();
     }).catch(function(err) {
+      // #region agent log
+      spDebugLog("A", "index.html:termConnect", "termConnect failed", {
+        code: err && err.code, message: err && err.message
+      });
+      // #endregion
       if (err && err.code === "session_expired") {
         termSetStatus("Sesión expirada — inicia sesión de nuevo", "var(--red)");
         if (typeof window.showLogin === "function") window.showLogin();
@@ -10854,6 +10941,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
     return window.apiFetch("/api/session/reauth-status").then(function(resp) {
       var data = resp.data || resp || {};
+      // #region agent log
+      spDebugLog("B", "index.html:ensureTerminalAuth", "reauth-status ok", {
+        recently_reauthenticated: !!data.recently_reauthenticated
+      });
+      // #endregion
       if (data.recently_reauthenticated) {
         return;
       }
@@ -10926,6 +11018,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var proto = location.protocol === "https:" ? "wss:" : "ws:";
     var url   = proto + "//" + location.host + "/api/terminal/ws";
 
+    // #region agent log
+    spDebugLog("C", "index.html:termOpenWebSocket", "opening websocket", { url: url, retry: termWSRetries });
+    // #endregion
+
     termSetStatus("Connecting…", "var(--yellow)");
     termInst.clear();
     termInst.focus();
@@ -10943,6 +11039,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     ws.onopen = function() {
       opened = true;
       termWSRetries = 0;
+      // #region agent log
+      spDebugLog("OK", "index.html:termOpenWebSocket", "websocket opened", { url: url });
+      // #endregion
       termSetStatus("Connected", "var(--green)");
       termSetConnected(true);
       // Send initial size.
@@ -10957,9 +11056,16 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       }
     };
 
-    ws.onclose = function() {
+    ws.onclose = function(evt) {
       termSetConnected(false);
       termWS = null;
+
+      // #region agent log
+      spDebugLog(opened ? "OK" : "C", "index.html:termOpenWebSocket", "websocket closed", {
+        opened: opened, retries: termWSRetries, code: evt && evt.code, reason: evt && evt.reason,
+        wasClean: evt && evt.wasClean
+      });
+      // #endregion
 
       if (opened) {
         termSetStatus("Disconnected", "var(--text-muted)");
@@ -10968,8 +11074,15 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
       // Upgrade rejected after auth check — retry once with forced reauth.
       if (termWSRetries >= 1) {
-        termSetStatus("No se pudo conectar — repara el proxy nginx o inicia sesión de nuevo", "var(--red)");
-        termLoadProxyStatus();
+        termFetchConnectDiag("after-ws-fail").then(function(diag) {
+          if (!termHandleConnectBlock(diag)) {
+            termSetStatus("No se pudo conectar — revisa nginx o inicia sesión de nuevo", "var(--red)");
+            termLoadProxyStatus();
+          }
+        }).catch(function() {
+          termSetStatus("No se pudo conectar — repara el proxy nginx o inicia sesión de nuevo", "var(--red)");
+          termLoadProxyStatus();
+        });
         return;
       }
       termWSRetries++;

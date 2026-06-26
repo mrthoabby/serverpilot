@@ -48,9 +48,19 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, opts)
 	if err != nil {
 		// websocket.Accept already wrote the HTTP error.
+		// #region agent log
+		agentDebugLog("D", "terminal.go:handleTerminalWS", "websocket accept failed", map[string]interface{}{
+			"host": r.Host, "origin": r.Header.Get("Origin"), "err": err.Error(),
+		})
+		// #endregion
 		log.Printf("terminal: ws upgrade: %v", err)
 		return
 	}
+	// #region agent log
+	agentDebugLog("OK", "terminal.go:handleTerminalWS", "websocket connected", map[string]interface{}{
+		"host": r.Host, "origin": r.Header.Get("Origin"),
+	})
+	// #endregion
 	defer conn.CloseNow()
 	conn.SetReadLimit(termMaxMsgSize)
 
@@ -259,4 +269,80 @@ func (s *Server) handleTerminalFixProxy(w http.ResponseWriter, r *http.Request) 
 	}
 	log.Printf("terminal/fix-proxy: domain=%q changed=%v ok=%v", domain, st.Changed, st.OK)
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: st})
+}
+
+// TerminalConnectDiag reports whether the terminal WebSocket can connect now.
+type TerminalConnectDiag struct {
+	RequestHost             string   `json:"request_host"`
+	ResolvedDomain          string   `json:"resolved_domain"`
+	HasSessionCookie        bool     `json:"has_session_cookie"`
+	Authenticated           bool     `json:"authenticated"`
+	RecentlyReauthenticated bool     `json:"recently_reauthenticated"`
+	ProxyOK                 bool     `json:"proxy_ok"`
+	ProxyMessage            string   `json:"proxy_message,omitempty"`
+	ProxyMissing            []string `json:"proxy_missing,omitempty"`
+	ConfigPath              string   `json:"config_path,omitempty"`
+	BlockReason             string   `json:"block_reason,omitempty"`
+	CanConnect              bool     `json:"can_connect"`
+	LastWSRejectStatus      int      `json:"last_ws_reject_status,omitempty"`
+	LastWSRejectReason      string   `json:"last_ws_reject_reason,omitempty"`
+}
+
+// handleTerminalWSCheck returns structured preflight status for the terminal WS.
+// GET /api/terminal/ws-check
+func (s *Server) handleTerminalWSCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+
+	diag := TerminalConnectDiag{RequestHost: r.Host}
+	domain := s.resolveTerminalDomain(r)
+	diag.ResolvedDomain = domain
+
+	token, ok := s.currentSessionToken(r)
+	diag.HasSessionCookie = ok
+	if ok {
+		if _, valid := s.sessionStore.ValidateSession(token); valid {
+			diag.Authenticated = true
+			diag.RecentlyReauthenticated = s.sessionStore.RecentlyReauthenticated(token)
+		}
+	}
+
+	if domain != "" {
+		if st, err := nginx.InspectDashboardWebSocketProxy(domain, s.port); err == nil {
+			diag.ProxyOK = st.OK
+			diag.ProxyMessage = st.Message
+			diag.ProxyMissing = st.Missing
+			diag.ConfigPath = st.ConfigPath
+		}
+	}
+
+	switch {
+	case !diag.Authenticated:
+		diag.BlockReason = "session_expired"
+	case !diag.RecentlyReauthenticated:
+		diag.BlockReason = "reauth_required"
+	case !diag.ProxyOK:
+		diag.BlockReason = "nginx_proxy"
+	default:
+		diag.CanConnect = true
+	}
+
+	status, reason, at := snapshotTerminalWSReject()
+	if status != 0 && time.Since(at) < 5*time.Minute {
+		diag.LastWSRejectStatus = status
+		diag.LastWSRejectReason = reason
+	}
+
+	// #region agent log
+	agentDebugLog("CHK", "terminal.go:handleTerminalWSCheck", "ws-check", map[string]interface{}{
+		"host": diag.RequestHost, "domain": diag.ResolvedDomain,
+		"authenticated": diag.Authenticated, "reauth": diag.RecentlyReauthenticated,
+		"proxy_ok": diag.ProxyOK, "block": diag.BlockReason,
+		"last_ws_status": diag.LastWSRejectStatus, "last_ws_reason": diag.LastWSRejectReason,
+	})
+	// #endregion
+
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: diag})
 }
