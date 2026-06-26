@@ -234,7 +234,7 @@ func repairRegistryFile(path string, deployGid int) error {
 
 func verifyExistingBaseDirAccessible() error {
 	if err := syscall.Access(baseDir, accessWX); err != nil {
-		return fmt.Errorf("%s is not writable by this user — run `sudo sp start` or `sudo sp setup` once to repair ServerPilot deploy permissions, then reconnect SSH if the user was just added to the deploy group: %w", baseDir, err)
+		return fmt.Errorf("%s is not writable by this user — ensure ServerPilot is running (`sp start -d`) so `sp port` delegates to the daemon, or run `sudo sp start` once to repair deploy permissions: %w", baseDir, err)
 	}
 	for _, path := range []string{registryPath(), lockPath()} {
 		info, err := os.Lstat(path)
@@ -252,7 +252,7 @@ func verifyExistingBaseDirAccessible() error {
 		}
 		f, err := os.OpenFile(path, os.O_RDWR|syscall.O_NOFOLLOW, 0)
 		if err != nil {
-			return fmt.Errorf("%s is not writable by this user — run `sudo sp start` or `sudo sp setup` once to repair ServerPilot deploy permissions, then reconnect SSH if the user was just added to the deploy group: %w", path, err)
+			return fmt.Errorf("%s is not writable by this user — ensure ServerPilot is running (`sp start -d`) so `sp port` delegates to the daemon, or run `sudo sp start` once to repair deploy permissions: %w", path, err)
 		}
 		_ = f.Close()
 	}

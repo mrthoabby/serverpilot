@@ -34,10 +34,10 @@ Examples:
 
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if portList {
-			if err := portalloc.SyncDetectedPorts(portMin, portMax); err != nil {
+			reservations, err := portalloc.SyncAndListCLI(portMin, portMax)
+			if err != nil {
 				return fmt.Errorf("port registry sync failed: %w", err)
 			}
-			reservations := portalloc.ListReservations()
 			if len(reservations) == 0 {
 				fmt.Fprintln(os.Stderr, "No active reservations.")
 				return nil
@@ -53,7 +53,7 @@ Examples:
 			return nil
 		}
 
-		port, err := portalloc.Allocate(portMin, portMax)
+		port, err := portalloc.AllocateCLI(portMin, portMax)
 		if err != nil {
 			return fmt.Errorf("port allocation failed: %w", err)
 		}
