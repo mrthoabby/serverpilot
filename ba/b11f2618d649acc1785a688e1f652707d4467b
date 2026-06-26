@@ -1,0 +1,27 @@
+internal/auth/auth.go
+  s_46428ca027a280::t_8eddb4fb9b1be5 33
+internal/web/handlers.go
+  s_46428ca027a280::t_164325f3d06b18 3028-3097
+  s_46428ca027a280::t_1b749e6290a02c 2984-2991,2993-2995
+internal/web/static/index.html
+  s_46428ca027a280::t_6bf7cc5fefc17b 1182-1185
+  s_46428ca027a280::t_7e9ee9eb53e347 3094-3133
+internal/web/server.go
+  s_46428ca027a280::t_94f18501b1b01d 110-111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "bab11f2618d649acc1785a688e1f652707d4467b",
+  "prompts": {},
+  "sessions": {
+    "s_46428ca027a280": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d771cba-2c7f-4ccb-ace2-df7299cf7ac9",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
