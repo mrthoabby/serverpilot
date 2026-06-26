@@ -2985,7 +2985,110 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     showLogin();
   });
 
+  // ── Navbar (bind early so a later init error cannot disable these) ──
+  function copyTextToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function(resolve, reject) {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      try { document.execCommand("copy") ? resolve() : reject(new Error("copy failed")); }
+      catch(e) { reject(e); }
+      finally { document.body.removeChild(ta); }
+    });
+  }
+
+  async function checkForUpdates() {
+    var checkBtn = document.getElementById("checkUpdatesBtn");
+    if (!checkBtn) {
+      showToast("Check Updates unavailable — hard refresh (Ctrl+Shift+R)", "error");
+      return;
+    }
+    checkBtn.disabled = true;
+    setText(checkBtn, "Checking...");
+    try {
+      var resp = await apiFetch("/api/version-check");
+      var data = resp && resp.data ? resp.data : resp;
+      if (data && data.update_available) {
+        var banner = document.getElementById("updateBanner");
+        var vText = document.getElementById("updateVersionText");
+        setText(vText, "v" + data.current + " \u2192 v" + data.latest);
+        if (banner) banner.style.display = "flex";
+        checkBtn.style.display = "none";
+        showToast("New version v" + data.latest + " available!", "success");
+      } else {
+        showToast("You are up to date (v" + (data ? data.current : "?") + ")", "success");
+      }
+    } catch(e) {
+      showToast("Failed to check for updates: " + e.message, "error");
+    } finally {
+      checkBtn.disabled = false;
+      setText(checkBtn, "\uD83D\uDD0D Check Updates");
+    }
+  }
+
+  async function copyPublicIp() {
+    var btn = document.getElementById("copyPublicIpBtn");
+    if (!btn) {
+      showToast("Copy IP unavailable — hard refresh (Ctrl+Shift+R)", "error");
+      return;
+    }
+    btn.disabled = true;
+    var original = "\uD83D\uDCCB Copy IP";
+    setText(btn, "Loading...");
+    try {
+      var resp = await apiFetch("/api/system");
+      var data = resp && resp.data ? resp.data : resp;
+      var ip = data && data.public_ip;
+      if (!ip) {
+        showToast("Public IP unavailable", "error");
+        return;
+      }
+      await copyTextToClipboard(ip);
+      showToast("Public IP copied: " + ip, "success");
+    } catch(e) {
+      showToast("Failed to copy IP: " + e.message, "error");
+    } finally {
+      btn.disabled = false;
+      setText(btn, original);
+    }
+  }
+
+  onEl("checkUpdatesBtn", "click", checkForUpdates);
+  onEl("copyPublicIpBtn", "click", copyPublicIp);
+  onEl("refreshBtn", "click", function() {
+    if (tabLoaders[activeTab]) tabLoaders[activeTab]();
+  });
+  onEl("updateBtn", "click", async function() {
+    var btn = document.getElementById("updateBtn");
+    if (!btn) return;
+    btn.disabled = true;
+    setText(btn, "Updating...");
+    try {
+      var resp = await apiFetch("/api/update", { method: "POST" });
+      var data = resp && resp.data ? resp.data : resp;
+      showToast(data.message || "Update complete", "success");
+      var banner = document.getElementById("updateBanner");
+      var checkBtn = document.getElementById("checkUpdatesBtn");
+      if (banner) banner.style.display = "none";
+      if (checkBtn) checkBtn.style.display = "";
+      setTimeout(function() { window.location.reload(); }, 3000);
+    } catch(err) {
+      showToast("Update failed: " + err.message, "error");
+      btn.disabled = false;
+      setText(btn, "Update");
+    }
+  });
+  window.checkForUpdates = checkForUpdates;
+
   // ── Tabs ──
+  try {
   document.querySelectorAll(".tab-btn").forEach(function(btn) {
     btn.addEventListener("click", function() {
       document.querySelectorAll(".tab-btn").forEach(function(b) { b.classList.remove("active"); });
@@ -5515,12 +5618,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       pendingConfirm();
       pendingConfirm = null;
     }
-  });
-
-  // ── Refresh button ──
-  onEl("refreshBtn", "click", function() {
-    // Refresh only the active tab.
-    if (tabLoaders[activeTab]) tabLoaders[activeTab]();
   });
 
   // ── GD-App Activate Modal ──
@@ -8140,15 +8237,14 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
   // ── Keyboard: Escape closes modals ──
   document.addEventListener("keydown", function(e) {
-    if (e.key === "Escape") {
-      assocModal.classList.remove("show");
-      confirmModal.classList.remove("show");
-      gdappModal.classList.remove("show");
-      pendingConfirm = null;
-      closeConfigEditor();
-      if (typeof closeDockerPruneModal === "function") closeDockerPruneModal();
-      if (progressCloseBtn.style.display !== "none") closeProgressModal();
-    }
+    if (e.key !== "Escape") return;
+    if (assocModal) assocModal.classList.remove("show");
+    if (confirmModal) confirmModal.classList.remove("show");
+    if (gdappModal) gdappModal.classList.remove("show");
+    pendingConfirm = null;
+    closeConfigEditor();
+    if (typeof closeDockerPruneModal === "function") closeDockerPruneModal();
+    if (progressCloseBtn && progressCloseBtn.style.display !== "none") closeProgressModal();
   });
 
   // ── Resources ──
@@ -10514,96 +10610,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     wrap.appendChild(tw);
   }
 
-  // ── Version Check ──
-  async function checkForUpdates() {
-    var checkBtn = document.getElementById("checkUpdatesBtn");
-    checkBtn.disabled = true;
-    setText(checkBtn, "Checking...");
-    try {
-      var resp = await apiFetch("/api/version-check");
-      var data = resp && resp.data ? resp.data : resp;
-      if (data && data.update_available) {
-        var banner = document.getElementById("updateBanner");
-        var vText = document.getElementById("updateVersionText");
-        setText(vText, "v" + data.current + " \u2192 v" + data.latest);
-        banner.style.display = "flex";
-        checkBtn.style.display = "none";
-        showToast("New version v" + data.latest + " available!", "success");
-      } else {
-        showToast("You are up to date (v" + (data ? data.current : "?") + ")", "success");
-      }
-    } catch(e) {
-      showToast("Failed to check for updates: " + e.message, "error");
-    } finally {
-      checkBtn.disabled = false;
-      setText(checkBtn, "\uD83D\uDD0D Check Updates");
-    }
+  } catch (dashboardInitErr) {
+    console.error("[ServerPilot] Dashboard init error:", dashboardInitErr);
+    showToast("Some dashboard features failed to load — hard refresh (Ctrl+Shift+R)", "error");
   }
-
-  onEl("checkUpdatesBtn", "click", checkForUpdates);
-
-  // ── Copy server public IP ──
-  function copyTextToClipboard(text) {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      return navigator.clipboard.writeText(text);
-    }
-    return new Promise(function(resolve, reject) {
-      var ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      try { document.execCommand("copy") ? resolve() : reject(new Error("copy failed")); }
-      catch(e) { reject(e); }
-      finally { document.body.removeChild(ta); }
-    });
-  }
-
-  async function copyPublicIp() {
-    var btn = document.getElementById("copyPublicIpBtn");
-    btn.disabled = true;
-    var original = "\uD83D\uDCCB Copy IP";
-    setText(btn, "Loading...");
-    try {
-      var resp = await apiFetch("/api/system");
-      var data = resp && resp.data ? resp.data : resp;
-      var ip = data && data.public_ip;
-      if (!ip) {
-        showToast("Public IP unavailable", "error");
-        return;
-      }
-      await copyTextToClipboard(ip);
-      showToast("Public IP copied: " + ip, "success");
-    } catch(e) {
-      showToast("Failed to copy IP: " + e.message, "error");
-    } finally {
-      btn.disabled = false;
-      setText(btn, original);
-    }
-  }
-
-  onEl("copyPublicIpBtn", "click", copyPublicIp);
-
-  onEl("updateBtn", "click", async function() {
-    var btn = document.getElementById("updateBtn");
-    btn.disabled = true;
-    setText(btn, "Updating...");
-    try {
-      var resp = await apiFetch("/api/update", { method: "POST" });
-      var data = resp && resp.data ? resp.data : resp;
-      showToast(data.message || "Update complete", "success");
-      document.getElementById("updateBanner").style.display = "none";
-      document.getElementById("checkUpdatesBtn").style.display = "";
-      // After a short delay, reload to pick up the new version.
-      setTimeout(function() { window.location.reload(); }, 3000);
-    } catch(err) {
-      showToast("Update failed: " + err.message, "error");
-      btn.disabled = false;
-      setText(btn, "Update");
-    }
-  });
 
   // ── Initial: try loading dashboard (if session cookie exists) ──
   (async function init() {
