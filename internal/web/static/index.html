@@ -3138,7 +3138,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   loadRollbackInfo();
 
   // ── Tabs ──
-  try {
   document.querySelectorAll(".tab-btn").forEach(function(btn) {
     btn.addEventListener("click", function() {
       document.querySelectorAll(".tab-btn").forEach(function(b) { b.classList.remove("active"); });
@@ -10667,11 +10666,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     table.appendChild(tbody);
     tw.appendChild(table);
     wrap.appendChild(tw);
-  }
-
-  } catch (dashboardInitErr) {
-    console.error("[ServerPilot] Dashboard init error:", dashboardInitErr);
-    showToast("Some dashboard features failed to load — hard refresh (Ctrl+Shift+R)", "error");
   }
 
   // ── Initial: try loading dashboard (if session cookie exists) ──
