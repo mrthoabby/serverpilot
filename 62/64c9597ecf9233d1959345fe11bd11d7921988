@@ -1,0 +1,23 @@
+internal/web/static/index.html
+  s_46428ca027a280::t_fcc0e73069e6d1 1984-1986
+  s_46428ca027a280::t_5ffca7e66cc65e 1891-1893,1895
+  s_46428ca027a280::t_ca0c8dd41fe6fd 7596-7600
+  s_46428ca027a280::t_f35abd6175a966 7740-7743
+  s_46428ca027a280::t_35cc762d1a2cd3 10687-10698
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "6264c9597ecf9233d1959345fe11bd11d7921988",
+  "prompts": {},
+  "sessions": {
+    "s_46428ca027a280": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d771cba-2c7f-4ccb-ace2-df7299cf7ac9",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
