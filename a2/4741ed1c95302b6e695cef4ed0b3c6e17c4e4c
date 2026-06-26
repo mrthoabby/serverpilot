@@ -1,0 +1,31 @@
+internal/web/static/index.html
+  s_8a7927a2163f66::t_2cf49651e9a7d2 9604-9638,9655-9658,9663-9665,9671,9673,9675
+  s_8a7927a2163f66::t_2c8586f68b3f9c 9666-9669
+internal/web/handlers.go
+  s_8a7927a2163f66::t_f58f8e0b56348e 1913
+  s_8a7927a2163f66::t_ad46ba787af28a 1907,1909,1911-1912,1914-1918,1922-1942
+internal/docker/prune.go
+  s_8a7927a2163f66::t_69328c0eec45f7 25
+internal/docker/prune_job_test.go
+  s_8a7927a2163f66::t_fd9487fc27f87b 1-86
+internal/docker/prune_job.go
+  s_8a7927a2163f66::t_91693db09ddb4c 1-169
+internal/web/server.go
+  s_8a7927a2163f66::t_bbe3486f11478c 95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "a24741ed1c95302b6e695cef4ed0b3c6e17c4e4c",
+  "prompts": {},
+  "sessions": {
+    "s_8a7927a2163f66": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "9dbd6ee7-df0c-43b7-b93d-f5e13ff0e2e4",
+        "model": "composer-2.5"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
