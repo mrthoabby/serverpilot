@@ -1,0 +1,48 @@
+internal/web/terminal.go
+  s_8a7927a2163f66::t_a400568d1b16a9 273-348
+  s_8a7927a2163f66::t_8e323b12a9f56c 51-55,59-63
+internal/web/session_security.go
+  s_8a7927a2163f66::t_7bf6aecbe718fc 95
+  s_8a7927a2163f66::t_2b46cd75212dc5 90-94
+internal/web/static/index.html
+  s_8a7927a2163f66::t_647fbe981fc781 11077-11085
+  s_8a7927a2163f66::t_ac92be35ac5274 2696-2708,2712,2716-2726,2728-2755
+  s_8a7927a2163f66::t_687c4cb5031741 2694-2695,2709-2711,2713-2715,2727,2756-2758
+  s_8a7927a2163f66::t_6765076060cda9 10944-10948
+  s_8a7927a2163f66::t_61d5f5380367d3 10889-10892
+  s_8a7927a2163f66::t_63215550656633 11021-11024
+  s_8a7927a2163f66::t_04ac156b848809 10901-10917,10921
+  s_8a7927a2163f66::t_1945d6d033645e 11042-11044
+  s_8a7927a2163f66::t_122f4254d55bc5 10920,10922-10924
+  s_8a7927a2163f66::t_ef95d0368ae5d6 11059,11063-11068
+  s_8a7927a2163f66::t_2003f0589676bb 11069
+internal/web/server.go
+  s_8a7927a2163f66::t_3ec5d210f559da 186
+internal/web/middleware.go
+  s_8a7927a2163f66::t_6ec940c1a59b7a 262-266
+  s_8a7927a2163f66::t_1e169aea6c2daf 267
+  s_8a7927a2163f66::t_6d43ab6078a7a8 283
+  s_8a7927a2163f66::t_81f682e6d07339 278-282
+internal/web/debug_agent.go
+  s_8a7927a2163f66::t_c8cb8385ffe30a 1-13,35-57,69-73
+  s_8a7927a2163f66::t_a0a259e2776760 58-68
+  s_8a7927a2163f66::t_f4d9c3f1364602 14-34
+internal/web/handlers.go
+  s_8a7927a2163f66::t_005f12a7209c0b 253
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "511f20bd547c8487b723040b0836f6c258133dbc",
+  "prompts": {},
+  "sessions": {
+    "s_8a7927a2163f66": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "9dbd6ee7-df0c-43b7-b93d-f5e13ff0e2e4",
+        "model": "composer-2.5"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
