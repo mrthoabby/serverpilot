@@ -182,6 +182,8 @@ func (s *Server) Start() error {
 	// requireReauth ensures a valid session + recent re-authentication before
 	// the WS upgrade; the handler itself validates Origin via nhooyr.io/websocket.
 	mux.Handle("/api/terminal/ws", s.requireReauth(http.HandlerFunc(s.handleTerminalWS)))
+	mux.Handle("/api/terminal/proxy-status", s.authMiddleware(http.HandlerFunc(s.handleTerminalProxyStatus)))
+	mux.Handle("/api/terminal/fix-proxy", s.requireReauth(http.HandlerFunc(s.handleTerminalFixProxy)))
 
 	// Static files.
 	mux.Handle("/static/", http.FileServer(http.FS(staticFiles)))

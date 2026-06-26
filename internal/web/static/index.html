@@ -2321,12 +2321,14 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="color:var(--accent)"><path d="M0 3a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H2a2 2 0 01-2-2V3zm9.5 5.5h-3a.5.5 0 000 1h3a.5.5 0 000-1zm-6.354-.354a.5.5 0 10.707.707l2-2a.5.5 0 000-.707l-2-2a.5.5 0 10-.707.707L4.793 6.5 3.146 8.146z"/></svg>
             Terminal
           </h2>
-          <div style="display:flex;align-items:center;gap:0.5rem;">
+          <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
             <span id="termStatus" style="font-size:0.8125rem;color:var(--text-muted);">Disconnected</span>
             <button class="btn btn-sm btn-outline" id="termConnectBtn">Connect</button>
             <button class="btn btn-sm btn-outline" id="termDisconnectBtn" style="display:none;">Disconnect</button>
+            <button class="btn btn-sm btn-warning" id="termFixProxyBtn" style="display:none;" title="Añade cabeceras WebSocket en nginx para este dominio">Reparar proxy WebSocket</button>
           </div>
         </div>
+        <div id="termFixProxyHint" style="display:none;padding:0.5rem 0.75rem;margin:0 0.75rem;font-size:0.78rem;color:var(--text-secondary);background:rgba(255,165,0,0.08);border:1px solid var(--orange);border-radius:6px;"></div>
         <div id="terminalContainer" style="padding:0.5rem 0;border-radius:6px;overflow:hidden;"></div>
         <p style="padding:0.5rem 0.75rem;font-size:0.75rem;color:var(--text-muted);">
           Session closes after 10 minutes of inactivity. Re-authentication required to connect.
@@ -8002,9 +8004,8 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
 
     var dockerPruneResp = await dockerPrunePromise;
-    if (dockerPruneResp) {
-      renderDockerPruneModes(dockerPruneResp.data || dockerPruneResp || []);
-    }
+    var pruneModes = dockerPruneResp ? (dockerPruneResp.data || dockerPruneResp || []) : [];
+    renderDockerPruneModes(mergePruneModesWithDockerDisk(pruneModes, sysData && sysData.docker_disk));
 
     resourcesFirstLoad = false;
   }
@@ -8708,8 +8709,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
           size_mb: dk.size_mb,
           size_gb: Math.round(dk.size_mb / 1024 * 100) / 100,
           is_dir: false,
-          type: "dir",
+          type: "docker",
           docker: true,
+          dockerType: dk.type,
           reclaimMB: dk.reclaim_mb
         });
       });
@@ -8870,6 +8872,18 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       var nameHtml;
       if (entry.diagnostic === "unaccounted") {
         nameHtml = '<a href="#" onclick="openDiskUnaccounted();return false;" style="color:var(--accent);text-decoration:underline;font-weight:500;cursor:pointer;">' + escapeHtml(entry.name) + '</a> <span style="font-size:0.68rem;color:var(--text-muted);">(clic para desglosar)</span>';
+      } else if (entry.docker) {
+        var reclaimGb = Number(entry.reclaimMB || 0) / 1024;
+        var pruneHint = "";
+        if (entry.dockerType === "Build Cache") {
+          pruneHint = ' · <a href="#" onclick="scrollToDockerPrune(\'builder\');return false;" style="color:var(--accent);font-size:0.72rem;">Limpiar build cache ↓</a>';
+        } else if (reclaimGb > 0) {
+          pruneHint = ' · <a href="#" onclick="scrollToDockerPrune();return false;" style="color:var(--accent);font-size:0.72rem;">Ver prune ↓</a>';
+        }
+        nameHtml = '<span style="color:var(--text-primary);font-weight:500;">' + escapeHtml(entry.name) + '</span>' +
+          (reclaimGb > 0 ? ' <span style="font-size:0.72rem;color:var(--green);">(' + reclaimGb.toFixed(2) + ' GB recuperables)</span>' : '') +
+          pruneHint +
+          ' <span style="font-size:0.68rem;color:var(--text-muted);">(medido por docker system df — no es una carpeta)</span>';
       } else if (entry.is_dir || entry.type === "dir" || entry.browse_path) {
         nameHtml = '<a href="#" onclick="diskDrillInto(\'' + safeBrowseTarget + '\');return false;" style="color:var(--accent);text-decoration:none;font-weight:500;">' + escapeHtml(entry.name) + '</a>';
       } else {
@@ -9391,6 +9405,71 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
   var _dockerPruneModes = [];
   var _dockerPrunePending = null;
+
+  // Mirror of docker.ReclaimSnapshot + EstimatePruneReclaim — fills estimates when the
+  // prune/modes API ran before docker system df data was ready.
+  function mergePruneModesWithDockerDisk(modes, dockerDisk) {
+    if (!modes || !modes.length || !dockerDisk || !dockerDisk.length) return modes || [];
+    var snap = { images: 0, containers: 0, volumes: 0, buildCache: 0 };
+    dockerDisk.forEach(function(d) {
+      var r = Number(d.reclaim_mb || 0);
+      if (d.type === "Images") snap.images = r;
+      else if (d.type === "Containers") snap.containers = r;
+      else if (d.type === "Local Volumes") snap.volumes = r;
+      else if (d.type === "Build Cache") snap.buildCache = r;
+    });
+    function estimate(mode) {
+      var parts = [], total = 0;
+      function add(label, mb) {
+        if (mb <= 0) return;
+        total += mb;
+        parts.push({ label: label, gb: Math.round(mb / 1024 * 100) / 100 });
+      }
+      var note = "";
+      if (mode === "safe") {
+        add("Contenedores parados", snap.containers);
+        add("Build cache", snap.buildCache);
+        note = "No incluye imágenes sin usar completas (usa «Todas las imágenes sin usar»).";
+      } else if (mode === "builder") {
+        add("Build cache", snap.buildCache);
+      } else if (mode === "images") {
+        add("Imágenes sin usar", snap.images);
+        add("Contenedores parados", snap.containers);
+        add("Build cache", snap.buildCache);
+      } else if (mode === "volumes") {
+        add("Volúmenes huérfanos", snap.volumes);
+      } else if (mode === "aggressive") {
+        add("Imágenes sin usar", snap.images);
+        add("Contenedores parados", snap.containers);
+        add("Volúmenes huérfanos", snap.volumes);
+        add("Build cache", snap.buildCache);
+      }
+      return { totalMB: Math.round(total * 100) / 100, parts: parts, note: note };
+    }
+    return modes.map(function(m) {
+      if (m.estimate_available) return m;
+      var est = estimate(m.mode);
+      return Object.assign({}, m, {
+        estimate_available: true,
+        estimated_reclaim_mb: est.totalMB,
+        estimated_reclaim_gb: Math.round(est.totalMB / 1024 * 100) / 100,
+        estimate_parts: est.parts,
+        estimate_note: est.note || m.estimate_note || ""
+      });
+    });
+  }
+
+  window.scrollToDockerPrune = function(highlightMode) {
+    var card = document.getElementById("dockerPruneCard");
+    if (card) {
+      card.scrollIntoView({ behavior: "smooth", block: "start" });
+      card.style.outline = "2px solid var(--accent)";
+      setTimeout(function() { card.style.outline = ""; }, 2500);
+    }
+    if (highlightMode && _dockerPruneModes.length) {
+      renderDockerPruneModes(_dockerPruneModes);
+    }
+  };
 
   function dockerPruneRiskStyle(risk) {
     if (risk === "high") return { color: "var(--red)", label: "Riesgo alto" };
@@ -10344,6 +10423,69 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   var fitAddon    = null;
   var termReady   = false;
   var termWSRetries = 0;
+  var termProxyOK = null;
+
+  function termShowFixProxy(show, hint) {
+    var btn = document.getElementById("termFixProxyBtn");
+    var hintEl = document.getElementById("termFixProxyHint");
+    if (btn) btn.style.display = show ? "" : "none";
+    if (hintEl) {
+      hintEl.style.display = show && hint ? "" : "none";
+      if (hint) hintEl.textContent = hint;
+    }
+  }
+
+  function termLoadProxyStatus() {
+    if (typeof window.apiFetch !== "function") return Promise.resolve();
+    return window.apiFetch("/api/terminal/proxy-status").then(function(resp) {
+      var st = resp.data || resp || {};
+      termProxyOK = !!st.ok;
+      if (!st.ok) {
+        var msg = st.message || "Faltan cabeceras WebSocket en nginx para la terminal";
+        if (st.missing && st.missing.length) {
+          msg += " (" + st.missing.join(", ") + ")";
+        }
+        termShowFixProxy(true, msg);
+      } else {
+        termShowFixProxy(false, "");
+      }
+      return st;
+    }).catch(function() {
+      termShowFixProxy(false, "");
+    });
+  }
+
+  function termFixProxy() {
+    var btn = document.getElementById("termFixProxyBtn");
+    if (btn) { btn.disabled = true; btn.textContent = "Reparando…"; }
+    ensureTerminalAuth().then(function() {
+      return window.apiFetch("/api/terminal/fix-proxy", { method: "POST" });
+    }).then(function(resp) {
+      var st = resp.data || resp || {};
+      termProxyOK = !!st.ok;
+      if (st.ok) {
+        termShowFixProxy(false, "");
+        termSetStatus("Proxy nginx reparado — conectando…", "var(--green)");
+        termConnect();
+      } else {
+        termShowFixProxy(true, st.message || "No se pudo reparar el proxy");
+        termSetStatus(st.message || "Reparación incompleta", "var(--red)");
+      }
+    }).catch(function(err) {
+      if (err && err.code === "session_expired") {
+        termSetStatus("Sesión expirada — inicia sesión de nuevo", "var(--red)");
+        if (typeof window.showLogin === "function") window.showLogin();
+        return;
+      }
+      if (err && err.code === "reauth_cancelled") {
+        termSetStatus("Reparación cancelada", "var(--text-muted)");
+        return;
+      }
+      termSetStatus("Error al reparar proxy: " + (err && err.message ? err.message : "falló"), "var(--red)");
+    }).finally(function() {
+      if (btn) { btn.disabled = false; btn.textContent = "Reparar proxy WebSocket"; }
+    });
+  }
 
   function termSetStatus(msg, color) {
     var el = document.getElementById("termStatus");
@@ -10507,7 +10649,8 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
       // Upgrade rejected after auth check — retry once with forced reauth.
       if (termWSRetries >= 1) {
-        termSetStatus("Could not connect — verify nginx WebSocket proxy or log in again", "var(--red)");
+        termSetStatus("No se pudo conectar — repara el proxy nginx o inicia sesión de nuevo", "var(--red)");
+        termLoadProxyStatus();
         return;
       }
       termWSRetries++;
@@ -10542,13 +10685,16 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   document.addEventListener("DOMContentLoaded", function() {
     var connBtn = document.getElementById("termConnectBtn");
     var discBtn = document.getElementById("termDisconnectBtn");
+    var fixBtn  = document.getElementById("termFixProxyBtn");
     if (connBtn) connBtn.addEventListener("click", termConnect);
     if (discBtn) discBtn.addEventListener("click", termDisconnect);
+    if (fixBtn) fixBtn.addEventListener("click", termFixProxy);
 
     // Auto-fit when switching to the terminal tab.
     document.querySelectorAll(".tab-btn").forEach(function(btn) {
       btn.addEventListener("click", function() {
         if (btn.dataset.tab === "terminal") {
+          termLoadProxyStatus();
           setTimeout(function() { if (fitAddon) fitAddon.fit(); }, 50);
         } else {
           // Disconnect when leaving the terminal tab to avoid orphaned PTYs.

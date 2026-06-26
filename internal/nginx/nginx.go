@@ -726,6 +726,7 @@ func WriteConfigContent(name string, content string, validate bool) (string, err
 
 // ServerPilotTemplate generates an nginx reverse proxy config for the ServerPilot dashboard.
 // Used by both the CLI setup flow and the web settings handler.
+// WebSocket headers are required for /api/terminal/ws and long-lived SSE streams.
 func ServerPilotTemplate(domain string, port int) string {
 	return fmt.Sprintf(`server {
     listen 80;
@@ -742,15 +743,75 @@ func ServerPilotTemplate(domain string, port int) string {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 86400;
         proxy_connect_timeout 10;
 
-        # SSE streaming support (for progress modals)
+        # SSE streaming support (for progress modals) and terminal WebSocket
         proxy_buffering off;
         proxy_cache off;
     }
 }
 `, domain, port)
+}
+
+// ApplyServerPilotSite writes the dashboard nginx vhost, enables it, and reloads nginx.
+func ApplyServerPilotSite(domain string, port int, overwrite bool) error {
+	if !IsValidDomainExported(domain) {
+		return fmt.Errorf("invalid domain format")
+	}
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("invalid port")
+	}
+
+	configPath := filepath.Join("/etc/nginx/sites-available", domain)
+	absPath, err := filepath.Abs(configPath)
+	if err != nil {
+		return fmt.Errorf("invalid nginx config path")
+	}
+	const sitesAvailable = "/etc/nginx/sites-available"
+	rel, err := filepath.Rel(sitesAvailable, absPath)
+	if err != nil || strings.HasPrefix(rel, "..") || strings.ContainsRune(rel, filepath.Separator) {
+		return fmt.Errorf("invalid nginx config path")
+	}
+
+	if info, err := os.Lstat(absPath); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing to overwrite symlink at %s", absPath)
+		}
+		if !overwrite {
+			return fmt.Errorf("nginx config already exists for %s", domain)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to check existing nginx config")
+	}
+
+	config := ServerPilotTemplate(domain, port)
+	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	if !overwrite {
+		flags = os.O_WRONLY | os.O_CREATE | os.O_EXCL
+	}
+	f, err := os.OpenFile(absPath, flags, 0o644)
+	if err != nil {
+		return fmt.Errorf("failed to write nginx config")
+	}
+	if _, err := f.WriteString(config); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("failed to write nginx config")
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("failed to close nginx config")
+	}
+
+	if err := EnableSite(domain); err != nil {
+		return fmt.Errorf("failed to enable site: %w", err)
+	}
+	if err := ReloadNginx(); err != nil {
+		return fmt.Errorf("failed to reload nginx: %w", err)
+	}
+	return nil
 }
 
 // domainRegex enforces a strict FQDN structure: each label is 1-63 alnum/-,

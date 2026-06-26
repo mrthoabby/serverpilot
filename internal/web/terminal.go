@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"github.com/mrthoabby/serverpilot/internal/nginx"
 	"nhooyr.io/websocket"
 )
 
@@ -169,4 +170,57 @@ func terminalOriginPatterns(r *http.Request, configuredDomain string) []string {
 		add(host)
 	}
 	return patterns
+}
+
+func (s *Server) dashboardDomain() string {
+	if s.config == nil {
+		return ""
+	}
+	return strings.TrimSpace(s.config.Domain)
+}
+
+// handleTerminalProxyStatus reports whether the dashboard nginx vhost has
+// WebSocket proxy headers required by /api/terminal/ws.
+func (s *Server) handleTerminalProxyStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	domain := s.dashboardDomain()
+	if domain == "" {
+		writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: nginx.WebSocketProxyStatus{
+			OK:      false,
+			Message: "Set the dashboard domain in Settings first",
+		}})
+		return
+	}
+	st, err := nginx.InspectDashboardWebSocketProxy(domain, s.port)
+	if err != nil {
+		log.Printf("terminal/proxy-status: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to inspect nginx config"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: st})
+}
+
+// handleTerminalFixProxy patches the dashboard nginx vhost to add WebSocket
+// headers (preserving certbot SSL blocks) and reloads nginx.
+func (s *Server) handleTerminalFixProxy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	domain := s.dashboardDomain()
+	if domain == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "dashboard domain not configured — set it in Settings"})
+		return
+	}
+	st, err := nginx.EnsureDashboardWebSocketProxy(domain, s.port)
+	if err != nil {
+		log.Printf("terminal/fix-proxy: domain=%q error=%v", domain, err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to fix nginx WebSocket proxy"})
+		return
+	}
+	log.Printf("terminal/fix-proxy: domain=%q changed=%v ok=%v", domain, st.Changed, st.OK)
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: st})
 }

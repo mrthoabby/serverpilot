@@ -7,13 +7,13 @@ import (
 
 	"github.com/mrthoabby/serverpilot/internal/deps"
 	"github.com/mrthoabby/serverpilot/internal/nginx"
-	"github.com/mrthoabby/serverpilot/internal/templates"
 	"github.com/spf13/cobra"
 )
 
 var (
-	exposeDomain string
-	exposePort   int
+	exposeDomain  string
+	exposePort    int
+	exposeUpgrade bool
 )
 
 var exposeCmd = &cobra.Command{
@@ -50,23 +50,22 @@ Example:
 		fmt.Printf("  Dashboard port: %d\n", exposePort)
 		fmt.Println()
 
-		// Hardening (CWE-22 — silent overwrite): refuse to clobber an
-		// existing nginx vhost. A typo or running expose with a domain
-		// that already serves a production app would otherwise replace
-		// that app's config with the dashboard reverse proxy and hijack
-		// its traffic immediately on the next nginx reload.
+		// Hardening (CWE-22 — silent overwrite): refuse to clobber an existing
+		// nginx vhost unless --upgrade is set to refresh the dashboard proxy
+		// (e.g. to pick up WebSocket headers for the terminal).
 		candidate := filepath.Join("/etc/nginx/sites-available", exposeDomain)
-		if info, err := os.Lstat(candidate); err == nil {
-			if info.Mode()&os.ModeSymlink != 0 {
-				return fmt.Errorf("refusing to overwrite symlink at %s", candidate)
+		if !exposeUpgrade {
+			if info, err := os.Lstat(candidate); err == nil {
+				if info.Mode()&os.ModeSymlink != 0 {
+					return fmt.Errorf("refusing to overwrite symlink at %s", candidate)
+				}
+				return fmt.Errorf("nginx config already exists for %s — use --upgrade to refresh the dashboard proxy or remove %s first", exposeDomain, candidate)
+			} else if !os.IsNotExist(err) {
+				return fmt.Errorf("failed to check existing nginx config")
 			}
-			return fmt.Errorf("nginx config already exists for %s — remove %s first or pick a different domain", exposeDomain, candidate)
-		} else if !os.IsNotExist(err) {
-			return fmt.Errorf("failed to check existing nginx config")
 		}
 
-		// Use the API template (standard reverse proxy) pointing to the dashboard.
-		if err := templates.ApplyTemplate(templates.API, exposeDomain, exposePort); err != nil {
+		if err := nginx.ApplyServerPilotSite(exposeDomain, exposePort, exposeUpgrade); err != nil {
 			return fmt.Errorf("failed to expose dashboard: %w", err)
 		}
 
@@ -89,5 +88,6 @@ Example:
 func init() {
 	exposeCmd.Flags().StringVar(&exposeDomain, "domain", "", "Domain name to expose the dashboard (required)")
 	exposeCmd.Flags().IntVar(&exposePort, "port", 8090, "Dashboard port to proxy (default 8090)")
+	exposeCmd.Flags().BoolVar(&exposeUpgrade, "upgrade", false, "Overwrite an existing dashboard nginx vhost (refreshes WebSocket/SSE proxy headers)")
 	rootCmd.AddCommand(exposeCmd)
 }
