@@ -1,0 +1,36 @@
+internal/docker/prune_job_test.go
+  s_8a7927a2163f66::t_2cd6329b575493 58-76
+internal/web/handlers.go
+  s_8a7927a2163f66::t_fc65f919fb22c1 1934-1938
+internal/docker/prune_job.go
+  s_8a7927a2163f66::t_3d7f80fb7ca9fb 76-80
+  s_8a7927a2163f66::t_49ebd9a4e8cdcf 4,9,12-13
+  s_8a7927a2163f66::t_25774edc1a66d4 29-41
+  s_8a7927a2163f66::t_41aafb22ee0721 114-117,119,126,133-142,149-217
+internal/web/static/index.html
+  s_8a7927a2163f66::t_a8a958394de781 5098,5102-5110
+  s_8a7927a2163f66::t_f0b249d9e24acc 8042
+  s_8a7927a2163f66::t_13ca457885d820 1437-1448
+  s_8a7927a2163f66::t_2b7674326dc56c 5111,9442-9574,9908
+  s_8a7927a2163f66::t_d92b173a6ec457 9679,9683-9684
+  s_8a7927a2163f66::t_70153943163ced 2599-2607
+  s_8a7927a2163f66::t_4ccc1533fb0019 9777,9779-9794,9797-9806,9816-9818,9825-9827,9832-9833,9853-9854,9864-9866,9879,9882-9886,9892-9907
+  s_8a7927a2163f66::t_0c25c46727338c 9694
+  s_8a7927a2163f66::t_f25f55ff6de03d 5112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "9775fe35bde76127d0c11c5cde9ef72a2c2c3a3e",
+  "prompts": {},
+  "sessions": {
+    "s_8a7927a2163f66": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "9dbd6ee7-df0c-43b7-b93d-f5e13ff0e2e4",
+        "model": "composer-2.5"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
