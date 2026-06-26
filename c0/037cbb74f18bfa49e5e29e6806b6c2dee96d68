@@ -1,0 +1,25 @@
+internal/nginx/websocket_proxy_test.go
+  s_5fdf20e03fb804::t_81e85aacf2df45 46-64
+internal/nginx/websocket_proxy.go
+  s_5fdf20e03fb804::t_b80807bdbfe577 219-221
+  s_5fdf20e03fb804::t_42e5d985f50861 341-342,344-347
+  s_5fdf20e03fb804::t_c8d4978c23a6dc 175,183-187
+  s_5fdf20e03fb804::t_2455c3bbc67b70 160-166,168-174,176,179-182,188-207,211-215
+  s_5fdf20e03fb804::t_416f014118850e 208-210,216-218,222-223
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "c0037cbb74f18bfa49e5e29e6806b6c2dee96d68",
+  "prompts": {},
+  "sessions": {
+    "s_5fdf20e03fb804": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "b859e90d-2b42-4ab3-a4e7-663d27828b8b",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
