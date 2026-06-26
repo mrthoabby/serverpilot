@@ -1,0 +1,36 @@
+internal/web/handlers.go
+  s_5fdf20e03fb804::t_1a285cd2fea233 1437
+  s_5fdf20e03fb804::t_6aec7e79772032 1357-1364
+  s_5fdf20e03fb804::t_05975c2cfa993b 1388-1429
+  s_5fdf20e03fb804::t_015cc2cb7d55f7 99-103
+internal/web/server.go
+  s_5fdf20e03fb804::t_d645833e9b2702 86-87
+internal/nginx/repair.go
+  s_5fdf20e03fb804::t_1caa15a55b6a39 1-33,40-304
+  s_5fdf20e03fb804::t_c03b5888a33580 34-39
+internal/nginx/repair_test.go
+  s_5fdf20e03fb804::t_98515ac76858af 22-23
+  s_5fdf20e03fb804::t_818aebb710a022 1-2,7-21,24-37
+  s_5fdf20e03fb804::t_58dde6341f1d35 3-6
+internal/web/static/index.html
+  s_5fdf20e03fb804::t_4dd085f7d74363 4893-4912,5069-5070,5082
+  s_5fdf20e03fb804::t_a45d0658d6f513 5071
+  s_5fdf20e03fb804::t_c00c6a5cd2f4f8 5079-5081
+  s_5fdf20e03fb804::t_32a206e9834c56 5083
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "3fead88cb291133b07b62dad0fe9789db1b463b9",
+  "prompts": {},
+  "sessions": {
+    "s_5fdf20e03fb804": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "b859e90d-2b42-4ab3-a4e7-663d27828b8b",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
