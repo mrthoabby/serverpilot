@@ -179,6 +179,42 @@ func (s *Server) dashboardDomain() string {
 	return strings.TrimSpace(s.config.Domain)
 }
 
+func (s *Server) resolveTerminalDomain(r *http.Request) string {
+	configured := s.dashboardDomain()
+	var candidates []string
+	seen := make(map[string]bool)
+	add := func(domain string) {
+		domain = strings.TrimSpace(strings.ToLower(domain))
+		if domain == "" || seen[domain] || !nginx.IsValidDomainExported(domain) {
+			return
+		}
+		seen[domain] = true
+		candidates = append(candidates, domain)
+	}
+
+	add(configured)
+	if r != nil {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		add(host)
+	}
+
+	for _, domain := range candidates {
+		if _, err := nginx.FindDashboardVhostPath(domain, s.port); err == nil {
+			return domain
+		}
+	}
+	if configured != "" {
+		return configured
+	}
+	if len(candidates) > 0 {
+		return candidates[0]
+	}
+	return ""
+}
+
 // handleTerminalProxyStatus reports whether the dashboard nginx vhost has
 // WebSocket proxy headers required by /api/terminal/ws.
 func (s *Server) handleTerminalProxyStatus(w http.ResponseWriter, r *http.Request) {
@@ -186,7 +222,7 @@ func (s *Server) handleTerminalProxyStatus(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
 		return
 	}
-	domain := s.dashboardDomain()
+	domain := s.resolveTerminalDomain(r)
 	if domain == "" {
 		writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: nginx.WebSocketProxyStatus{
 			OK:      false,
@@ -210,7 +246,7 @@ func (s *Server) handleTerminalFixProxy(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
 		return
 	}
-	domain := s.dashboardDomain()
+	domain := s.resolveTerminalDomain(r)
 	if domain == "" {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "dashboard domain not configured — set it in Settings"})
 		return
@@ -218,7 +254,7 @@ func (s *Server) handleTerminalFixProxy(w http.ResponseWriter, r *http.Request) 
 	st, err := nginx.EnsureDashboardWebSocketProxy(domain, s.port)
 	if err != nil {
 		log.Printf("terminal/fix-proxy: domain=%q error=%v", domain, err)
-		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to fix nginx WebSocket proxy"})
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to fix nginx WebSocket proxy", Data: st})
 		return
 	}
 	log.Printf("terminal/fix-proxy: domain=%q changed=%v ok=%v", domain, st.Changed, st.OK)

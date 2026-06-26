@@ -10709,7 +10709,12 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         termShowFixProxy(false, "");
       }
       return st;
-    }).catch(function() {
+    }).catch(function(err) {
+      if (err && (err.message === "Unauthorized" || err.code === "session_expired")) {
+        termSetStatus("Inicia sesión para comprobar el proxy nginx", "var(--red)");
+        if (typeof window.showLogin === "function") window.showLogin();
+        return;
+      }
       termShowFixProxy(false, "");
     });
   }
@@ -10720,15 +10725,16 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     ensureTerminalAuth().then(function() {
       return window.apiFetch("/api/terminal/fix-proxy", { method: "POST" });
     }).then(function(resp) {
-      var st = resp.data || resp || {};
+      var st = (resp && resp.data) ? resp.data : (resp || {});
       termProxyOK = !!st.ok;
       if (st.ok) {
         termShowFixProxy(false, "");
         termSetStatus("Proxy nginx reparado — conectando…", "var(--green)");
         termConnect();
       } else {
-        termShowFixProxy(true, st.message || "No se pudo reparar el proxy");
-        termSetStatus(st.message || "Reparación incompleta", "var(--red)");
+        var msg = st.message || "No se pudo reparar el proxy";
+        termShowFixProxy(true, msg);
+        termSetStatus(msg, "var(--red)");
       }
     }).catch(function(err) {
       if (err && err.code === "session_expired") {
@@ -10740,7 +10746,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         termSetStatus("Reparación cancelada", "var(--text-muted)");
         return;
       }
-      termSetStatus("Error al reparar proxy: " + (err && err.message ? err.message : "falló"), "var(--red)");
+      var msg = (err && err.message) ? err.message : "falló";
+      termSetStatus("Error al reparar proxy: " + msg, "var(--red)");
+      termShowFixProxy(true, "Si sigue fallando: sudo sp expose --domain " + location.hostname + " --upgrade");
     }).finally(function() {
       if (btn) { btn.disabled = false; btn.textContent = "Reparar proxy WebSocket"; }
     });
@@ -10776,7 +10784,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       termOpenWebSocket();
     }).catch(function(err) {
       if (err && err.code === "session_expired") {
-        termSetStatus("Session expired — log in again", "var(--red)");
+        termSetStatus("Sesión expirada — inicia sesión de nuevo", "var(--red)");
         if (typeof window.showLogin === "function") window.showLogin();
         return;
       }

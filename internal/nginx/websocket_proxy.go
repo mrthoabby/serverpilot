@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -23,6 +25,69 @@ var wsProxyRequiredDirectives = []string{
 	"proxy_http_version 1.1",
 }
 
+var dashboardProxyPassPattern = regexp.MustCompile(`^proxy_pass\s+http://(127\.0\.0\.1|localhost):(\d+)/?\s*;`)
+
+// FindDashboardVhostPath locates the nginx vhost file for a dashboard domain.
+func FindDashboardVhostPath(domain string, dashboardPort int) (string, error) {
+	domain = strings.TrimSpace(strings.ToLower(domain))
+	if !IsValidDomainExported(domain) {
+		return "", fmt.Errorf("invalid domain")
+	}
+
+	direct := filepath.Join(sitesAvailableDir, domain)
+	if abs, err := filepath.Abs(direct); err == nil {
+		if info, statErr := os.Stat(abs); statErr == nil && !info.IsDir() {
+			return abs, nil
+		}
+	}
+
+	entries, err := os.ReadDir(sitesAvailableDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to read nginx sites")
+	}
+
+	portNeedle := fmt.Sprintf("127.0.0.1:%d", dashboardPort)
+	localNeedle := fmt.Sprintf("localhost:%d", dashboardPort)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(sitesAvailableDir, entry.Name())
+		abs, err := filepath.Abs(path)
+		if err != nil || !isWithinNginxDir(abs) {
+			continue
+		}
+		data, err := os.ReadFile(abs)
+		if err != nil {
+			continue
+		}
+		content := string(data)
+		if !strings.Contains(content, portNeedle) && !strings.Contains(content, localNeedle) {
+			continue
+		}
+		if configMatchesDomain(content, domain) {
+			return abs, nil
+		}
+	}
+	return "", fmt.Errorf("dashboard vhost not found")
+}
+
+func configMatchesDomain(content, domain string) bool {
+	domain = strings.ToLower(domain)
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "server_name ") {
+			continue
+		}
+		for _, name := range parseServerNames(line) {
+			if strings.EqualFold(strings.TrimSpace(name), domain) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // InspectDashboardWebSocketProxy checks the nginx vhost for dashboard WebSocket headers.
 func InspectDashboardWebSocketProxy(domain string, dashboardPort int) (WebSocketProxyStatus, error) {
 	if !IsValidDomainExported(domain) {
@@ -32,45 +97,96 @@ func InspectDashboardWebSocketProxy(domain string, dashboardPort int) (WebSocket
 		return WebSocketProxyStatus{}, fmt.Errorf("invalid port")
 	}
 
-	configPath := filepath.Join(sitesAvailableDir, domain)
-	absPath, err := filepath.Abs(configPath)
+	configPath, err := FindDashboardVhostPath(domain, dashboardPort)
 	if err != nil {
-		return WebSocketProxyStatus{}, fmt.Errorf("invalid config path")
-	}
-
-	st := WebSocketProxyStatus{ConfigPath: absPath}
-	if _, err := os.Stat(absPath); os.IsNotExist(err) {
-		st.Missing = append(st.Missing, "nginx vhost file missing")
-		st.Message = "No nginx site config found for this dashboard domain"
+		st := WebSocketProxyStatus{
+			Missing: []string{"nginx vhost file missing"},
+			Message: "No nginx site config found for this dashboard domain",
+		}
 		return st, nil
-	} else if err != nil {
-		return WebSocketProxyStatus{}, fmt.Errorf("failed to read nginx config")
 	}
 
-	data, err := os.ReadFile(absPath)
+	st := WebSocketProxyStatus{ConfigPath: configPath}
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return WebSocketProxyStatus{}, fmt.Errorf("failed to read nginx config")
 	}
 	content := string(data)
-	proxyNeedle := fmt.Sprintf("127.0.0.1:%d", dashboardPort)
-	if !strings.Contains(content, proxyNeedle) {
+	if !configReferencesDashboardPort(content, dashboardPort) {
 		st.Missing = append(st.Missing, "proxy_pass to dashboard port")
 		st.Message = "Config exists but does not proxy to the dashboard port"
 		return st, nil
 	}
 
-	for _, dir := range wsProxyRequiredDirectives {
-		if !strings.Contains(content, dir) {
-			st.Missing = append(st.Missing, dir)
-		}
-	}
-	if len(st.Missing) == 0 {
+	missingBlocks := missingWebSocketProxyBlocks(content, dashboardPort)
+	if len(missingBlocks) == 0 {
 		st.OK = true
 		st.Message = "WebSocket proxy headers present"
-	} else {
-		st.Message = "Missing WebSocket/SSE proxy headers in nginx"
+		return st, nil
 	}
+	st.Missing = missingBlocks
+	st.Message = "Missing WebSocket/SSE proxy headers in nginx"
 	return st, nil
+}
+
+func configReferencesDashboardPort(content string, dashboardPort int) bool {
+	portNeedle := fmt.Sprintf("127.0.0.1:%d", dashboardPort)
+	localNeedle := fmt.Sprintf("localhost:%d", dashboardPort)
+	return strings.Contains(content, portNeedle) || strings.Contains(content, localNeedle)
+}
+
+func missingWebSocketProxyBlocks(content string, dashboardPort int) []string {
+	lines := strings.Split(content, "\n")
+	var missing []string
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		m := dashboardProxyPassPattern.FindStringSubmatch(trimmed)
+		if m == nil {
+			continue
+		}
+		port, err := strconv.Atoi(m[2])
+		if err != nil || port != dashboardPort {
+			continue
+		}
+		if locationBlockHasUpgrade(lines, i) {
+			continue
+		}
+		missing = append(missing, fmt.Sprintf("location block at line %d missing WebSocket headers", i+1))
+	}
+	return missing
+}
+
+func locationBlockHasUpgrade(lines []string, proxyLineIdx int) bool {
+	proxyIndent := leadingIndent(lines[proxyLineIdx])
+	for j := proxyLineIdx + 1; j < len(lines); j++ {
+		trimmed := strings.TrimSpace(lines[j])
+		if trimmed == "" {
+			continue
+		}
+		if trimmed == "}" && leadingIndent(lines[j]) <= proxyIndent {
+			break
+		}
+		if strings.Contains(lines[j], "proxy_set_header Upgrade") {
+			return true
+		}
+	}
+	return false
+}
+
+func leadingIndent(line string) int {
+	n := 0
+	for _, r := range line {
+		if r == ' ' {
+			n++
+			continue
+		}
+		if r == '\t' {
+			n += 4
+			continue
+		}
+		break
+	}
+	return n
 }
 
 // EnsureDashboardWebSocketProxy patches the dashboard nginx vhost to add WebSocket
@@ -86,7 +202,7 @@ func EnsureDashboardWebSocketProxy(domain string, dashboardPort int) (WebSocketP
 	}
 
 	configPath := st.ConfigPath
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+	if configPath == "" {
 		if err := ApplyServerPilotSite(domain, dashboardPort, false); err != nil {
 			return WebSocketProxyStatus{}, err
 		}
@@ -103,9 +219,13 @@ func EnsureDashboardWebSocketProxy(domain string, dashboardPort int) (WebSocketP
 	if err != nil {
 		return WebSocketProxyStatus{}, fmt.Errorf("failed to read nginx config")
 	}
+	original := append([]byte(nil), data...)
 	patched, changed := patchWebSocketProxyDirectives(string(data), dashboardPort)
 	if !changed {
 		st, _ = InspectDashboardWebSocketProxy(domain, dashboardPort)
+		if !st.OK {
+			return st, fmt.Errorf("nginx vhost exists but could not be patched automatically — run: sudo sp expose --domain %s --upgrade", domain)
+		}
 		return st, nil
 	}
 
@@ -129,7 +249,9 @@ func EnsureDashboardWebSocketProxy(domain string, dashboardPort int) (WebSocketP
 	}
 
 	if err := ReloadNginx(); err != nil {
-		return WebSocketProxyStatus{}, fmt.Errorf("nginx reload failed: %w", err)
+		_ = os.WriteFile(configPath, original, 0o644)
+		_ = ReloadNginx()
+		return WebSocketProxyStatus{}, fmt.Errorf("nginx reload failed after patch")
 	}
 
 	st, err = InspectDashboardWebSocketProxy(domain, dashboardPort)
@@ -142,18 +264,7 @@ func EnsureDashboardWebSocketProxy(domain string, dashboardPort int) (WebSocketP
 }
 
 func patchWebSocketProxyDirectives(content string, dashboardPort int) (string, bool) {
-	if strings.Contains(content, "proxy_set_header Upgrade") {
-		return content, false
-	}
-	proxyLine := fmt.Sprintf("proxy_pass http://127.0.0.1:%d;", dashboardPort)
-	if !strings.Contains(content, proxyLine) {
-		// Trailing-slash variant.
-		proxyLine = fmt.Sprintf("proxy_pass http://127.0.0.1:%d/;", dashboardPort)
-		if !strings.Contains(content, proxyLine) {
-			return content, false
-		}
-	}
-
+	lines := strings.Split(content, "\n")
 	insertBlock := []string{
 		"        proxy_http_version 1.1;",
 		"        proxy_set_header Upgrade $http_upgrade;",
@@ -164,16 +275,22 @@ func patchWebSocketProxyDirectives(content string, dashboardPort int) (string, b
 		"        proxy_cache off;",
 	}
 
-	lines := strings.Split(content, "\n")
 	var out []string
 	changed := false
-	for _, line := range lines {
-		out = append(out, line)
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
 		trimmed := strings.TrimSpace(line)
-		if trimmed == strings.TrimSpace(proxyLine) {
-			out = append(out, insertBlock...)
-			changed = true
+		m := dashboardProxyPassPattern.FindStringSubmatch(trimmed)
+		if m != nil {
+			port, err := strconv.Atoi(m[2])
+			if err == nil && port == dashboardPort && !locationBlockHasUpgrade(lines, i) {
+				out = append(out, line)
+				out = append(out, insertBlock...)
+				changed = true
+				continue
+			}
 		}
+		out = append(out, line)
 	}
 	if !changed {
 		return content, false
