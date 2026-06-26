@@ -1,0 +1,21 @@
+internal/web/static/index.html
+  s_5fdf20e03fb804::t_d4fc61235f7eef 2988-3089,3091
+  s_5fdf20e03fb804::t_073ab1eba98d2d 8240-8247
+  s_5fdf20e03fb804::t_3ddf8a4cba2e2a 10613-10615
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "2fabbc08cad3fe17928144fa2653f7fb316f216e",
+  "prompts": {},
+  "sessions": {
+    "s_5fdf20e03fb804": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "b859e90d-2b42-4ab3-a4e7-663d27828b8b",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
