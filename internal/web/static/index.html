@@ -2691,28 +2691,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 (function() {
   "use strict";
 
-  // #region agent log
-  function spDebugLog(hypothesisId, location, message, data) {
-    var entry = {
-      sessionId: "9dbd6e",
-      hypothesisId: hypothesisId,
-      location: location,
-      message: message,
-      data: data || {},
-      timestamp: Date.now()
-    };
-    try {
-      var logs = JSON.parse(sessionStorage.getItem("sp_debug_9dbd6e") || "[]");
-      logs.push(entry);
-      sessionStorage.setItem("sp_debug_9dbd6e", JSON.stringify(logs.slice(-40)));
-    } catch (e) {}
-    fetch("http://127.0.0.1:7710/ingest/1a79b198-7230-45c7-a1a2-963620a5ae1a", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9dbd6e" },
-      body: JSON.stringify(entry)
-    }).catch(function() {});
-  }
-
   function termFetchConnectDiag(phase) {
     return fetch("/api/terminal/ws-check", {
       credentials: "same-origin",
@@ -2721,7 +2699,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       return r.json().then(function(j) {
         var d = (j && j.data) ? j.data : (j || {});
         d._phase = phase;
-        spDebugLog("CHK", "index.html:termFetchConnectDiag", "ws-check client", d);
         return d;
       });
     });
@@ -2754,7 +2731,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
     return true;
   }
-  // #endregion
 
   // ── Helpers ──
   function esc(str) {
@@ -4914,6 +4890,26 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     redirectDelayOptions.style.display = redirectDelayed.checked ? "block" : "none";
   }
   redirectDelayed.addEventListener("change", updateRedirectDelayOptions);
+  document.getElementById("repairNginxBtn").addEventListener("click", async function() {
+    if (!window.confirm("Scan nginx configs, remove duplicate proxy directives, and reload nginx?")) return;
+    var btn = document.getElementById("repairNginxBtn");
+    btn.disabled = true;
+    try {
+      var resp = await apiFetch("/api/nginx/repair", { method: "POST" });
+      var data = (resp && resp.data) ? resp.data : {};
+      var fixed = data.fixed || [];
+      if (data.ok) {
+        showToast(fixed.length ? ("Nginx repaired: " + fixed.join("; ")) : "Nginx config is valid", "success");
+      } else {
+        showToast("Repair incomplete: " + (data.remaining_error || "nginx test still failing"), "error");
+      }
+      await loadSites();
+    } catch (err) {
+      showToast("Repair failed: " + ((err && err.message) || "error"), "error");
+    } finally {
+      btn.disabled = false;
+    }
+  });
   document.getElementById("createRedirectBtn").addEventListener("click", function() {
     document.getElementById("redirectDomain").value = "";
     document.getElementById("redirectTarget").value = "";
@@ -5056,21 +5052,35 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var btn = document.getElementById("assocSubmitBtn");
     btn.disabled = true;
     setText(btn, "Creating...");
-    try {
+    var body = {
+      template_type: document.getElementById("assocTemplate").value,
+      domain: document.getElementById("assocDomain").value,
+      port: parseInt(document.getElementById("assocPort").value, 10),
+      include_www: document.getElementById("assocIncludeWWW").checked
+    };
+    async function createSite(replaceExisting) {
       await apiFetch("/api/sites/create", {
         method: "POST",
-        body: {
-          template_type: document.getElementById("assocTemplate").value,
-          domain: document.getElementById("assocDomain").value,
-          port: parseInt(document.getElementById("assocPort").value, 10),
-          include_www: document.getElementById("assocIncludeWWW").checked
-        }
+        body: Object.assign({}, body, { replace_existing: !!replaceExisting })
       });
       assocModal.classList.remove("show");
       showToast("Site created successfully", "success");
       await Promise.all([loadSites(), loadMappings(), loadContainers()]);
+    }
+    try {
+      await createSite(false);
     } catch(err) {
-      showToast("Failed to create site: " + err.message, "error");
+      var msg = (err && err.message) || "error";
+      if (msg.indexOf("site already exists") >= 0 &&
+          window.confirm("A leftover nginx config exists for this domain (it may not appear in the sites list). Remove it and create the site?")) {
+        try {
+          await createSite(true);
+          return;
+        } catch (retryErr) {
+          msg = (retryErr && retryErr.message) || msg;
+        }
+      }
+      showToast("Failed to create site: " + msg, "error");
     } finally {
       btn.disabled = false;
       setText(btn, "Create Site");
@@ -10886,10 +10896,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   function termConnect() {
     if (termWS && termWS.readyState === WebSocket.OPEN) return;
 
-    // #region agent log
-    spDebugLog("A", "index.html:termConnect", "termConnect clicked", { host: location.hostname });
-    // #endregion
-
     if (typeof Terminal === "undefined" || typeof FitAddon === "undefined") {
       termSetStatus("Terminal library failed to load — check your network/CDN access", "var(--red)");
       return;
@@ -10917,11 +10923,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       if (termHandleConnectBlock(diag)) return;
       termOpenWebSocket();
     }).catch(function(err) {
-      // #region agent log
-      spDebugLog("A", "index.html:termConnect", "termConnect failed", {
-        code: err && err.code, message: err && err.message
-      });
-      // #endregion
       if (err && err.code === "session_expired") {
         termSetStatus("Sesión expirada — inicia sesión de nuevo", "var(--red)");
         if (typeof window.showLogin === "function") window.showLogin();
@@ -10941,11 +10942,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
     return window.apiFetch("/api/session/reauth-status").then(function(resp) {
       var data = resp.data || resp || {};
-      // #region agent log
-      spDebugLog("B", "index.html:ensureTerminalAuth", "reauth-status ok", {
-        recently_reauthenticated: !!data.recently_reauthenticated
-      });
-      // #endregion
       if (data.recently_reauthenticated) {
         return;
       }
@@ -11018,10 +11014,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var proto = location.protocol === "https:" ? "wss:" : "ws:";
     var url   = proto + "//" + location.host + "/api/terminal/ws";
 
-    // #region agent log
-    spDebugLog("C", "index.html:termOpenWebSocket", "opening websocket", { url: url, retry: termWSRetries });
-    // #endregion
-
     termSetStatus("Connecting…", "var(--yellow)");
     termInst.clear();
     termInst.focus();
@@ -11039,9 +11031,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     ws.onopen = function() {
       opened = true;
       termWSRetries = 0;
-      // #region agent log
-      spDebugLog("OK", "index.html:termOpenWebSocket", "websocket opened", { url: url });
-      // #endregion
       termSetStatus("Connected", "var(--green)");
       termSetConnected(true);
       // Send initial size.
@@ -11059,13 +11048,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     ws.onclose = function(evt) {
       termSetConnected(false);
       termWS = null;
-
-      // #region agent log
-      spDebugLog(opened ? "OK" : "C", "index.html:termOpenWebSocket", "websocket closed", {
-        opened: opened, retries: termWSRetries, code: evt && evt.code, reason: evt && evt.reason,
-        wasClean: evt && evt.wasClean
-      });
-      // #endregion
 
       if (opened) {
         termSetStatus("Disconnected", "var(--text-muted)");

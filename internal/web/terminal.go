@@ -48,19 +48,9 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, opts)
 	if err != nil {
 		// websocket.Accept already wrote the HTTP error.
-		// #region agent log
-		agentDebugLog("D", "terminal.go:handleTerminalWS", "websocket accept failed", map[string]interface{}{
-			"host": r.Host, "origin": r.Header.Get("Origin"), "err": err.Error(),
-		})
-		// #endregion
 		log.Printf("terminal: ws upgrade: %v", err)
 		return
 	}
-	// #region agent log
-	agentDebugLog("OK", "terminal.go:handleTerminalWS", "websocket connected", map[string]interface{}{
-		"host": r.Host, "origin": r.Header.Get("Origin"),
-	})
-	// #endregion
 	defer conn.CloseNow()
 	conn.SetReadLimit(termMaxMsgSize)
 
@@ -334,15 +324,6 @@ func (s *Server) handleTerminalWSCheck(w http.ResponseWriter, r *http.Request) {
 		diag.LastWSRejectStatus = status
 		diag.LastWSRejectReason = reason
 	}
-
-	// #region agent log
-	agentDebugLog("CHK", "terminal.go:handleTerminalWSCheck", "ws-check", map[string]interface{}{
-		"host": diag.RequestHost, "domain": diag.ResolvedDomain,
-		"authenticated": diag.Authenticated, "reauth": diag.RecentlyReauthenticated,
-		"proxy_ok": diag.ProxyOK, "block": diag.BlockReason,
-		"last_ws_status": diag.LastWSRejectStatus, "last_ws_reason": diag.LastWSRejectReason,
-	})
-	// #endregion
 
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: diag})
 }

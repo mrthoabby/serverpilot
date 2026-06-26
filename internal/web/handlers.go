@@ -96,10 +96,11 @@ type domainRequest struct {
 }
 
 type siteCreateRequest struct {
-	Domain       string `json:"domain"`
-	TemplateType string `json:"template_type"`
-	Port         int    `json:"port"`
-	IncludeWWW   bool   `json:"include_www"`
+	Domain          string `json:"domain"`
+	TemplateType    string `json:"template_type"`
+	Port            int    `json:"port"`
+	IncludeWWW      bool   `json:"include_www"`
+	ReplaceExisting bool   `json:"replace_existing"`
 }
 
 type siteRedirectRequest struct {
@@ -1353,6 +1354,14 @@ func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.ReplaceExisting {
+		if err := nginx.RemoveSiteFiles(req.Domain); err != nil {
+			log.Printf("Error removing existing site %s before recreate: %v", req.Domain, err)
+			writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to remove existing site config"})
+			return
+		}
+	}
+
 	var err error
 	if req.IncludeWWW {
 		err = templates.ApplyTemplateWithWWW(tmplType, req.Domain, req.Port)
@@ -1376,6 +1385,48 @@ func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
 	}})
 }
 
+// handleNginxDiagnose reports nginx -t status and configs the dashboard cannot parse.
+func (s *Server) handleNginxDiagnose(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	report := nginx.Diagnose()
+	hidden, err := nginx.ListHiddenSiteConfigs()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to inspect nginx configs"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]interface{}{
+		"ok":              report.OK,
+		"issues":          report.Issues,
+		"remaining_error": report.RemainingError,
+		"hidden_configs":  hidden,
+	}})
+}
+
+// handleNginxRepair fixes known nginx config problems and reloads when valid.
+func (s *Server) handleNginxRepair(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	report, err := nginx.Repair()
+	if err != nil {
+		log.Printf("nginx repair failed: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "nginx repair failed", Data: report})
+		return
+	}
+	hidden, _ := nginx.ListHiddenSiteConfigs()
+	writeJSON(w, http.StatusOK, apiResponse{Success: report.OK, Data: map[string]interface{}{
+		"ok":              report.OK,
+		"issues":          report.Issues,
+		"fixed":           report.Fixed,
+		"remaining_error": report.RemainingError,
+		"hidden_configs":  hidden,
+	}})
+}
+
 func siteCreateErrorForClient(err error) string {
 	if err == nil {
 		return "failed to create site"
@@ -1383,7 +1434,7 @@ func siteCreateErrorForClient(err error) string {
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "site already exists"):
-		return "site already exists for this domain"
+		return "site already exists for this domain — confirm replace to remove the leftover nginx config"
 	case strings.Contains(msg, "refusing to overwrite non-symlink"):
 		return "nginx sites-enabled has a conflicting file for this domain — remove it manually"
 	case strings.Contains(msg, "nginx config test failed"):

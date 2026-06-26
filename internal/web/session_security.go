@@ -87,11 +87,6 @@ func (s *Server) reauthMiddleware(next http.Handler, requireSecure bool) http.Ha
 		token, ok := s.currentSessionToken(r)
 		if !ok || !s.sessionStore.RecentlyReauthenticated(token) {
 			if isWebSocketUpgrade(r) {
-				// #region agent log
-				agentDebugLog("B", "session_security.go:reauthMiddleware", "ws upgrade rejected reauth required", map[string]interface{}{
-					"host": r.Host, "hasToken": ok, "requireSecure": requireSecure,
-				})
-				// #endregion
 				recordTerminalWSReject(http.StatusForbidden, "recent reauthentication required")
 				http.Error(w, "recent reauthentication required", http.StatusForbidden)
 				return
