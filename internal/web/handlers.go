@@ -1361,7 +1361,12 @@ func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		log.Printf("Error creating site %s: %v", req.Domain, err)
-		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to create site"})
+		status := http.StatusInternalServerError
+		clientErr := siteCreateErrorForClient(err)
+		if clientErr == "site already exists for this domain" {
+			status = http.StatusConflict
+		}
+		writeJSON(w, status, apiResponse{Error: clientErr})
 		return
 	}
 
@@ -1369,6 +1374,27 @@ func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
 		"message": "Site created for " + req.Domain,
 		"port":    strconv.Itoa(req.Port),
 	}})
+}
+
+func siteCreateErrorForClient(err error) string {
+	if err == nil {
+		return "failed to create site"
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "site already exists"):
+		return "site already exists for this domain"
+	case strings.Contains(msg, "refusing to overwrite non-symlink"):
+		return "nginx sites-enabled has a conflicting file for this domain — remove it manually"
+	case strings.Contains(msg, "nginx config test failed"):
+		return "nginx rejected the config — check for duplicate domains or run nginx -t"
+	case strings.Contains(msg, "failed to reload nginx"):
+		return "nginx reload failed — run nginx -t on the server"
+	case strings.Contains(msg, "site config not found"):
+		return "nginx config was not written — check ServerPilot logs"
+	default:
+		return "failed to create site"
+	}
 }
 
 func (s *Server) handleSiteRedirectCreate(w http.ResponseWriter, r *http.Request) {

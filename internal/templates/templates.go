@@ -341,8 +341,21 @@ func applyTemplate(templateType TemplateType, domain string, containerPort int, 
 		return fmt.Errorf("config path is outside nginx directory")
 	}
 
-	if err := os.WriteFile(absPath, []byte(config), 0644); err != nil {
+	file, err := os.OpenFile(absPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if err != nil {
+		if os.IsExist(err) {
+			return fmt.Errorf("site already exists")
+		}
 		return fmt.Errorf("failed to write config: %w", err)
+	}
+	if _, err := file.WriteString(config); err != nil {
+		_ = file.Close()
+		_ = os.Remove(absPath)
+		return fmt.Errorf("failed to write config: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(absPath)
+		return fmt.Errorf("failed to close config: %w", err)
 	}
 
 	if err := nginx.EnableSite(domain); err != nil {
