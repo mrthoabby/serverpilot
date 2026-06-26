@@ -1,0 +1,29 @@
+internal/web/terminal.go
+  s_8a7927a2163f66::t_b6c6dd9247bca2 257
+  s_8a7927a2163f66::t_167a9f8e238aa9 225
+  s_8a7927a2163f66::t_b6748217d8410e 182-217
+  s_8a7927a2163f66::t_36ccbd94143afd 249
+internal/nginx/websocket_proxy.go
+  s_8a7927a2163f66::t_5c2b5c8dc60dc7 7-8,28-90,100,102-105,109-110,115,121-122,125,127-128,132-191,205,222,226-228,252-254,267,280-281,283-291,293
+internal/nginx/websocket_proxy_test.go
+  s_8a7927a2163f66::t_f18e228156fe90 45-109
+internal/web/static/index.html
+  s_8a7927a2163f66::t_e266358bffdf91 10787
+  s_8a7927a2163f66::t_e70ce63b7a56c9 10712-10717,10728,10735-10737,10749-10751
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "3af4b635c65e8c231e82d6f534ea5b6f7a1a83b8",
+  "prompts": {},
+  "sessions": {
+    "s_8a7927a2163f66": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "9dbd6ee7-df0c-43b7-b93d-f5e13ff0e2e4",
+        "model": "composer-2.5"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
