@@ -1973,19 +1973,21 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       <div id="resetPassModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:none;align-items:center;justify-content:center;">
         <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:1.5rem;width:90%;max-width:400px;">
           <h3 style="margin:0 0 1rem 0;font-size:1rem;">Reset Password</h3>
+          <form id="resetPassForm" onsubmit="submitResetPassword(); return false;">
           <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.75rem;">New password for <strong id="resetPassUser"></strong>:</p>
           <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
-            <input type="password" id="resetPassInput" placeholder="Min 8 characters"
+            <input type="password" id="resetPassInput" placeholder="Min 8 characters" autocomplete="new-password"
               style="flex:1;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.85rem;">
-            <button onclick="togglePasswordVis('resetPassInput', this)" class="btn btn-secondary" style="padding:6px 10px;" title="Show/hide">
+            <button type="button" onclick="togglePasswordVis('resetPassInput', this)" class="btn btn-secondary" style="padding:6px 10px;" title="Show/hide">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3.5C4.136 3.5 1.04 6.008.152 7.59a.796.796 0 000 .82C1.04 9.992 4.136 12.5 8 12.5s6.96-2.508 7.848-4.09a.796.796 0 000-.82C14.96 6.008 11.864 3.5 8 3.5zM8 11a3 3 0 110-6 3 3 0 010 6z"/><circle cx="8" cy="8" r="1.5"/></svg>
             </button>
           </div>
           <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
-            <button onclick="closeResetModal()" class="btn btn-secondary" style="padding:6px 16px;">Cancel</button>
-            <button onclick="submitResetPassword()" class="btn btn-primary" id="btnResetPass" style="padding:6px 16px;">Reset</button>
+            <button type="button" onclick="closeResetModal()" class="btn btn-secondary" style="padding:6px 16px;">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="btnResetPass" style="padding:6px 16px;">Reset</button>
           </div>
           <span id="resetPassMsg" style="font-size:0.8rem;display:block;margin-top:0.5rem;"></span>
+          </form>
         </div>
       </div>
     </div>
@@ -2740,7 +2742,13 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   }
 
   function setText(el, text) {
-    el.textContent = text;
+    if (el) el.textContent = text;
+  }
+
+  function onEl(id, event, handler) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener(event, handler);
+    return el;
   }
 
   function escapeHtml(str) {
@@ -2946,7 +2954,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     startGlobalRefresh();
   }
 
-  document.getElementById("loginForm").addEventListener("submit", async function(e) {
+  onEl("loginForm", "submit", async function(e) {
     e.preventDefault();
     var errEl = document.getElementById("loginError");
     errEl.style.display = "none";
@@ -2972,7 +2980,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
   });
 
-  document.getElementById("logoutBtn").addEventListener("click", async function() {
+  onEl("logoutBtn", "click", async function() {
     try { await apiFetch("/api/logout", { method: "POST" }); } catch(e) {}
     showLogin();
   });
@@ -3851,21 +3859,21 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     });
   }
 
-  document.getElementById("replicaAddEnvBtn").addEventListener("click", function() {
+  onEl("replicaAddEnvBtn", "click", function() {
     document.getElementById("replicaEnvList").appendChild(envRow("", "", false));
   });
 
-  document.getElementById("replicaCancelBtn").addEventListener("click", function() {
+  onEl("replicaCancelBtn", "click", function() {
     document.getElementById("replicaModal").classList.remove("show");
   });
 
-  document.getElementById("replicaModal").addEventListener("click", function(e) {
+  onEl("replicaModal", "click", function(e) {
     if (e.target === document.getElementById("replicaModal")) {
       document.getElementById("replicaModal").classList.remove("show");
     }
   });
 
-  document.getElementById("replicaForm").addEventListener("submit", function(e) {
+  onEl("replicaForm", "submit", function(e) {
     e.preventDefault();
     var env = collectReplicaEnv();
     document.getElementById("replicaModal").classList.remove("show");
@@ -4491,11 +4499,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     );
   }
 
-  document.getElementById("deleteSelectedImagesBtn").addEventListener("click", function() {
+  onEl("deleteSelectedImagesBtn", "click", function() {
     deleteSelectedImages(false);
   });
 
-  document.getElementById("deleteSelectedForceBtn").addEventListener("click", function() {
+  onEl("deleteSelectedForceBtn", "click", function() {
     deleteSelectedImages(true);
   });
 
@@ -4825,16 +4833,16 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     });
   }
 
-  document.getElementById("reloadEnvApp").addEventListener("change", updateReloadEnvFiles);
-  document.getElementById("reloadEnvCancelBtn").addEventListener("click", function() {
+  onEl("reloadEnvApp", "change", updateReloadEnvFiles);
+  onEl("reloadEnvCancelBtn", "click", function() {
     document.getElementById("reloadEnvModal").classList.remove("show");
   });
-  document.getElementById("reloadEnvModal").addEventListener("click", function(e) {
+  onEl("reloadEnvModal", "click", function(e) {
     if (e.target === document.getElementById("reloadEnvModal")) {
       document.getElementById("reloadEnvModal").classList.remove("show");
     }
   });
-  document.getElementById("reloadEnvForm").addEventListener("submit", async function(e) {
+  onEl("reloadEnvForm", "submit", async function(e) {
     e.preventDefault();
     var id = document.getElementById("reloadEnvContainerId").value;
     var name = document.getElementById("reloadEnvContainerName").value;
@@ -4863,11 +4871,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     );
   });
 
-  document.getElementById("containerLogsCloseBtn").addEventListener("click", closeContainerLogsModal);
-  document.getElementById("containerLogsRefreshBtn").addEventListener("click", function() {
+  onEl("containerLogsCloseBtn", "click", closeContainerLogsModal);
+  onEl("containerLogsRefreshBtn", "click", function() {
     if (_logsPendingContainer) loadContainerLogs(_logsPendingContainer);
   });
-  document.getElementById("containerLogsClearBtn").addEventListener("click", function() {
+  onEl("containerLogsClearBtn", "click", function() {
     if (!_logsPendingContainer) return;
     var c = _logsPendingContainer;
     // Destructive: confirm before truncating. Use the existing confirmAction
@@ -4878,8 +4886,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       function() { clearContainerLogs(c); }
     );
   });
-  containerLogsModal.addEventListener("click", function(e) {
-    if (e.target === containerLogsModal) closeContainerLogsModal();
+  onEl("containerLogsModal", "click", function(e) {
+    var modal = document.getElementById("containerLogsModal");
+    if (e.target === modal) closeContainerLogsModal();
   });
 
   // ── Associate Site Modal ──
@@ -4887,10 +4896,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   var redirectDelayed = document.getElementById("redirectDelayed");
   var redirectDelayOptions = document.getElementById("redirectDelayOptions");
   function updateRedirectDelayOptions() {
+    if (!redirectDelayOptions || !redirectDelayed) return;
     redirectDelayOptions.style.display = redirectDelayed.checked ? "block" : "none";
   }
-  redirectDelayed.addEventListener("change", updateRedirectDelayOptions);
-  document.getElementById("repairNginxBtn").addEventListener("click", async function() {
+  onEl("redirectDelayed", "change", updateRedirectDelayOptions);
+  onEl("repairNginxBtn", "click", async function() {
     if (!window.confirm("Scan nginx configs, remove duplicate proxy directives, and reload nginx?")) return;
     var btn = document.getElementById("repairNginxBtn");
     btn.disabled = true;
@@ -4910,24 +4920,25 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       btn.disabled = false;
     }
   });
-  document.getElementById("createRedirectBtn").addEventListener("click", function() {
+  onEl("createRedirectBtn", "click", function() {
     document.getElementById("redirectDomain").value = "";
     document.getElementById("redirectTarget").value = "";
     document.getElementById("redirectCode").value = "301";
     document.getElementById("redirectIncludeWWW").checked = false;
-    redirectDelayed.checked = false;
+    if (redirectDelayed) redirectDelayed.checked = false;
     document.getElementById("redirectDelaySeconds").value = "5";
     document.getElementById("redirectMessage").value = "";
     updateRedirectDelayOptions();
-    redirectModal.classList.add("show");
+    if (redirectModal) redirectModal.classList.add("show");
   });
-  document.getElementById("redirectCancelBtn").addEventListener("click", function() {
-    redirectModal.classList.remove("show");
+  onEl("redirectCancelBtn", "click", function() {
+    if (redirectModal) redirectModal.classList.remove("show");
   });
-  redirectModal.addEventListener("click", function(e) {
-    if (e.target === redirectModal) redirectModal.classList.remove("show");
+  onEl("redirectModal", "click", function(e) {
+    var modal = document.getElementById("redirectModal");
+    if (e.target === modal) modal.classList.remove("show");
   });
-  document.getElementById("redirectForm").addEventListener("submit", async function(e) {
+  onEl("redirectForm", "submit", async function(e) {
     e.preventDefault();
     var btn = document.getElementById("redirectSubmitBtn");
     btn.disabled = true;
@@ -5039,15 +5050,17 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   }
   window.allocatePortForAssoc = allocatePortForAssoc;
 
-  document.getElementById("assocCancelBtn").addEventListener("click", function() {
-    assocModal.classList.remove("show");
+  onEl("assocCancelBtn", "click", function() {
+    var modal = document.getElementById("associateModal");
+    if (modal) modal.classList.remove("show");
   });
 
-  assocModal.addEventListener("click", function(e) {
-    if (e.target === assocModal) assocModal.classList.remove("show");
+  onEl("associateModal", "click", function(e) {
+    var modal = document.getElementById("associateModal");
+    if (e.target === modal) modal.classList.remove("show");
   });
 
-  document.getElementById("associateForm").addEventListener("submit", async function(e) {
+  onEl("associateForm", "submit", async function(e) {
     e.preventDefault();
     var btn = document.getElementById("assocSubmitBtn");
     btn.disabled = true;
@@ -5088,64 +5101,80 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   });
 
   // ── Config Editor ──
-  var configModal = document.getElementById("configEditorModal");
-  var configTextarea = document.getElementById("configEditorTextarea");
-  var configErrorBox = document.getElementById("configEditorError");
-  var configDomainSpan = document.getElementById("configEditorDomain");
+  function configEditorEls() {
+    return {
+      modal: document.getElementById("configEditorModal"),
+      textarea: document.getElementById("configEditorTextarea"),
+      errorBox: document.getElementById("configEditorError"),
+      domainSpan: document.getElementById("configEditorDomain")
+    };
+  }
+
   var configOriginalContent = "";
   var configCurrentDomain = "";
 
   async function openConfigEditor(configName, displayDomain) {
+    var els = configEditorEls();
+    if (!els.modal || !els.textarea || !els.errorBox) {
+      showToast("Config editor unavailable — hard-refresh the dashboard (Ctrl+Shift+R)", "error");
+      return;
+    }
     configCurrentDomain = configName;
-    setText(configDomainSpan, displayDomain || configName);
-    configTextarea.value = "";
-    configErrorBox.style.display = "none";
-    setText(configErrorBox, "");
-    configModal.classList.add("show");
+    setText(els.domainSpan, displayDomain || configName);
+    els.textarea.value = "";
+    els.errorBox.style.display = "none";
+    setText(els.errorBox, "");
+    els.modal.classList.add("show");
 
     try {
       var resp = await apiFetch("/api/sites/config?domain=" + encodeURIComponent(configName));
       var data = (resp && resp.data) ? resp.data : resp;
       configOriginalContent = data.content || "";
-      configTextarea.value = configOriginalContent;
+      els.textarea.value = configOriginalContent;
     } catch(err) {
       showToast("Failed to load config: " + err.message, "error");
-      configModal.classList.remove("show");
+      els.modal.classList.remove("show");
     }
   }
 
   function closeConfigEditor() {
-    configModal.classList.remove("show");
+    var els = configEditorEls();
+    if (!els.modal) return;
+    els.modal.classList.remove("show");
     configCurrentDomain = "";
     configOriginalContent = "";
-    configTextarea.value = "";
-    configErrorBox.style.display = "none";
+    if (els.textarea) els.textarea.value = "";
+    if (els.errorBox) els.errorBox.style.display = "none";
   }
 
-  document.getElementById("configCancelBtn").addEventListener("click", closeConfigEditor);
+  onEl("configCancelBtn", "click", closeConfigEditor);
 
-  configModal.addEventListener("click", function(e) {
-    if (e.target === configModal) closeConfigEditor();
+  onEl("configEditorModal", "click", function(e) {
+    var modal = document.getElementById("configEditorModal");
+    if (e.target === modal) closeConfigEditor();
   });
 
-  document.getElementById("configResetBtn").addEventListener("click", function() {
-    configTextarea.value = configOriginalContent;
-    configErrorBox.style.display = "none";
+  onEl("configResetBtn", "click", function() {
+    var els = configEditorEls();
+    if (els.textarea) els.textarea.value = configOriginalContent;
+    if (els.errorBox) els.errorBox.style.display = "none";
     showToast("Config reset to original", "success");
   });
 
-  document.getElementById("configSaveBtn").addEventListener("click", async function() {
+  onEl("configSaveBtn", "click", async function() {
+    var els = configEditorEls();
+    if (!els.textarea || !els.errorBox) return;
     var btn = this;
     btn.disabled = true;
     setText(btn, "Saving...");
-    configErrorBox.style.display = "none";
+    els.errorBox.style.display = "none";
     try {
       var resp = await apiFetch("/api/sites/config/save", {
         method: "POST",
-        body: { domain: configCurrentDomain, content: configTextarea.value, reload: false }
+        body: { domain: configCurrentDomain, content: els.textarea.value, reload: false }
       });
       var data = (resp && resp.data) ? resp.data : resp;
-      configOriginalContent = configTextarea.value;
+      configOriginalContent = els.textarea.value;
       showToast(data.message || "Config saved", "success");
     } catch(err) {
       showToast("Save failed: " + err.message, "error");
@@ -5155,36 +5184,35 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
   });
 
-  document.getElementById("configSaveReloadBtn").addEventListener("click", async function() {
+  onEl("configSaveReloadBtn", "click", async function() {
+    var els = configEditorEls();
+    if (!els.textarea || !els.errorBox) return;
     var btn = this;
     btn.disabled = true;
     setText(btn, "Validating...");
-    configErrorBox.style.display = "none";
+    els.errorBox.style.display = "none";
     try {
       var resp = await apiFetch("/api/sites/config/save", {
         method: "POST",
-        body: { domain: configCurrentDomain, content: configTextarea.value, reload: true }
+        body: { domain: configCurrentDomain, content: els.textarea.value, reload: true }
       });
       if (resp && resp.success === false) {
-        // Validation failed — show errors
         var data = resp.data || {};
         var errMsg = resp.error || "Validation failed";
         if (data.test_output) errMsg = data.test_output;
-        configErrorBox.style.display = "block";
-        setText(configErrorBox, errMsg);
+        els.errorBox.style.display = "block";
+        setText(els.errorBox, errMsg);
         showToast("Config has errors — not reloaded", "error");
       } else {
         var data2 = (resp && resp.data) ? resp.data : resp;
-        configOriginalContent = configTextarea.value;
+        configOriginalContent = els.textarea.value;
         showToast(data2.message || "Config saved and nginx reloaded", "success");
-        configErrorBox.style.display = "none";
+        els.errorBox.style.display = "none";
         await loadSites();
       }
     } catch(err) {
-      // The API returns 200 with success:false for validation errors,
-      // but catch network/other errors here.
-      configErrorBox.style.display = "block";
-      setText(configErrorBox, err.message);
+      els.errorBox.style.display = "block";
+      setText(els.errorBox, err.message);
       showToast("Save & Reload failed: " + err.message, "error");
     } finally {
       btn.disabled = false;
@@ -5333,13 +5361,15 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
   }
 
-  progressCloseBtn.addEventListener("click", function() {
+  onEl("progressCloseBtn", "click", function() {
     closeProgressModal();
     Promise.all([loadSites(), loadMappings(), loadContainers(), loadSettings()]);
   });
 
-  progressModal.addEventListener("click", function(e) {
-    if (e.target === progressModal && progressCloseBtn.style.display !== "none") {
+  onEl("progressModal", "click", function(e) {
+    var modal = document.getElementById("progressModal");
+    var closeBtn = document.getElementById("progressCloseBtn");
+    if (e.target === modal && closeBtn && closeBtn.style.display !== "none") {
       closeProgressModal();
       Promise.all([loadSites(), loadMappings(), loadContainers(), loadSettings()]);
     }
@@ -5464,20 +5494,23 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     confirmModal.classList.add("show");
   }
 
-  document.getElementById("confirmCancelBtn").addEventListener("click", function() {
-    confirmModal.classList.remove("show");
+  onEl("confirmCancelBtn", "click", function() {
+    var modal = document.getElementById("confirmModal");
+    if (modal) modal.classList.remove("show");
     pendingConfirm = null;
   });
 
-  confirmModal.addEventListener("click", function(e) {
-    if (e.target === confirmModal) {
-      confirmModal.classList.remove("show");
+  onEl("confirmModal", "click", function(e) {
+    var modal = document.getElementById("confirmModal");
+    if (e.target === modal) {
+      modal.classList.remove("show");
       pendingConfirm = null;
     }
   });
 
-  document.getElementById("confirmOkBtn").addEventListener("click", function() {
-    confirmModal.classList.remove("show");
+  onEl("confirmOkBtn", "click", function() {
+    var modal = document.getElementById("confirmModal");
+    if (modal) modal.classList.remove("show");
     if (pendingConfirm) {
       pendingConfirm();
       pendingConfirm = null;
@@ -5485,7 +5518,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   });
 
   // ── Refresh button ──
-  document.getElementById("refreshBtn").addEventListener("click", function() {
+  onEl("refreshBtn", "click", function() {
     // Refresh only the active tab.
     if (tabLoaders[activeTab]) tabLoaders[activeTab]();
   });
@@ -5506,15 +5539,17 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     gdappModal.classList.add("show");
   }
 
-  document.getElementById("gdappCancelBtn").addEventListener("click", function() {
-    gdappModal.classList.remove("show");
+  onEl("gdappCancelBtn", "click", function() {
+    var modal = document.getElementById("gdappModal");
+    if (modal) modal.classList.remove("show");
   });
 
-  gdappModal.addEventListener("click", function(e) {
-    if (e.target === gdappModal) gdappModal.classList.remove("show");
+  onEl("gdappModal", "click", function(e) {
+    var modal = document.getElementById("gdappModal");
+    if (e.target === modal) modal.classList.remove("show");
   });
 
-  document.getElementById("gdappForm").addEventListener("submit", function(e) {
+  onEl("gdappForm", "submit", function(e) {
     e.preventDefault();
     var domain = document.getElementById("gdappDomain").value.trim();
     var port = parseInt(document.getElementById("gdappPort").value, 10);
@@ -5699,7 +5734,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   }
 
   // Close modal when clicking the backdrop.
-  document.getElementById("appUninstallModal").addEventListener("click", function(e) {
+  onEl("appUninstallModal", "click", function(e) {
     if (e.target === this) closeAppUninstallModal();
   });
 
@@ -7612,7 +7647,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   }
 
   // Close reset modal on backdrop click.
-  document.getElementById("resetPassModal").addEventListener("click", function(e) {
+  onEl("resetPassModal", "click", function(e) {
     if (e.target === this) closeResetModal();
   });
 
@@ -7892,7 +7927,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   }
 
   // Save domain
-  document.getElementById("settingsDomainBtn").addEventListener("click", async function() {
+  onEl("settingsDomainBtn", "click", async function() {
     var btn = this;
     var domain = document.getElementById("settingsDomainInput").value.trim();
     if (!domain) {
@@ -7915,7 +7950,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   });
 
   // Save email
-  document.getElementById("settingsEmailBtn").addEventListener("click", async function() {
+  onEl("settingsEmailBtn", "click", async function() {
     var btn = this;
     var email = document.getElementById("settingsEmailInput").value.trim();
     if (!email) {
@@ -7937,7 +7972,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   });
 
   // Enable SSL
-  document.getElementById("settingsSSLBtn").addEventListener("click", function() {
+  onEl("settingsSSLBtn", "click", function() {
     if (!settingsData.domain) return;
     confirmAction("Enable SSL", "Obtain an SSL certificate for " + settingsData.domain + " via Let's Encrypt?", function() {
       runStreamedOperation(
@@ -7950,7 +7985,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   });
 
   // Block / Unblock insecure traffic (toggle)
-  document.getElementById("settingsBlockBtn").addEventListener("click", function() {
+  onEl("settingsBlockBtn", "click", function() {
     if (!settingsData.ssl_enabled) return;
     var isBlocked = settingsData.insecure_blocked;
     var title = isBlocked ? "Allow HTTP Traffic" : "Block Insecure Traffic";
@@ -7974,7 +8009,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     });
   });
 
-  document.getElementById("settingsHostGuardBtn").addEventListener("click", function() {
+  onEl("settingsHostGuardBtn", "click", function() {
     confirmAction("Install Host Guard", "Install a default nginx guard so unknown domains return a plain 404 instead of reaching ServerPilot?", async function() {
       var btn = document.getElementById("settingsHostGuardBtn");
       btn.disabled = true;
@@ -7993,7 +8028,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     });
   });
 
-  document.getElementById("settingsMFASetupBtn").addEventListener("click", async function() {
+  onEl("settingsMFASetupBtn", "click", async function() {
     var btn = this;
     btn.disabled = true;
     setText(btn, "Generating...");
@@ -8014,7 +8049,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
   });
 
-  document.getElementById("settingsMFAEnableBtn").addEventListener("click", async function() {
+  onEl("settingsMFAEnableBtn", "click", async function() {
     var code = document.getElementById("settingsMFACode").value.trim();
     if (!pendingMFASecret || code.length !== 6) {
       showToast("Enter the 6-digit MFA code", "error");
@@ -8035,7 +8070,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
   });
 
-  document.getElementById("settingsMFADisableBtn").addEventListener("click", function() {
+  onEl("settingsMFADisableBtn", "click", function() {
     confirmAction("Disable MFA", "This removes the second factor from dashboard login and revokes other sessions. Continue?", async function() {
       try {
         await apiFetch("/api/security/mfa/disable", { method: "POST", body: {} });
@@ -8047,9 +8082,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     });
   });
 
-  document.getElementById("settingsSessionsRefreshBtn").addEventListener("click", loadSessions);
+  onEl("settingsSessionsRefreshBtn", "click", loadSessions);
 
-  document.getElementById("settingsSessionsRevokeOthersBtn").addEventListener("click", function() {
+  onEl("settingsSessionsRevokeOthersBtn", "click", function() {
     confirmAction("Revoke Other Sessions", "This will keep your current browser session and revoke every other active dashboard session.", async function() {
       try {
         var resp = await apiFetch("/api/sessions/revoke-others", { method: "POST", body: {} });
@@ -10505,7 +10540,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
   }
 
-  document.getElementById("checkUpdatesBtn").addEventListener("click", checkForUpdates);
+  onEl("checkUpdatesBtn", "click", checkForUpdates);
 
   // ── Copy server public IP ──
   function copyTextToClipboard(text) {
@@ -10549,9 +10584,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
   }
 
-  document.getElementById("copyPublicIpBtn").addEventListener("click", copyPublicIp);
+  onEl("copyPublicIpBtn", "click", copyPublicIp);
 
-  document.getElementById("updateBtn").addEventListener("click", async function() {
+  onEl("updateBtn", "click", async function() {
     var btn = document.getElementById("updateBtn");
     btn.disabled = true;
     setText(btn, "Updating...");
@@ -10580,6 +10615,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
   })();
 
+  // Shared helpers for other dashboard script blocks.
+  window.onEl = onEl;
+  window.setText = setText;
+
 })();
 
 // ── Cases ─────────────────────────────────────────────────────────────────
@@ -10587,6 +10626,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   var casesFilter = '';       // '' | 'public' | 'private'
   var casesData   = [];       // last fetched list
   var caseDeleteId = null;    // id pending delete confirmation
+  var onEl = window.onEl || function(id, event, handler) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener(event, handler);
+    return el;
+  };
 
   // Filter toggle
   window.setCasesFilter = function(v) {
@@ -10789,10 +10833,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   };
 
   // Close modals on backdrop click
-  document.getElementById('caseModal').addEventListener('click', function(e) {
+  onEl('caseModal', 'click', function(e) {
     if (e.target === this) closeCaseModal();
   });
-  document.getElementById('caseDeleteModal').addEventListener('click', function(e) {
+  onEl('caseDeleteModal', 'click', function(e) {
     if (e.target === this) closeCaseDeleteModal();
   });
 })();
