@@ -30,6 +30,7 @@ type Config struct {
 	InsecureBlocked bool   `json:"insecure_blocked,omitempty"`
 	MFAEnabled      bool   `json:"mfa_enabled,omitempty"`
 	TOTPSecret      string `json:"totp_secret,omitempty"`
+	PreviousVersion string `json:"previous_version,omitempty"`
 }
 
 // sessionEntry holds a session token with its creation time for TTL expiration.

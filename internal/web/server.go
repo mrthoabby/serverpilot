@@ -107,6 +107,8 @@ func (s *Server) Start() error {
 	mux.Handle("/api/labels/remove", s.authMiddleware(http.HandlerFunc(s.handleLabelRemove)))
 	mux.Handle("/api/version-check", s.authMiddleware(http.HandlerFunc(s.handleVersionCheck)))
 	mux.Handle("/api/update", s.requireSecureReauth(http.HandlerFunc(s.handleUpdate)))
+	mux.Handle("/api/rollback/info", s.authMiddleware(http.HandlerFunc(s.handleRollbackInfo)))
+	mux.Handle("/api/rollback", s.requireSecureReauth(http.HandlerFunc(s.handleRollback)))
 	mux.Handle("/api/settings", s.authMiddleware(http.HandlerFunc(s.handleSettingsGet)))
 	mux.Handle("/api/settings/domain", s.requireReauth(http.HandlerFunc(s.handleSettingsDomain)))
 	mux.Handle("/api/settings/email", s.requireReauth(http.HandlerFunc(s.handleSettingsEmail)))

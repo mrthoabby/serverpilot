@@ -2981,7 +2981,18 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Persist the current version before replacing the binary so that
+	// the rollback endpoint knows where to go back to.
+	prevVersion := strings.TrimPrefix(s.version, "v")
+	s.config.PreviousVersion = prevVersion
+	if saveErr := auth.SaveConfig(*s.config); saveErr != nil {
+		log.Printf("update: could not save previous version to config: %v", saveErr)
+	}
+
 	if err := downloadAndReplace(latest); err != nil {
+		// Undo the PreviousVersion write — the update never happened.
+		s.config.PreviousVersion = ""
+		_ = auth.SaveConfig(*s.config)
 		log.Printf("Error downloading update: %v", err)
 		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to download update"})
 		return
@@ -3010,6 +3021,76 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		cmd := exec.Command("/usr/bin/systemctl", "restart", "serverpilot")
 		if err := cmd.Run(); err != nil {
 			log.Printf("Failed to restart serverpilot: %v", err)
+		}
+	}()
+}
+
+// handleRollbackInfo returns the previous version stored in config, if any.
+// GET /api/rollback/info — protected by authMiddleware.
+func (s *Server) handleRollbackInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+	prev := strings.TrimPrefix(s.config.PreviousVersion, "v")
+	current := strings.TrimPrefix(s.version, "v")
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data: map[string]string{
+			"previous_version": prev,
+			"current_version":  current,
+		},
+	})
+}
+
+// handleRollback downloads the stored previous version and replaces the binary,
+// then triggers a daemon restart. Mirrors handleUpdate but in reverse.
+// POST /api/rollback — protected by requireSecureReauth.
+func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+
+	prev := strings.TrimPrefix(s.config.PreviousVersion, "v")
+	if prev == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "no previous version recorded — nothing to roll back to"})
+		return
+	}
+
+	tagVersion := "v" + prev
+	if !tagRegex.MatchString(tagVersion) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "stored previous version has an invalid format"})
+		return
+	}
+
+	if err := downloadAndReplace(tagVersion); err != nil {
+		log.Printf("rollback: failed to download %s: %v", tagVersion, err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to download previous version"})
+		return
+	}
+
+	// After a successful rollback, clear the stored previous version so the
+	// button disappears and the user can't roll back again to the same version.
+	s.config.PreviousVersion = ""
+	if saveErr := auth.SaveConfig(*s.config); saveErr != nil {
+		log.Printf("rollback: could not clear previous_version from config: %v", saveErr)
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data: map[string]string{
+			"message": "Rolled back to v" + prev + ". Restarting...",
+			"version": prev,
+		},
+	})
+
+	go func() {
+		time.Sleep(1 * time.Second)
+		log.Printf("Rollback to v%s complete. Triggering systemd restart.", prev)
+		cmd := exec.Command("/usr/bin/systemctl", "restart", "serverpilot")
+		if err := cmd.Run(); err != nil {
+			log.Printf("Failed to restart serverpilot after rollback: %v", err)
 		}
 	}()
 }

@@ -1179,6 +1179,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         <span class="update-version" id="updateVersionText"></span>
         <button class="btn btn-sm btn-success" id="updateBtn">Update</button>
       </div>
+      <div class="update-banner" id="rollbackBanner" style="display:none;background:rgba(210,153,34,0.12);border-color:var(--yellow);">
+        <span class="update-version" id="rollbackVersionText" style="color:var(--yellow);"></span>
+        <button class="btn btn-sm" id="rollbackBtn" style="background:var(--yellow);color:#000;">Rollback</button>
+      </div>
       <button class="btn btn-sm btn-outline" id="checkUpdatesBtn" title="Check for new versions">&#x1F50D; Check Updates</button>
       <button class="btn btn-sm btn-outline" id="copyPublicIpBtn" title="Copy server public IP">&#x1F4CB; Copy IP</button>
       <button class="btn btn-sm btn-outline" id="refreshBtn" title="Refresh current tab">&#x21bb; Refresh</button>
@@ -3086,6 +3090,46 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
   });
   window.checkForUpdates = checkForUpdates;
+
+  // ── Rollback ──
+  async function loadRollbackInfo() {
+    try {
+      var resp = await apiFetch("/api/rollback/info");
+      var data = resp && resp.data ? resp.data : resp;
+      var prev = data && data.previous_version;
+      var banner = document.getElementById("rollbackBanner");
+      var vText  = document.getElementById("rollbackVersionText");
+      if (prev && banner && vText) {
+        setText(vText, "Rollback to v" + prev);
+        banner.style.display = "flex";
+      } else if (banner) {
+        banner.style.display = "none";
+      }
+    } catch(_) { /* non-fatal */ }
+  }
+
+  onEl("rollbackBtn", "click", async function() {
+    var btn = document.getElementById("rollbackBtn");
+    var vText = document.getElementById("rollbackVersionText");
+    var targetVersion = vText ? vText.textContent.replace("Rollback to ", "") : "the previous version";
+    if (!confirm("Roll back to " + targetVersion + "? The server will restart.")) return;
+    if (!btn) return;
+    btn.disabled = true;
+    setText(btn, "Rolling back...");
+    try {
+      var resp = await apiFetch("/api/rollback", { method: "POST" });
+      var data = resp && resp.data ? resp.data : resp;
+      showToast(data.message || "Rollback complete", "success");
+      document.getElementById("rollbackBanner").style.display = "none";
+      setTimeout(function() { window.location.reload(); }, 3500);
+    } catch(err) {
+      showToast("Rollback failed: " + err.message, "error");
+      btn.disabled = false;
+      setText(btn, "Rollback");
+    }
+  });
+
+  loadRollbackInfo();
 
   // ── Tabs ──
   try {
