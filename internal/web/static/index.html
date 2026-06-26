@@ -1442,30 +1442,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         </div>
       </div>
 
-      <!-- Docker Prune Confirm Modal -->
-      <div class="modal-overlay" id="dockerPruneModal" style="display:none;">
-        <div class="modal" style="max-width:520px;">
-          <h3 id="dockerPruneModalTitle">Confirmar limpieza Docker</h3>
-          <div id="dockerPruneModalRisk" style="margin:0.5rem 0;font-size:0.78rem;font-weight:600;"></div>
-          <p id="dockerPruneModalDesc" style="font-size:0.82rem;color:var(--text-secondary);line-height:1.45;margin:0.5rem 0;"></p>
-          <div id="dockerPruneModalReclaim" style="display:none;margin:0.5rem 0;padding:0.65rem 0.75rem;border:1px solid var(--green);border-radius:6px;background:rgba(46,160,67,0.08);"></div>
-          <div id="dockerPruneModalRemoves" style="font-size:0.78rem;margin:0.5rem 0;"></div>
-          <div id="dockerPruneModalKeeps" style="font-size:0.78rem;margin:0.5rem 0;"></div>
-          <div id="dockerPruneTypeConfirmWrap" style="display:none;margin:0.75rem 0;">
-            <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:0.35rem;">
-              Escribe <code id="dockerPruneTypeConfirmLabel" style="color:var(--red);"></code> para confirmar:
-            </label>
-            <input type="text" id="dockerPruneTypeConfirmInput" autocomplete="off" spellcheck="false"
-              style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);color:var(--text-primary);font-family:monospace;font-size:0.82rem;">
-          </div>
-          <div id="dockerPruneModalOutput" style="display:none;margin-top:0.75rem;padding:0.65rem;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;font-family:monospace;font-size:0.72rem;white-space:pre-wrap;color:var(--text-secondary);max-height:160px;overflow:auto;"></div>
-          <div class="modal-actions" style="margin-top:1rem;">
-            <button type="button" class="btn btn-outline" id="dockerPruneCancelBtn">Cancelar</button>
-            <button type="button" class="btn btn-primary" id="dockerPruneExecuteBtn">Ejecutar prune</button>
-          </div>
-        </div>
-      </div>
-
       <!-- Top Largest Files (with Hidden tab) -->
       <div class="card" style="margin-top:1rem;">
         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
@@ -2616,6 +2592,30 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     <div class="progress-actions">
       <button type="button" class="btn btn-sm btn-outline" id="progressCloseBtn" style="display:none;">Close</button>
       <button type="button" class="btn btn-sm" id="progressInstallBtn" style="display:none;background:#8a2be2;color:#fff;margin-left:8px;">Install & Retry</button>
+    </div>
+  </div>
+</div>
+
+<!-- Docker Prune Confirm Modal -->
+<div class="modal-overlay" id="dockerPruneModal">
+  <div class="modal" style="max-width:520px;">
+    <h3 id="dockerPruneModalTitle">Confirmar limpieza Docker</h3>
+    <div id="dockerPruneModalRisk" style="margin:0.5rem 0;font-size:0.78rem;font-weight:600;"></div>
+    <p id="dockerPruneModalDesc" style="font-size:0.82rem;color:var(--text-secondary);line-height:1.45;margin:0.5rem 0;"></p>
+    <div id="dockerPruneModalReclaim" style="display:none;margin:0.5rem 0;padding:0.65rem 0.75rem;border:1px solid var(--green);border-radius:6px;background:rgba(46,160,67,0.08);"></div>
+    <div id="dockerPruneModalRemoves" style="font-size:0.78rem;margin:0.5rem 0;"></div>
+    <div id="dockerPruneModalKeeps" style="font-size:0.78rem;margin:0.5rem 0;"></div>
+    <div id="dockerPruneTypeConfirmWrap" style="display:none;margin:0.75rem 0;">
+      <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:0.35rem;">
+        Escribe <code id="dockerPruneTypeConfirmLabel" style="color:var(--red);"></code> para confirmar:
+      </label>
+      <input type="text" id="dockerPruneTypeConfirmInput" autocomplete="off" spellcheck="false"
+        style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);color:var(--text-primary);font-family:monospace;font-size:0.82rem;">
+    </div>
+    <div id="dockerPruneModalOutput" style="display:none;margin-top:0.75rem;padding:0.65rem;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;font-family:monospace;font-size:0.72rem;white-space:pre-wrap;color:var(--text-secondary);max-height:160px;overflow:auto;"></div>
+    <div class="modal-actions" style="margin-top:1rem;">
+      <button type="button" class="btn btn-outline" id="dockerPruneCancelBtn">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="dockerPruneExecuteBtn">Ejecutar prune</button>
     </div>
   </div>
 </div>
@@ -9583,6 +9583,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       typeWrap.style.display = "block";
       typeLabel.textContent = info.mode;
       typeInput.value = "";
+      setTimeout(function() { typeInput.focus(); }, 50);
     } else {
       typeWrap.style.display = "none";
       typeInput.value = "";
@@ -9592,12 +9593,12 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     document.getElementById("dockerPruneModalOutput").textContent = "";
     document.getElementById("dockerPruneExecuteBtn").disabled = false;
     document.getElementById("dockerPruneExecuteBtn").textContent = "Ejecutar prune";
-    document.getElementById("dockerPruneModal").style.display = "flex";
+    document.getElementById("dockerPruneModal").classList.add("show");
   };
 
   window.closeDockerPruneModal = function() {
     _dockerPrunePending = null;
-    document.getElementById("dockerPruneModal").style.display = "none";
+    document.getElementById("dockerPruneModal").classList.remove("show");
   };
 
   async function executeDockerPrune() {
