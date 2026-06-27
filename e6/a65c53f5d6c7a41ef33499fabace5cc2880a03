@@ -1,0 +1,21 @@
+internal/nginx/websocket_proxy.go
+  s_b3c0a9bf735125::t_164397a07f22de 152-153
+  s_b3c0a9bf735125::t_a455b492ce6ba5 151,159-177
+  s_b3c0a9bf735125::t_e603db2e38e184 178-179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "e6a65c53f5d6c7a41ef33499fabace5cc2880a03",
+  "prompts": {},
+  "sessions": {
+    "s_b3c0a9bf735125": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "103d6197-cfef-4a60-9447-fbe4e99e020c",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
