@@ -1,0 +1,25 @@
+.claude/agents/security-reviewer.md
+  s_b3c0a9bf735125::t_725122379e4098 1-16
+.claude/settings.json
+  s_b3c0a9bf735125::t_6fb31d76a21eb1 1-15
+.claude/skills/release-prep/SKILL.md
+  s_b3c0a9bf735125::t_acf0b2a8d2238c 1-17
+internal/web/static/index.html
+  s_b3c0a9bf735125::t_7e948d7ce746d5 10695
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "22396141845a1c0b6f5ad9d1ccc29b8a908edf92",
+  "prompts": {},
+  "sessions": {
+    "s_b3c0a9bf735125": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "103d6197-cfef-4a60-9447-fbe4e99e020c",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
