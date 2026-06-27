@@ -2703,56 +2703,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 (function() {
   "use strict";
 
-  function termFetchConnectDiag(phase) {
-    return fetch("/api/terminal/ws-check", {
-      credentials: "same-origin",
-      headers: { "Accept": "application/json" }
-    }).then(function(r) {
-      return r.json().then(function(j) {
-        var d = (j && j.data) ? j.data : (j || {});
-        d._phase = phase;
-        return d;
-      });
-    });
-  }
-
-  function termExplainConnectBlock(diag) {
-    if (!diag) return "No se pudo conectar";
-    if (diag.block_reason === "session_expired") return "Sesión expirada — inicia sesión de nuevo";
-    if (diag.block_reason === "reauth_required") return "Confirma tu contraseña para usar la terminal";
-    if (diag.block_reason === "nginx_proxy") return diag.proxy_message || "Faltan cabeceras WebSocket en nginx (HTTPS)";
-    if (diag.block_reason === "ws_error") {
-      var detail = diag.last_ws_reject_reason || "";
-      return detail ? "Error del WebSocket: " + detail : "El servidor rechazó la conexión WebSocket";
-    }
-    if (diag.last_ws_reject_status === 401) return "Sesión expirada — inicia sesión de nuevo";
-    if (diag.last_ws_reject_status === 403) return "Reautenticación requerida — introduce tu contraseña";
-    return "No se pudo conectar a la terminal";
-  }
-
-  function termHandleConnectBlock(diag) {
-    if (!diag || diag.can_connect) return false;
-    var msg = termExplainConnectBlock(diag);
-    termSetStatus(msg, "var(--red)");
-    if (diag.block_reason === "session_expired" || diag.last_ws_reject_status === 401) {
-      if (typeof window.showLogin === "function") window.showLogin();
-      return true;
-    }
-    if (diag.block_reason === "reauth_required" || diag.last_ws_reject_status === 403) {
-      return true;
-    }
-    if (diag.block_reason === "nginx_proxy") {
-      termShowFixProxy(true, msg + (diag.proxy_missing && diag.proxy_missing.length ? " (" + diag.proxy_missing.join(", ") + ")" : ""));
-      return true;
-    }
-    if (diag.block_reason === "ws_error") {
-      var hint = (diag.last_ws_reject_reason || "") + " — revisa: journalctl -u sp -f";
-      termShowFixProxy(true, hint.trim().replace(/^— /, ""));
-      return true;
-    }
-    return true;
-  }
-
   // ── Helpers ──
   function esc(str) {
     var d = document.createElement("div");
@@ -10699,9 +10649,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   window.showDashboard           = showDashboard;
   window.onEl                    = onEl;
   window.setText                 = setText;
-  window.termFetchConnectDiag    = termFetchConnectDiag;
-  window.termExplainConnectBlock = termExplainConnectBlock;
-  window.termHandleConnectBlock  = termHandleConnectBlock;
 
 })();
 
@@ -11013,6 +10960,56 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   function termSetStatus(msg, color) {
     var el = document.getElementById("termStatus");
     if (el) { el.textContent = msg; el.style.color = color || "var(--text-muted)"; }
+  }
+
+  function termFetchConnectDiag(phase) {
+    return fetch("/api/terminal/ws-check", {
+      credentials: "same-origin",
+      headers: { "Accept": "application/json" }
+    }).then(function(r) {
+      return r.json().then(function(j) {
+        var d = (j && j.data) ? j.data : (j || {});
+        d._phase = phase;
+        return d;
+      });
+    });
+  }
+
+  function termExplainConnectBlock(diag) {
+    if (!diag) return "No se pudo conectar";
+    if (diag.block_reason === "session_expired") return "Sesión expirada — inicia sesión de nuevo";
+    if (diag.block_reason === "reauth_required") return "Confirma tu contraseña para usar la terminal";
+    if (diag.block_reason === "nginx_proxy") return diag.proxy_message || "Faltan cabeceras WebSocket en nginx (HTTPS)";
+    if (diag.block_reason === "ws_error") {
+      var detail = diag.last_ws_reject_reason || "";
+      return detail ? "Error del WebSocket: " + detail : "El servidor rechazó la conexión WebSocket";
+    }
+    if (diag.last_ws_reject_status === 401) return "Sesión expirada — inicia sesión de nuevo";
+    if (diag.last_ws_reject_status === 403) return "Reautenticación requerida — introduce tu contraseña";
+    return "No se pudo conectar a la terminal";
+  }
+
+  function termHandleConnectBlock(diag) {
+    if (!diag || diag.can_connect) return false;
+    var msg = termExplainConnectBlock(diag);
+    termSetStatus(msg, "var(--red)");
+    if (diag.block_reason === "session_expired" || diag.last_ws_reject_status === 401) {
+      if (typeof window.showLogin === "function") window.showLogin();
+      return true;
+    }
+    if (diag.block_reason === "reauth_required" || diag.last_ws_reject_status === 403) {
+      return true;
+    }
+    if (diag.block_reason === "nginx_proxy") {
+      termShowFixProxy(true, msg + (diag.proxy_missing && diag.proxy_missing.length ? " (" + diag.proxy_missing.join(", ") + ")" : ""));
+      return true;
+    }
+    if (diag.block_reason === "ws_error") {
+      var hint = (diag.last_ws_reject_reason || "") + " — revisa: journalctl -u sp -f";
+      termShowFixProxy(true, hint.trim().replace(/^— /, ""));
+      return true;
+    }
+    return true;
   }
 
   function termSetConnected(connected) {
