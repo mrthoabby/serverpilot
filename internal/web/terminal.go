@@ -49,6 +49,7 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// websocket.Accept already wrote the HTTP error.
 		log.Printf("terminal: ws upgrade: %v", err)
+		recordTerminalWSReject(http.StatusBadRequest, "ws_accept: "+err.Error())
 		return
 	}
 	defer conn.CloseNow()
@@ -308,6 +309,14 @@ func (s *Server) handleTerminalWSCheck(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Snapshot before deciding CanConnect so non-auth accept errors can block.
+	rejectStatus, rejectReason, rejectAt := snapshotTerminalWSReject()
+	recentReject := rejectStatus != 0 && time.Since(rejectAt) < 5*time.Minute
+	if recentReject {
+		diag.LastWSRejectStatus = rejectStatus
+		diag.LastWSRejectReason = rejectReason
+	}
+
 	switch {
 	case !diag.Authenticated:
 		diag.BlockReason = "session_expired"
@@ -315,14 +324,11 @@ func (s *Server) handleTerminalWSCheck(w http.ResponseWriter, r *http.Request) {
 		diag.BlockReason = "reauth_required"
 	case !diag.ProxyOK:
 		diag.BlockReason = "nginx_proxy"
+	case recentReject && rejectStatus != http.StatusUnauthorized && rejectStatus != http.StatusForbidden:
+		// A recent WS rejection not caused by auth — e.g. websocket.Accept failure.
+		diag.BlockReason = "ws_error"
 	default:
 		diag.CanConnect = true
-	}
-
-	status, reason, at := snapshotTerminalWSReject()
-	if status != 0 && time.Since(at) < 5*time.Minute {
-		diag.LastWSRejectStatus = status
-		diag.LastWSRejectReason = reason
 	}
 
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: diag})

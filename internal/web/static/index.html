@@ -2721,6 +2721,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (diag.block_reason === "session_expired") return "Sesión expirada — inicia sesión de nuevo";
     if (diag.block_reason === "reauth_required") return "Confirma tu contraseña para usar la terminal";
     if (diag.block_reason === "nginx_proxy") return diag.proxy_message || "Faltan cabeceras WebSocket en nginx (HTTPS)";
+    if (diag.block_reason === "ws_error") {
+      var detail = diag.last_ws_reject_reason || "";
+      return detail ? "Error del WebSocket: " + detail : "El servidor rechazó la conexión WebSocket";
+    }
     if (diag.last_ws_reject_status === 401) return "Sesión expirada — inicia sesión de nuevo";
     if (diag.last_ws_reject_status === 403) return "Reautenticación requerida — introduce tu contraseña";
     return "No se pudo conectar a la terminal";
@@ -2739,6 +2743,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
     if (diag.block_reason === "nginx_proxy") {
       termShowFixProxy(true, msg + (diag.proxy_missing && diag.proxy_missing.length ? " (" + diag.proxy_missing.join(", ") + ")" : ""));
+      return true;
+    }
+    if (diag.block_reason === "ws_error") {
+      var hint = (diag.last_ws_reject_reason || "") + " — revisa: journalctl -u sp -f";
+      termShowFixProxy(true, hint.trim().replace(/^— /, ""));
       return true;
     }
     return true;
