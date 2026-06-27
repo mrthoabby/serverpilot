@@ -10941,7 +10941,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   }
 
   function termLoadProxyStatus() {
-    if (typeof window.apiFetch !== "function") return Promise.resolve();
+    if (typeof window.apiFetch !== "function") return Promise.resolve(null);
     return window.apiFetch("/api/terminal/proxy-status").then(function(resp) {
       var st = resp.data || resp || {};
       termProxyOK = !!st.ok;
@@ -10959,9 +10959,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       if (err && (err.message === "Unauthorized" || err.code === "session_expired")) {
         termSetStatus("Inicia sesión para comprobar el proxy nginx", "var(--red)");
         if (typeof window.showLogin === "function") window.showLogin();
-        return;
+        return null;
       }
       termShowFixProxy(false, "");
+      return null;
     });
   }
 
@@ -11178,11 +11179,23 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         termFetchConnectDiag("after-ws-fail").then(function(diag) {
           if (!termHandleConnectBlock(diag)) {
             termSetStatus("No se pudo conectar — revisa nginx o inicia sesión de nuevo", "var(--red)");
-            termLoadProxyStatus();
+            termLoadProxyStatus().then(function(st) {
+              // Proxy inspection says OK but WS still failed (possible false-positive).
+              // Offer Fix button so the user can force a nginx reconfigure.
+              if (!st || st.ok) {
+                termShowFixProxy(true, st
+                  ? "El proxy nginx parece configurado pero el WebSocket falló — haz clic para reconfigurar nginx"
+                  : "No se pudo verificar el proxy nginx — haz clic para intentar repararlo");
+              }
+            });
           }
         }).catch(function() {
           termSetStatus("No se pudo conectar — repara el proxy nginx o inicia sesión de nuevo", "var(--red)");
-          termLoadProxyStatus();
+          termLoadProxyStatus().then(function(st) {
+            if (!st || st.ok) {
+              termShowFixProxy(true, "Verifica y repara la configuración WebSocket en nginx");
+            }
+          });
         });
         return;
       }
