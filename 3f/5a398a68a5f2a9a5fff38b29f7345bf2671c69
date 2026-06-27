@@ -1,0 +1,19 @@
+internal/web/static/index.html
+  s_919c43f924d555::t_df72eb05563036 10965-11014
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "3f5a398a68a5f2a9a5fff38b29f7345bf2671c69",
+  "prompts": {},
+  "sessions": {
+    "s_919c43f924d555": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "f5ba906e-5c9e-4d16-a985-ffe898655636",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
