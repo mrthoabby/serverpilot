@@ -1,0 +1,20 @@
+internal/web/static/index.html
+  s_b3c0a9bf735125::t_3a1cfef646c53b 10944,10962,10965
+  s_b3c0a9bf735125::t_e072a0c94a1495 11182-11190,11194-11198
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "b78dc5791f2db55968bfb9fef678a56c72085a73",
+  "prompts": {},
+  "sessions": {
+    "s_b3c0a9bf735125": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "103d6197-cfef-4a60-9447-fbe4e99e020c",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
