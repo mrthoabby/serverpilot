@@ -148,12 +148,33 @@ func missingWebSocketProxyBlocks(content string, dashboardPort int) []string {
 		if err != nil || port != dashboardPort {
 			continue
 		}
-		if locationBlockHasUpgrade(lines, i) {
-			continue
+		absent := locationBlockMissingDirectives(lines, i, wsProxyRequiredDirectives)
+		if len(absent) > 0 {
+			missing = append(missing, fmt.Sprintf("location block at line %d missing: %s", i+1, strings.Join(absent, ", ")))
 		}
-		missing = append(missing, fmt.Sprintf("location block at line %d missing WebSocket headers", i+1))
 	}
 	return missing
+}
+
+func locationBlockMissingDirectives(lines []string, proxyLineIdx int, directives []string) []string {
+	start, end := locationBlockRange(lines, proxyLineIdx)
+	if start < 0 || end <= start {
+		return directives
+	}
+	var absent []string
+	for _, directive := range directives {
+		found := false
+		for j := start; j <= end && j < len(lines); j++ {
+			if strings.Contains(lines[j], directive) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			absent = append(absent, directive)
+		}
+	}
+	return absent
 }
 
 func locationBlockHasUpgrade(lines []string, proxyLineIdx int) bool {
