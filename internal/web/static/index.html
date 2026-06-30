@@ -2369,10 +2369,32 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
             <button class="btn btn-sm btn-outline" id="termConnectBtn">Connect</button>
             <button class="btn btn-sm btn-outline" id="termDisconnectBtn" style="display:none;">Disconnect</button>
             <button class="btn btn-sm btn-outline" id="termLogsBtn" title="Muestra los últimos logs del servicio serverpilot">Ver logs</button>
+            <button class="btn btn-sm btn-outline" id="termAccessKeyBtn" title="Genera o muestra la clave pública para conectar desde este servidor a otros VPS">Access key</button>
+            <button class="btn btn-sm btn-outline" id="termCopyInstallBtn" title="Copia el comando para instalar ServerPilot en otro servidor">Copy install command</button>
+            <button class="btn btn-sm btn-outline" id="termAddSSHBtn" title="Abrir una segunda terminal SSH hacia otro servidor usando la access key">Añadir conexión SSH</button>
+            <button class="btn btn-sm btn-primary" id="termSettingsBtn" style="display:none;" title="Abrir Settings para completar la configuración del dominio">Configurar dominio</button>
+            <button class="btn btn-sm btn-outline" id="termOpenDomainBtn" style="display:none;" title="Abrir el dashboard desde el dominio configurado">Abrir dominio</button>
+            <button class="btn btn-sm btn-success" id="termEnableSSLBtn" style="display:none;" title="Habilitar SSL para el dominio configurado">Enable SSL</button>
             <button class="btn btn-sm btn-warning" id="termFixProxyBtn" style="display:none;" title="Añade cabeceras WebSocket en nginx para este dominio">Reparar proxy WebSocket</button>
           </div>
         </div>
         <div id="termFixProxyHint" style="display:none;padding:0.5rem 0.75rem;margin:0 0.75rem;font-size:0.78rem;color:var(--text-secondary);background:rgba(255,165,0,0.08);border:1px solid var(--orange);border-radius:6px;"></div>
+        <div id="termAccessKeyPanel" style="display:none;margin:0.5rem 0.75rem 0;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.45rem 0.65rem;border-bottom:1px solid var(--border);font-size:0.76rem;color:var(--text-muted);">
+            <span>ServerPilot outbound SSH access key</span>
+            <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
+              <button type="button" class="btn btn-sm btn-outline" id="termCopyPublicKeyBtn" style="padding:2px 8px;font-size:0.7rem;">Copy public key</button>
+              <button type="button" class="btn btn-sm btn-outline" id="termCopySSHExampleBtn" style="padding:2px 8px;font-size:0.7rem;">Copy SSH example</button>
+              <button type="button" class="btn btn-sm btn-outline" id="termAccessKeyCloseBtn" style="padding:2px 8px;font-size:0.7rem;">Close</button>
+            </div>
+          </div>
+          <div style="padding:0.65rem;display:grid;gap:0.5rem;">
+            <div style="font-size:0.74rem;color:var(--text-muted);">Paste this public key into the provider field <code>Public SSH-Key for User Admin</code>.</div>
+            <pre id="termAccessPublicKey" style="margin:0;max-height:120px;overflow:auto;padding:0.6rem;font-family:monospace;font-size:0.72rem;line-height:1.45;color:var(--text-secondary);background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;white-space:pre-wrap;"></pre>
+            <div style="font-size:0.74rem;color:var(--text-muted);">After the VPS is created, connect from this terminal with:</div>
+            <pre id="termAccessSSHExample" style="margin:0;padding:0.6rem;font-family:monospace;font-size:0.72rem;line-height:1.45;color:var(--text-secondary);background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;white-space:pre-wrap;"></pre>
+          </div>
+        </div>
         <div id="termLogsPanel" style="display:none;margin:0.5rem 0.75rem 0;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);overflow:hidden;">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.45rem 0.65rem;border-bottom:1px solid var(--border);font-size:0.76rem;color:var(--text-muted);">
             <span id="termLogsCommand">journalctl -u serverpilot</span>
@@ -2384,6 +2406,38 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
           <pre id="termLogsBody" style="margin:0;max-height:260px;overflow:auto;padding:0.65rem;font-family:monospace;font-size:0.74rem;line-height:1.45;color:var(--text-secondary);white-space:pre-wrap;"></pre>
         </div>
         <div id="terminalContainer" style="padding:0.5rem 0;border-radius:6px;overflow:hidden;"></div>
+        <div id="sshConnectPanel" style="display:none;margin:0.5rem 0.75rem 0;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.45rem 0.65rem;border-bottom:1px solid var(--border);font-size:0.76rem;color:var(--text-muted);">
+            <span>Remote SSH connection</span>
+            <button type="button" class="btn btn-sm btn-outline" id="sshConnectCloseBtn" style="padding:2px 8px;font-size:0.7rem;">Close</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:0.5rem;align-items:end;padding:0.65rem;">
+            <label style="display:grid;gap:0.25rem;font-size:0.72rem;color:var(--text-muted);">Host or IP
+              <input id="sshHostInput" type="text" placeholder="89.117.72.100" autocomplete="off" style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.82rem;">
+            </label>
+            <label style="display:grid;gap:0.25rem;font-size:0.72rem;color:var(--text-muted);">User
+              <input id="sshUserInput" type="text" value="admin" autocomplete="username" style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.82rem;">
+            </label>
+            <label style="display:grid;gap:0.25rem;font-size:0.72rem;color:var(--text-muted);">Port
+              <input id="sshPortInput" type="number" min="1" max="65535" value="22" inputmode="numeric" style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.82rem;">
+            </label>
+            <button type="button" class="btn btn-sm btn-success" id="sshConnectBtn">Connect SSH</button>
+          </div>
+        </div>
+        <div id="sshTerminalPanel" style="display:none;margin:0.5rem 0.75rem 0;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.45rem 0.65rem;border-bottom:1px solid var(--border);">
+            <div style="display:flex;align-items:center;gap:0.5rem;min-width:0;">
+              <span style="font-size:0.78rem;font-weight:700;color:var(--text-primary);">SSH</span>
+              <span id="sshTargetLabel" style="font-size:0.76rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+              <span id="sshStatus" style="font-size:0.76rem;color:var(--text-muted);">Disconnected</span>
+            </div>
+            <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
+              <button type="button" class="btn btn-sm btn-outline" id="sshCopyInstallBtn" style="padding:2px 8px;font-size:0.7rem;">Copy install command</button>
+              <button type="button" class="btn btn-sm btn-outline" id="sshDisconnectBtn" style="padding:2px 8px;font-size:0.7rem;">Disconnect</button>
+            </div>
+          </div>
+          <div id="sshTerminalContainer" style="min-height:260px;padding:0.5rem 0;border-radius:6px;overflow:hidden;"></div>
+        </div>
         <p style="padding:0.5rem 0.75rem;font-size:0.75rem;color:var(--text-muted);">
           Session closes after 10 minutes of inactivity. Re-authentication required to connect.
         </p>
@@ -7003,6 +7057,8 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   window.promptReauth      = promptReauth;
   window.showLogin         = showLogin;
   window.showDashboard     = showDashboard;
+  window.loadSettings       = loadSettings;
+  window.runStreamedOperation = runStreamedOperation;
   window.esc               = esc;
   window.escapeHtml        = escapeHtml;
   window.showToast         = showToast;
@@ -10900,14 +10956,159 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   var termReady   = false;
   var termWSRetries = 0;
   var termProxyOK = null;
+  var termAccessKeyData = null;
+  var termInstallCommand = "curl -fsSL https://raw.githubusercontent.com/mrthoabby/serverpilot/master/install.sh | sh\nsudo sp setup\nsudo sp start -d";
+  var sshWS = null;
+  var sshInst = null;
+  var sshFitAddon = null;
+  var sshReady = false;
 
   function termShowFixProxy(show, hint) {
     var btn = document.getElementById("termFixProxyBtn");
-    var hintEl = document.getElementById("termFixProxyHint");
     if (btn) btn.style.display = show ? "" : "none";
+    termShowTerminalHint(show && hint, hint);
+  }
+
+  function termShowTerminalHint(show, hint) {
+    var hintEl = document.getElementById("termFixProxyHint");
     if (hintEl) {
       hintEl.style.display = show && hint ? "" : "none";
       if (hint) hintEl.textContent = hint;
+    }
+  }
+
+  function termShowConfigButtons(opts) {
+    opts = opts || {};
+    var settingsBtn = document.getElementById("termSettingsBtn");
+    var openBtn = document.getElementById("termOpenDomainBtn");
+    var sslBtn = document.getElementById("termEnableSSLBtn");
+    if (settingsBtn) settingsBtn.style.display = opts.settings ? "" : "none";
+    if (openBtn) {
+      openBtn.style.display = opts.openDomain ? "" : "none";
+      openBtn.dataset.url = opts.dashboardURL || "";
+    }
+    if (sslBtn) {
+      sslBtn.style.display = opts.enableSSL ? "" : "none";
+      sslBtn.dataset.domain = opts.configuredDomain || "";
+    }
+  }
+
+  function termCurrentExternalHost() {
+    var host = location.hostname || "";
+    return (host && host !== "localhost" && host !== "127.0.0.1" && host !== "::1") ? host : "";
+  }
+
+  function termCopyText(text, label) {
+    function done() {
+      termSetStatus((label || "Text") + " copiado", "var(--green)");
+      if (typeof window.showToast === "function") window.showToast((label || "Text") + " copiado", "success");
+    }
+    function failed() {
+      termSetStatus("No se pudo copiar " + (label || "el texto"), "var(--red)");
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(failed);
+      return;
+    }
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try { document.execCommand("copy") ? done() : failed(); }
+    catch(e) { failed(); }
+    finally { document.body.removeChild(ta); }
+  }
+
+  function termShowAccessKeyPanel(show) {
+    var panel = document.getElementById("termAccessKeyPanel");
+    if (panel) panel.style.display = show ? "" : "none";
+  }
+
+  function termSetAccessKey(data, loadingText) {
+    var publicEl = document.getElementById("termAccessPublicKey");
+    var sshEl = document.getElementById("termAccessSSHExample");
+    termAccessKeyData = data || null;
+    if (publicEl) publicEl.textContent = loadingText || (data && data.public_key) || "(no public key yet)";
+    if (sshEl) sshEl.textContent = (data && data.ssh_command) || "ssh -i /root/.ssh/serverpilot_remote_access_ed25519 admin@<server-ip>";
+    if (data && data.install_command) termInstallCommand = data.install_command;
+  }
+
+  function termLoadAccessKey() {
+    var btn = document.getElementById("termAccessKeyBtn");
+    if (btn) btn.disabled = true;
+    termShowAccessKeyPanel(true);
+    termSetAccessKey(null, "Preparing SSH access key…");
+    ensureTerminalAuth().then(function() {
+      return window.apiFetch("/api/terminal/access-key", { method: "POST" });
+    }).then(function(resp) {
+      var data = (resp && resp.data) ? resp.data : (resp || {});
+      termSetAccessKey(data, "");
+      if (data.public_key) {
+        termSetStatus(data.generated ? "Access key generada" : "Access key lista", "var(--green)");
+      } else {
+        termSetStatus("No se pudo obtener la public key", "var(--red)");
+      }
+    }).catch(function(err) {
+      if (err && err.code === "session_expired") {
+        termSetStatus("Sesión expirada — inicia sesión de nuevo", "var(--red)");
+        if (typeof window.showLogin === "function") window.showLogin();
+        return;
+      }
+      if (err && err.code === "reauth_cancelled") {
+        termSetAccessKey(null, "Generación cancelada.");
+        termSetStatus("Generación cancelada", "var(--text-muted)");
+        return;
+      }
+      var msg = (err && err.message) ? err.message : "falló";
+      termSetAccessKey(null, "No se pudo preparar la access key: " + msg);
+      termSetStatus("No se pudo preparar la access key", "var(--red)");
+    }).finally(function() {
+      if (btn) btn.disabled = false;
+    });
+  }
+
+  function termOpenSettings(prefillDomain) {
+    var btn = document.querySelector('.tab-btn[data-tab="settings"]');
+    if (btn) btn.click();
+    setTimeout(function() {
+      var input = document.getElementById("settingsDomainInput");
+      if (input && prefillDomain && !input.value) {
+        input.value = prefillDomain;
+        input.focus();
+      }
+    }, 50);
+  }
+
+  function termApplyConfigDiag(diag) {
+    termShowConfigButtons({});
+    termShowTerminalHint(false, "");
+    if (!diag) return;
+
+    if (diag.block_reason === "domain_missing") {
+      termShowConfigButtons({ settings: true });
+      termShowFixProxy(false, "");
+      termShowTerminalHint(true, "El dominio del dashboard no está guardado. Configura el dominio antes de usar la terminal por HTTPS.");
+      return;
+    }
+
+    if (diag.config_warning === "ssl_not_enabled") {
+      termShowConfigButtons({
+        enableSSL: true,
+        configuredDomain: diag.configured_domain || diag.resolved_domain || ""
+      });
+      termShowTerminalHint(true, "El dashboard se está usando por HTTPS, pero Settings todavía marca SSL como no habilitado.");
+      return;
+    }
+
+    if (diag.config_warning === "host_mismatch") {
+      termShowConfigButtons({
+        openDomain: !!diag.dashboard_url,
+        dashboardURL: diag.dashboard_url
+      });
+      termShowTerminalHint(true, "Estás accediendo desde " + (diag.request_host || "otro host") + "; el dominio configurado es " + (diag.configured_domain || "otro") + ".");
     }
   }
 
@@ -10965,19 +11166,20 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
   function termLoadProxyStatus() {
     if (typeof window.apiFetch !== "function") return Promise.resolve(null);
-    return window.apiFetch("/api/terminal/proxy-status").then(function(resp) {
-      var st = resp.data || resp || {};
-      termProxyOK = !!st.ok;
-      if (!st.ok) {
-        var msg = st.message || "Faltan cabeceras WebSocket en nginx para la terminal";
-        if (st.missing && st.missing.length) {
-          msg += " (" + st.missing.join(", ") + ")";
+    return termFetchConnectDiag("proxy-status").then(function(diag) {
+      termApplyConfigDiag(diag);
+      termProxyOK = !!diag.proxy_ok;
+      if (diag.block_reason === "domain_missing") return diag;
+      if (!diag.proxy_ok) {
+        var msg = diag.proxy_message || "Faltan cabeceras WebSocket en nginx para la terminal";
+        if (diag.proxy_missing && diag.proxy_missing.length) {
+          msg += " (" + diag.proxy_missing.join(", ") + ")";
         }
         termShowFixProxy(true, msg);
-      } else {
+      } else if (!diag.config_warning) {
         termShowFixProxy(false, "");
       }
-      return st;
+      return diag;
     }).catch(function(err) {
       if (err && (err.message === "Unauthorized" || err.code === "session_expired")) {
         termSetStatus("Inicia sesión para comprobar el proxy nginx", "var(--red)");
@@ -10985,6 +11187,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         return null;
       }
       termShowFixProxy(false, "");
+      termShowConfigButtons({});
       return null;
     });
   }
@@ -11063,6 +11266,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (!diag) return "No se pudo conectar";
     if (diag.block_reason === "session_expired") return "Sesión expirada — inicia sesión de nuevo";
     if (diag.block_reason === "reauth_required") return "Confirma tu contraseña para usar la terminal";
+    if (diag.block_reason === "domain_missing") return "Configura el dominio del dashboard antes de usar la terminal por HTTPS";
     if (diag.block_reason === "nginx_proxy") return diag.proxy_message || "Faltan cabeceras WebSocket en nginx (HTTPS)";
     if (diag.block_reason === "ws_error") {
       var detail = diag.last_ws_reject_reason || "";
@@ -11077,11 +11281,15 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (!diag || diag.can_connect) return false;
     var msg = termExplainConnectBlock(diag);
     termSetStatus(msg, "var(--red)");
+    termApplyConfigDiag(diag);
     if (diag.block_reason === "session_expired" || diag.last_ws_reject_status === 401) {
       if (typeof window.showLogin === "function") window.showLogin();
       return true;
     }
     if (diag.block_reason === "reauth_required" || diag.last_ws_reject_status === 403) {
+      return true;
+    }
+    if (diag.block_reason === "domain_missing") {
       return true;
     }
     if (diag.block_reason === "nginx_proxy") {
@@ -11127,10 +11335,12 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
           return termFetchConnectDiag("after-reauth");
         }).then(function(diag2) {
           if (termHandleConnectBlock(diag2)) return;
+          termApplyConfigDiag(diag2);
           termOpenWebSocket();
         });
       }
       if (termHandleConnectBlock(diag)) return;
+      termApplyConfigDiag(diag);
       termOpenWebSocket();
     }).catch(function(err) {
       if (termIsNetworkError(err)) {
@@ -11341,20 +11551,243 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     if (termWS) { termWS.close(); termWS = null; }
   }
 
+  function sshSetStatus(msg, color) {
+    var el = document.getElementById("sshStatus");
+    if (el) { el.textContent = msg; el.style.color = color || "var(--text-muted)"; }
+  }
+
+  function sshShowConnectPanel(show) {
+    var panel = document.getElementById("sshConnectPanel");
+    if (panel) panel.style.display = show ? "" : "none";
+  }
+
+  function sshShowTerminalPanel(show) {
+    var panel = document.getElementById("sshTerminalPanel");
+    if (panel) panel.style.display = show ? "" : "none";
+  }
+
+  function sshReadForm() {
+    var host = (document.getElementById("sshHostInput") || {}).value || "";
+    var user = (document.getElementById("sshUserInput") || {}).value || "admin";
+    var port = (document.getElementById("sshPortInput") || {}).value || "22";
+    host = host.trim();
+    user = user.trim() || "admin";
+    port = port.trim() || "22";
+    if (!host) throw new Error("Host requerido");
+    if (!/^[A-Za-z_][A-Za-z0-9_.-]{0,31}$/.test(user)) throw new Error("Usuario invalido");
+    var portNum = Number(port);
+    if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) throw new Error("Puerto invalido");
+    return { host: host, user: user, port: String(portNum) };
+  }
+
+  function sshSetTargetLabel(params) {
+    var el = document.getElementById("sshTargetLabel");
+    if (el) el.textContent = params.user + "@" + params.host + ":" + params.port;
+  }
+
+  function sshConnect() {
+    if (typeof Terminal === "undefined" || typeof FitAddon === "undefined") {
+      sshSetStatus("Terminal library failed to load", "var(--red)");
+      return;
+    }
+
+    var params;
+    try { params = sshReadForm(); }
+    catch (e) {
+      sshSetStatus(e.message || "Datos invalidos", "var(--red)");
+      return;
+    }
+
+    var btn = document.getElementById("sshConnectBtn");
+    if (btn) btn.disabled = true;
+    sshShowTerminalPanel(true);
+    sshSetTargetLabel(params);
+    sshSetStatus("Preparing access key...", "var(--yellow)");
+
+    ensureTerminalAuth().then(function() {
+      return window.apiFetch("/api/terminal/access-key", { method: "POST" });
+    }).then(function() {
+      sshOpenWebSocket(params);
+    }).catch(function(err) {
+      if (err && err.code === "session_expired") {
+        sshSetStatus("Sesion expirada", "var(--red)");
+        if (typeof window.showLogin === "function") window.showLogin();
+        return;
+      }
+      if (err && err.code === "reauth_cancelled") {
+        sshSetStatus("Conexion cancelada", "var(--text-muted)");
+        return;
+      }
+      sshSetStatus("No se pudo preparar SSH", "var(--red)");
+    }).finally(function() {
+      if (btn) btn.disabled = false;
+    });
+  }
+
+  function sshOpenWebSocket(params) {
+    if (sshWS && sshWS.readyState === WebSocket.OPEN) sshWS.close();
+
+    if (!sshReady) {
+      sshInst = new Terminal({
+        cursorBlink: true,
+        fontSize: 14,
+        fontFamily: '"Cascadia Code", "Fira Code", "Menlo", monospace',
+        theme: {
+          background: "#0d1117",
+          foreground: "#e6edf3",
+          cursor:     "#00b4d8",
+          selectionBackground: "rgba(0,180,216,0.3)",
+          black:   "#484f58", red:     "#f85149", green:   "#3fb950", yellow: "#d29922",
+          blue:    "#388bfd", magenta: "#bc8cff", cyan:    "#39c5cf", white:  "#b1bac4",
+          brightBlack:   "#6e7681", brightRed:     "#ff7b72", brightGreen: "#56d364",
+          brightYellow:  "#e3b341", brightBlue:    "#79c0ff", brightMagenta:"#d2a8ff",
+          brightCyan:    "#56d4dd", brightWhite:   "#f0f6fc"
+        },
+        allowProposedApi: true
+      });
+      sshFitAddon = new FitAddon.FitAddon();
+      sshInst.loadAddon(sshFitAddon);
+      sshInst.open(document.getElementById("sshTerminalContainer"));
+      sshFitAddon.fit();
+      sshInst.onResize(function(size) {
+        if (sshWS && sshWS.readyState === WebSocket.OPEN) {
+          sshWS.send(JSON.stringify({ type: "resize", cols: size.cols, rows: size.rows }));
+        }
+      });
+      sshInst.onData(function(data) {
+        if (sshWS && sshWS.readyState === WebSocket.OPEN) {
+          sshWS.send(new TextEncoder().encode(data));
+        }
+      });
+      window.addEventListener("resize", function() {
+        if (sshReady && sshFitAddon) sshFitAddon.fit();
+      });
+      sshReady = true;
+    }
+
+    var proto = location.protocol === "https:" ? "wss:" : "ws:";
+    var url = proto + "//" + location.host + "/api/terminal/ssh/ws" +
+      "?host=" + encodeURIComponent(params.host) +
+      "&user=" + encodeURIComponent(params.user) +
+      "&port=" + encodeURIComponent(params.port);
+
+    sshSetStatus("Connecting...", "var(--yellow)");
+    sshInst.clear();
+    sshInst.focus();
+
+    var ws = new WebSocket(url);
+    ws.binaryType = "arraybuffer";
+    sshWS = ws;
+    var opened = false;
+
+    ws.onopen = function() {
+      opened = true;
+      sshSetStatus("Connected", "var(--green)");
+      if (sshFitAddon) sshFitAddon.fit();
+      ws.send(JSON.stringify({ type: "resize", cols: sshInst.cols, rows: sshInst.rows }));
+      sshInst.focus();
+    };
+
+    ws.onmessage = function(evt) {
+      if (evt.data instanceof ArrayBuffer) {
+        sshInst.write(new Uint8Array(evt.data));
+      }
+    };
+
+    ws.onclose = function() {
+      sshWS = null;
+      sshSetStatus(opened ? "Disconnected" : "SSH failed - verify host, user, key, and port", opened ? "var(--text-muted)" : "var(--red)");
+    };
+
+    ws.onerror = function() {
+      sshSetStatus("SSH connection error", "var(--red)");
+    };
+  }
+
+  function sshDisconnect() {
+    if (sshWS) { sshWS.close(); sshWS = null; }
+  }
+
+  function termEnableSSLFromDiag() {
+    var btn = document.getElementById("termEnableSSLBtn");
+    var domain = btn ? btn.dataset.domain : "";
+    if (!domain) {
+      termOpenSettings("");
+      return;
+    }
+    if (typeof window.runStreamedOperation !== "function") {
+      termSetStatus("Enable SSL no está disponible — abre Settings", "var(--red)");
+      termOpenSettings(domain);
+      return;
+    }
+    ensureTerminalAuth().then(function() {
+      window.runStreamedOperation("/api/settings/ssl-enable", {}, "Enabling SSL for ServerPilot", domain);
+    }).catch(function(err) {
+      if (err && err.code === "session_expired") {
+        termSetStatus("Sesión expirada — inicia sesión de nuevo", "var(--red)");
+        if (typeof window.showLogin === "function") window.showLogin();
+        return;
+      }
+      termSetStatus("No se pudo iniciar Enable SSL", "var(--red)");
+    });
+  }
+
   // Wire buttons once DOM is ready.
   document.addEventListener("DOMContentLoaded", function() {
     var connBtn = document.getElementById("termConnectBtn");
     var discBtn = document.getElementById("termDisconnectBtn");
     var fixBtn  = document.getElementById("termFixProxyBtn");
     var logsBtn = document.getElementById("termLogsBtn");
+    var accessKeyBtn = document.getElementById("termAccessKeyBtn");
+    var copyInstallBtn = document.getElementById("termCopyInstallBtn");
+    var addSSHBtn = document.getElementById("termAddSSHBtn");
+    var copyPublicKeyBtn = document.getElementById("termCopyPublicKeyBtn");
+    var copySSHExampleBtn = document.getElementById("termCopySSHExampleBtn");
+    var accessKeyCloseBtn = document.getElementById("termAccessKeyCloseBtn");
+    var sshConnectBtn = document.getElementById("sshConnectBtn");
+    var sshConnectCloseBtn = document.getElementById("sshConnectCloseBtn");
+    var sshDisconnectBtn = document.getElementById("sshDisconnectBtn");
+    var sshCopyInstallBtn = document.getElementById("sshCopyInstallBtn");
     var logsRefreshBtn = document.getElementById("termLogsRefreshBtn");
     var logsCloseBtn = document.getElementById("termLogsCloseBtn");
+    var settingsBtn = document.getElementById("termSettingsBtn");
+    var openDomainBtn = document.getElementById("termOpenDomainBtn");
+    var enableSSLBtn = document.getElementById("termEnableSSLBtn");
     if (connBtn) connBtn.addEventListener("click", termConnect);
     if (discBtn) discBtn.addEventListener("click", termDisconnect);
     if (fixBtn) fixBtn.addEventListener("click", termFixProxy);
     if (logsBtn) logsBtn.addEventListener("click", termLoadServiceLogs);
+    if (accessKeyBtn) accessKeyBtn.addEventListener("click", termLoadAccessKey);
+    if (copyInstallBtn) copyInstallBtn.addEventListener("click", function() { termCopyText(termInstallCommand, "Installation command"); });
+    if (addSSHBtn) addSSHBtn.addEventListener("click", function() {
+      sshShowConnectPanel(true);
+      var hostInput = document.getElementById("sshHostInput");
+      if (hostInput) hostInput.focus();
+    });
+    if (copyPublicKeyBtn) copyPublicKeyBtn.addEventListener("click", function() {
+      if (!termAccessKeyData || !termAccessKeyData.public_key) {
+        termLoadAccessKey();
+        return;
+      }
+      termCopyText(termAccessKeyData.public_key, "Public key");
+    });
+    if (copySSHExampleBtn) copySSHExampleBtn.addEventListener("click", function() {
+      var cmd = (termAccessKeyData && termAccessKeyData.ssh_command) || "ssh -i /root/.ssh/serverpilot_remote_access_ed25519 admin@<server-ip>";
+      termCopyText(cmd, "SSH example");
+    });
+    if (accessKeyCloseBtn) accessKeyCloseBtn.addEventListener("click", function() { termShowAccessKeyPanel(false); });
+    if (sshConnectBtn) sshConnectBtn.addEventListener("click", sshConnect);
+    if (sshConnectCloseBtn) sshConnectCloseBtn.addEventListener("click", function() { sshShowConnectPanel(false); });
+    if (sshDisconnectBtn) sshDisconnectBtn.addEventListener("click", sshDisconnect);
+    if (sshCopyInstallBtn) sshCopyInstallBtn.addEventListener("click", function() { termCopyText(termInstallCommand, "Installation command"); });
     if (logsRefreshBtn) logsRefreshBtn.addEventListener("click", termLoadServiceLogs);
     if (logsCloseBtn) logsCloseBtn.addEventListener("click", function() { termShowLogsPanel(false); });
+    if (settingsBtn) settingsBtn.addEventListener("click", function() { termOpenSettings(termCurrentExternalHost()); });
+    if (openDomainBtn) openDomainBtn.addEventListener("click", function() {
+      var url = openDomainBtn.dataset.url || "";
+      if (url) window.location.href = url;
+    });
+    if (enableSSLBtn) enableSSLBtn.addEventListener("click", termEnableSSLFromDiag);
 
     // Auto-fit when switching to the terminal tab.
     document.querySelectorAll(".tab-btn").forEach(function(btn) {
@@ -11362,9 +11795,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         if (btn.dataset.tab === "terminal") {
           termLoadProxyStatus();
           setTimeout(function() { if (fitAddon) fitAddon.fit(); }, 50);
+          setTimeout(function() { if (sshFitAddon) sshFitAddon.fit(); }, 80);
         } else {
           // Disconnect when leaving the terminal tab to avoid orphaned PTYs.
           termDisconnect();
+          sshDisconnect();
         }
       });
     });
