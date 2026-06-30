@@ -1,7 +1,9 @@
 package web
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -246,6 +248,24 @@ func (rw *responseWriter) Flush() {
 	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// Hijack delegates to the underlying ResponseWriter when it supports
+// connection hijacking, which WebSocket upgrades require.
+func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := rw.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("underlying response writer does not support hijacking")
+	}
+	return h.Hijack()
+}
+
+// ReadFrom preserves the optimized io.ReaderFrom path used by net/http.
+func (rw *responseWriter) ReadFrom(r io.Reader) (int64, error) {
+	if rf, ok := rw.ResponseWriter.(io.ReaderFrom); ok {
+		return rf.ReadFrom(r)
+	}
+	return io.Copy(rw.ResponseWriter, r)
 }
 
 // Unwrap returns the original ResponseWriter so that type assertions (e.g. http.Flusher) work through the wrapper.

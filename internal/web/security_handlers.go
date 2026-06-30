@@ -23,6 +23,35 @@ type mfaEnableRequest struct {
 	Code   string `json:"code"`
 }
 
+func (s *Server) handleSessionStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	token, ok := s.currentSessionToken(r)
+	if !ok {
+		writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]interface{}{
+			"authenticated": false,
+		}})
+		return
+	}
+	username, valid := s.sessionStore.ValidateSession(token)
+	if !valid {
+		writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]interface{}{
+			"authenticated": false,
+		}})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]interface{}{
+		"authenticated":                true,
+		"recently_reauthenticated":     s.sessionStore.RecentlyReauthenticated(token),
+		"username":                     username,
+		"reauth_max_sec":               int(auth.ReauthMaxAge.Seconds()),
+		"session_idle_timeout_sec":     int(auth.SessionIdleTimeout.Seconds()),
+		"session_absolute_timeout_sec": int(auth.SessionMaxAge.Seconds()),
+	}})
+}
+
 func (s *Server) handleSessionReauth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})

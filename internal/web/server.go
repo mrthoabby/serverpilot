@@ -47,6 +47,7 @@ func (s *Server) Start() error {
 
 	// Auth API routes (no auth middleware).
 	mux.HandleFunc("/api/login", s.handleLogin)
+	mux.HandleFunc("/api/session/status", s.handleSessionStatus)
 
 	// Protected API routes.
 	mux.Handle("/api/logout", s.authMiddleware(http.HandlerFunc(s.handleLogout)))
@@ -190,6 +191,7 @@ func (s *Server) Start() error {
 	mux.Handle("/api/terminal/ws-check", http.HandlerFunc(s.handleTerminalWSCheck))
 	mux.Handle("/api/terminal/proxy-status", s.authMiddleware(http.HandlerFunc(s.handleTerminalProxyStatus)))
 	mux.Handle("/api/terminal/fix-proxy", s.requireReauth(http.HandlerFunc(s.handleTerminalFixProxy)))
+	mux.Handle("/api/terminal/service-logs", s.requireReauth(http.HandlerFunc(s.handleTerminalServiceLogs)))
 
 	// Static files.
 	mux.Handle("/static/", http.FileServer(http.FS(staticFiles)))

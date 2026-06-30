@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,12 +22,26 @@ import (
 const (
 	termIdleTimeout = 10 * time.Minute
 	termMaxMsgSize  = 32 << 10 // 32 KB
+	termLogTimeout  = 5 * time.Second
+	termLogMaxBytes = 128 << 10 // 128 KB
+)
+
+var (
+	diagnosticSecretPattern = regexp.MustCompile(`(?i)\b(password|passwd|token|secret|api[_-]?key|authorization|cookie)=\S+`)
+	diagnosticDSNPattern    = regexp.MustCompile(`://([^:\s/@]+):([^@\s]+)@`)
 )
 
 type termResizeMsg struct {
 	Type string `json:"type"`
 	Cols uint16 `json:"cols"`
 	Rows uint16 `json:"rows"`
+}
+
+type terminalServiceLogsResponse struct {
+	Command string `json:"command"`
+	Logs    string `json:"logs"`
+	OK      bool   `json:"ok"`
+	Error   string `json:"error,omitempty"`
 }
 
 // handleTerminalWS upgrades the connection to a WebSocket and bridges it
@@ -146,6 +162,101 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 
 	wg.Wait()
 	conn.Close(websocket.StatusNormalClosure, "")
+}
+
+// handleTerminalServiceLogs returns a bounded, redacted snapshot of the
+// ServerPilot systemd journal. It intentionally does not accept arbitrary
+// commands from the browser.
+func (s *Server) handleTerminalServiceLogs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	tail, err := terminalServiceLogTail(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid tail"})
+		return
+	}
+
+	cmdPath, args, display := terminalServiceLogCommand(tail)
+	ctx, cancel := context.WithTimeout(r.Context(), termLogTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, cmdPath, args...)
+	output, runErr := cmd.CombinedOutput()
+	logs := sanitizeDiagnosticLogText(string(output), termLogMaxBytes)
+	if ctx.Err() == context.DeadlineExceeded {
+		writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: terminalServiceLogsResponse{
+			Command: display,
+			Logs:    logs,
+			OK:      false,
+			Error:   "journalctl timed out",
+		}})
+		return
+	}
+	if runErr != nil {
+		writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: terminalServiceLogsResponse{
+			Command: display,
+			Logs:    logs,
+			OK:      false,
+			Error:   "journalctl failed",
+		}})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: terminalServiceLogsResponse{
+		Command: display,
+		Logs:    logs,
+		OK:      true,
+	}})
+}
+
+func terminalServiceLogTail(r *http.Request) (int, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get("tail"))
+	if raw == "" {
+		return 120, nil
+	}
+	tail, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, err
+	}
+	if tail < 1 || tail > 300 {
+		return 0, strconv.ErrSyntax
+	}
+	return tail, nil
+}
+
+func terminalServiceLogCommand(tail int) (string, []string, string) {
+	args := []string{
+		"-u", "serverpilot",
+		"--no-pager",
+		"--output", "short-iso",
+		"--lines", strconv.Itoa(tail),
+	}
+	return "/usr/bin/journalctl", args, "journalctl -u serverpilot --no-pager --output short-iso --lines " + strconv.Itoa(tail)
+}
+
+func sanitizeDiagnosticLogText(text string, maxBytes int) string {
+	text = diagnosticSecretPattern.ReplaceAllString(text, "$1=REDACTED")
+	text = diagnosticDSNPattern.ReplaceAllString(text, "://$1:REDACTED@")
+
+	var b strings.Builder
+	b.Grow(min(len(text), maxBytes))
+	for _, r := range text {
+		if b.Len() >= maxBytes {
+			b.WriteString("\n[truncated]\n")
+			break
+		}
+		if r == '\n' || r == '\t' || (r >= 0x20 && r != 0x7f) {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteRune('?')
+	}
+	out := strings.TrimRight(b.String(), "\n")
+	if out == "" {
+		return "(no logs)"
+	}
+	return out
 }
 
 // terminalOriginPatterns builds allowed WebSocket Origin host patterns from the
