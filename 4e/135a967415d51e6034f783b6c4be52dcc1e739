@@ -1,0 +1,43 @@
+internal/web/static/index.html
+  s_26125f53909936::t_d4e4d11f5a9c85 11273-11289,11292,11295-11307,11309,11311-11313
+  s_26125f53909936::t_0c5e4ffe732dd1 2371,2376-2385
+  s_26125f53909936::t_cc3c880a29baba 11032-11048,11136-11139,11244,11272,11315-11319,11321-11322,11325,11329-11330,11334
+  s_26125f53909936::t_aa6f59744ed488 1809,1907,1910
+  s_26125f53909936::t_eac354757dc41d 10914-10965,11092,11349-11351,11355-11357
+  s_26125f53909936::t_3949dd7650b26b 2932,10643-10649
+internal/web/terminal.go
+  s_26125f53909936::t_529e998635d4a2 219,221-223
+  s_26125f53909936::t_ad33b62f64e13d 11-12,25-31,40-46,167-218,220,224-260
+  s_26125f53909936::t_5d65fb94f88572 261
+internal/web/security_handlers_test.go
+  s_26125f53909936::t_7bd2c0035375b6 1-75
+internal/web/security_handlers.go
+  s_26125f53909936::t_fc2b97cde67494 26-45,51-54
+  s_26125f53909936::t_cf281a41e9ddfb 46-50
+internal/web/middleware.go
+  s_26125f53909936::t_80b703b57329bf 4,6,253-269
+  s_26125f53909936::t_462ed09428ef97 270
+internal/web/middleware_test.go
+  s_26125f53909936::t_16ce9f2a6f5231 1-54
+internal/web/server.go
+  s_26125f53909936::t_09d14b9c53abca 50
+  s_26125f53909936::t_08661fdb620ee9 194
+internal/web/terminal_test.go
+  s_26125f53909936::t_151ffe89379716 1-66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.5",
+  "base_commit_sha": "4e135a967415d51e6034f783b6c4be52dcc1e739",
+  "prompts": {},
+  "sessions": {
+    "s_26125f53909936": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f1ab7-9118-70e1-8263-bed1ec615eaa",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
