@@ -3300,16 +3300,23 @@ func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{
 		Success: true,
 		Data: map[string]interface{}{
-			"domain":           s.config.Domain,
-			"email":            s.config.Email,
-			"ssl_enabled":      s.config.SSLEnabled,
-			"insecure_blocked": s.config.InsecureBlocked,
-			"host_guard":       nginx.SecurityCatchAllEnabled(),
-			"mfa_enabled":      s.config.MFAEnabled,
-			"port":             s.port,
-			"session_max_sec":  int(auth.SessionMaxAge.Seconds()),
-			"session_idle_sec": int(auth.SessionIdleTimeout.Seconds()),
-			"reauth_max_sec":   int(auth.ReauthMaxAge.Seconds()),
+			"domain":                          s.config.Domain,
+			"email":                           s.config.Email,
+			"ssl_enabled":                     s.config.SSLEnabled,
+			"insecure_blocked":                s.config.InsecureBlocked,
+			"host_guard":                      nginx.SecurityCatchAllEnabled(),
+			"mfa_enabled":                     s.config.MFAEnabled,
+			"email_login_enabled":             s.config.EmailLoginEnabled,
+			"email_login_address":             s.config.EmailLoginAddress,
+			"email_delivery_url":              s.config.EmailDeliveryURL,
+			"email_delivery_scope":            emailDeliveryConfigFromAuthConfig(s.config).Scope,
+			"email_delivery_template":         emailDeliveryConfigFromAuthConfig(s.config).Template,
+			"email_delivery_timeout_sec":      emailDeliveryConfigFromAuthConfig(s.config).TimeoutSec,
+			"email_delivery_token_configured": strings.TrimSpace(s.config.EmailDeliveryAuthToken) != "",
+			"port":                            s.port,
+			"session_max_sec":                 int(auth.SessionMaxAge.Seconds()),
+			"session_idle_sec":                int(auth.SessionIdleTimeout.Seconds()),
+			"reauth_max_sec":                  int(auth.ReauthMaxAge.Seconds()),
 		},
 	})
 }
@@ -3427,6 +3434,76 @@ func (s *Server) handleSettingsEmail(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 		Data:    map[string]string{"message": "Email saved: " + email},
 	})
+}
+
+type settingsEmailLoginRequest struct {
+	Enabled    bool   `json:"enabled"`
+	Email      string `json:"email"`
+	URL        string `json:"url"`
+	Token      string `json:"token"`
+	Scope      string `json:"scope"`
+	Template   string `json:"template"`
+	TimeoutSec int    `json:"timeout_sec"`
+}
+
+func (s *Server) handleSettingsEmailLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+	var req settingsEmailLoginRequest
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	deliveryURL := strings.TrimSpace(req.URL)
+	token := strings.TrimSpace(req.Token)
+	if token == "" {
+		token = strings.TrimSpace(s.config.EmailDeliveryAuthToken)
+	}
+	scope := strings.TrimSpace(req.Scope)
+	if scope == "" {
+		scope = defaultEmailDeliveryScope
+	}
+	template := strings.TrimSpace(req.Template)
+	if template == "" {
+		template = defaultEmailDeliveryTemplate
+	}
+	timeout := req.TimeoutSec
+	if timeout == 0 {
+		timeout = defaultEmailDeliveryTimeoutSec
+	}
+
+	deliveryCfg := emailDeliveryConfig{
+		URL:        deliveryURL,
+		Token:      token,
+		Scope:      scope,
+		Template:   template,
+		TimeoutSec: timeout,
+	}
+	if err := validateEmailDeliverySettings(deliveryCfg, req.Enabled, email); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: err.Error()})
+		return
+	}
+
+	s.config.EmailLoginEnabled = req.Enabled
+	s.config.EmailLoginAddress = email
+	s.config.EmailDeliveryURL = deliveryURL
+	s.config.EmailDeliveryAuthToken = token
+	s.config.EmailDeliveryScope = scope
+	s.config.EmailDeliveryTemplate = template
+	s.config.EmailDeliveryTimeoutSec = timeout
+	if err := emailLoginSaveConfig(*s.config); err != nil {
+		log.Printf("settings email login: save config: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to save config"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]interface{}{
+		"email_login_enabled":             s.config.EmailLoginEnabled,
+		"email_delivery_token_configured": s.config.EmailDeliveryAuthToken != "",
+	}})
 }
 
 // handleSettingsSSLEnable enables SSL for the ServerPilot domain via certbot (SSE streaming).

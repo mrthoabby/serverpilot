@@ -1156,6 +1156,23 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       </div>
       <button type="submit" class="btn btn-primary login-btn" id="loginBtn">Sign In</button>
     </form>
+    <div id="emailLoginBox" style="display:none;margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border);">
+      <button type="button" class="btn btn-secondary login-btn" id="emailLoginToggleBtn">Login by email</button>
+      <div id="emailLoginPanel" style="display:none;margin-top:0.85rem;">
+        <div class="form-group">
+          <label for="emailLoginEmail">Email</label>
+          <input type="email" id="emailLoginEmail" autocomplete="email" placeholder="admin@example.com">
+        </div>
+        <button type="button" class="btn btn-primary login-btn" id="emailLoginRequestBtn">Send Code</button>
+        <div id="emailLoginCodeBox" style="display:none;margin-top:0.85rem;">
+          <div class="form-group">
+            <label for="emailLoginCode">Code</label>
+            <input type="text" id="emailLoginCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456">
+          </div>
+          <button type="button" class="btn btn-primary login-btn" id="emailLoginVerifyBtn">Verify Code</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -2246,12 +2263,14 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     <!-- Settings Tab -->
     <div class="tab-panel" id="panel-settings">
-      <div class="card" style="max-width: 600px;">
+      <div class="card" style="max-width: 1120px;">
         <div class="card-header"><h2>ServerPilot Settings</h2></div>
         <div style="padding: 1.25rem;">
           <p style="color:var(--text-secondary); font-size:0.875rem; margin-bottom: 1.25rem;">
             Configure the domain, SSL certificate, and security for your ServerPilot dashboard.
           </p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem;align-items:start;">
+          <div>
 
           <!-- Step 1: Domain & Email -->
           <div class="settings-step" id="settingsStep1">
@@ -2352,6 +2371,50 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
             <div id="settingsSessionsContent" style="margin-top:0.75rem;font-size:0.8125rem;color:var(--text-secondary);"></div>
           </div>
 
+          </div>
+          <div class="settings-step" id="settingsEmailLoginStep">
+            <div class="settings-step-header">
+              <span class="settings-step-num" id="settingsEmailLoginNum">6</span>
+              <span class="settings-step-title">Email Login</span>
+              <span class="settings-step-status" id="settingsEmailLoginStatus"></span>
+            </div>
+            <p class="settings-step-desc">Allow dashboard login with a one-time code delivered by Email Sender.</p>
+            <label style="display:flex;align-items:center;gap:0.45rem;margin-top:0.65rem;font-size:0.8125rem;color:var(--text-secondary);">
+              <input type="checkbox" id="settingsEmailLoginEnabled">
+              Enable email login
+            </label>
+            <div class="form-group" style="margin-top:0.75rem;">
+              <label for="settingsEmailLoginAddress">Login email</label>
+              <input type="email" id="settingsEmailLoginAddress" placeholder="admin@example.com">
+            </div>
+            <div class="form-group">
+              <label for="settingsEmailDeliveryURL">Email Sender delivery URL</label>
+              <input type="url" id="settingsEmailDeliveryURL" placeholder="https://email.example.com/api/internal/deliveries">
+            </div>
+            <div class="form-group">
+              <label for="settingsEmailDeliveryToken">Machine token</label>
+              <input type="password" id="settingsEmailDeliveryToken" autocomplete="new-password" placeholder="Leave blank to keep existing token">
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:0.5rem;">
+              <div class="form-group">
+                <label for="settingsEmailDeliveryScope">Scope</label>
+                <input type="text" id="settingsEmailDeliveryScope" placeholder="auth">
+              </div>
+              <div class="form-group">
+                <label for="settingsEmailDeliveryTemplate">Template</label>
+                <input type="text" id="settingsEmailDeliveryTemplate" placeholder="serverpilot_login_code">
+              </div>
+              <div class="form-group">
+                <label for="settingsEmailDeliveryTimeout">Timeout</label>
+                <input type="number" id="settingsEmailDeliveryTimeout" min="1" max="30" value="5">
+              </div>
+            </div>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;">
+              <button class="btn btn-sm btn-primary" id="settingsEmailLoginSaveBtn">Save Email Login</button>
+              <button class="btn btn-sm btn-outline" id="settingsEmailLoginTestBtn">Send Test Code</button>
+            </div>
+          </div>
+          </div>
         </div>
       </div>
     </div>
@@ -2832,6 +2895,17 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   async function promptReauth() {
     if (reauthInFlight) return reauthInFlight;
     reauthInFlight = (async function() {
+      if (settingsData && settingsData.email_login_enabled && window.confirm("Use email code for reauthentication? Cancel to use password.")) {
+        await apiFetchInternal("/api/session/reauth/email/request-code", { method: "POST", body: {} }, false);
+        var emailCode = window.prompt("Enter the 6-digit email code.");
+        if (!emailCode) throw new Error("reauthentication cancelled");
+        await apiFetchInternal("/api/session/reauth/email/verify-code", {
+          method: "POST",
+          body: { code: emailCode.trim() }
+        }, false);
+        showToast("Reauthenticated", "success");
+        return;
+      }
       var password = window.prompt("Re-enter your ServerPilot admin password to continue.");
       if (!password) throw new Error("reauthentication cancelled");
       var mfaCode = "";
@@ -2970,6 +3044,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
   var loginScreen = document.getElementById("loginScreen");
   var dashboard = document.getElementById("dashboard");
+  var loginOptions = { email_login_enabled: false };
 
   // Both screens start hidden via CSS (display:none) to prevent login flash on reload.
   // showLogin() or showDashboard() will reveal the correct one after init() checks the session.
@@ -2978,6 +3053,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     loginScreen.style.display = "flex";
     dashboard.style.display = "none";
     stopGlobalRefresh();
+    loadLoginOptions();
   }
 
   function showDashboard() {
@@ -2987,6 +3063,17 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     // Load the active tab immediately, then start the 30s refresh cycle.
     if (tabLoaders[activeTab]) tabLoaders[activeTab]();
     startGlobalRefresh();
+  }
+
+  async function loadLoginOptions() {
+    try {
+      var resp = await apiFetch("/api/login/options");
+      loginOptions = (resp && resp.data) ? resp.data : (resp || loginOptions);
+    } catch(e) {
+      loginOptions = { email_login_enabled: false };
+    }
+    var box = document.getElementById("emailLoginBox");
+    if (box) box.style.display = loginOptions.email_login_enabled ? "block" : "none";
   }
 
   onEl("loginForm", "submit", async function(e) {
@@ -3012,6 +3099,62 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     } finally {
       btn.disabled = false;
       setText(btn, "Sign In");
+    }
+  });
+
+  onEl("emailLoginToggleBtn", "click", function() {
+    var panel = document.getElementById("emailLoginPanel");
+    if (!panel) return;
+    panel.style.display = panel.style.display === "none" ? "block" : "none";
+  });
+
+  onEl("emailLoginRequestBtn", "click", async function() {
+    var errEl = document.getElementById("loginError");
+    errEl.style.display = "none";
+    var btn = this;
+    var email = document.getElementById("emailLoginEmail").value.trim();
+    if (!email) {
+      errEl.style.display = "block";
+      setText(errEl, "Enter your email first");
+      return;
+    }
+    btn.disabled = true;
+    setText(btn, "Sending...");
+    try {
+      await apiFetch("/api/login/email/request-code", { method: "POST", body: { email: email } });
+      document.getElementById("emailLoginCodeBox").style.display = "block";
+      setText(errEl, "If email login is configured, a code was sent.");
+      errEl.style.display = "block";
+    } catch(err) {
+      errEl.style.display = "block";
+      setText(errEl, "Could not request email code");
+    } finally {
+      btn.disabled = false;
+      setText(btn, "Send Code");
+    }
+  });
+
+  onEl("emailLoginVerifyBtn", "click", async function() {
+    var errEl = document.getElementById("loginError");
+    errEl.style.display = "none";
+    var btn = this;
+    btn.disabled = true;
+    setText(btn, "Verifying...");
+    try {
+      await apiFetch("/api/login/email/verify-code", {
+        method: "POST",
+        body: {
+          email: document.getElementById("emailLoginEmail").value.trim(),
+          code: document.getElementById("emailLoginCode").value.trim()
+        }
+      });
+      showDashboard();
+    } catch(err) {
+      errEl.style.display = "block";
+      setText(errEl, "Invalid or expired code");
+    } finally {
+      btn.disabled = false;
+      setText(btn, "Verify Code");
     }
   });
 
@@ -7953,7 +8096,21 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   }
 
   // ── Settings ──
-  var settingsData = { domain: "", ssl_enabled: false, insecure_blocked: false, host_guard: false, mfa_enabled: false, port: 0 };
+  var settingsData = {
+    domain: "",
+    ssl_enabled: false,
+    insecure_blocked: false,
+    host_guard: false,
+    mfa_enabled: false,
+    email_login_enabled: false,
+    email_login_address: "",
+    email_delivery_url: "",
+    email_delivery_scope: "auth",
+    email_delivery_template: "serverpilot_login_code",
+    email_delivery_timeout_sec: 5,
+    email_delivery_token_configured: false,
+    port: 0
+  };
   var pendingMFASecret = "";
 
   async function loadSettings() {
@@ -7989,6 +8146,15 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var mfaDisableBtn = document.getElementById("settingsMFADisableBtn");
     var mfaSetupBox = document.getElementById("settingsMFASetupBox");
     var sessionPolicy = document.getElementById("settingsSessionPolicy");
+    var emailLoginEnabled = document.getElementById("settingsEmailLoginEnabled");
+    var emailLoginAddress = document.getElementById("settingsEmailLoginAddress");
+    var emailDeliveryURL = document.getElementById("settingsEmailDeliveryURL");
+    var emailDeliveryToken = document.getElementById("settingsEmailDeliveryToken");
+    var emailDeliveryScope = document.getElementById("settingsEmailDeliveryScope");
+    var emailDeliveryTemplate = document.getElementById("settingsEmailDeliveryTemplate");
+    var emailDeliveryTimeout = document.getElementById("settingsEmailDeliveryTimeout");
+    var emailLoginStatus = document.getElementById("settingsEmailLoginStatus");
+    var emailLoginNum = document.getElementById("settingsEmailLoginNum");
 
     var emailInput = document.getElementById("settingsEmailInput");
     var emailBtn = document.getElementById("settingsEmailBtn");
@@ -8103,6 +8269,20 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     var absoluteHours = settingsData.session_max_sec ? Math.round(settingsData.session_max_sec / 3600) : 12;
     var reauthMin = settingsData.reauth_max_sec ? Math.round(settingsData.reauth_max_sec / 60) : 15;
     sessionPolicy.textContent = "Idle " + idleMin + "m / absolute " + absoluteHours + "h / reauth " + reauthMin + "m";
+
+    if (emailLoginEnabled) emailLoginEnabled.checked = !!settingsData.email_login_enabled;
+    if (emailLoginAddress) emailLoginAddress.value = settingsData.email_login_address || "";
+    if (emailDeliveryURL) emailDeliveryURL.value = settingsData.email_delivery_url || "";
+    if (emailDeliveryToken) emailDeliveryToken.value = "";
+    if (emailDeliveryScope) emailDeliveryScope.value = settingsData.email_delivery_scope || "auth";
+    if (emailDeliveryTemplate) emailDeliveryTemplate.value = settingsData.email_delivery_template || "serverpilot_login_code";
+    if (emailDeliveryTimeout) emailDeliveryTimeout.value = settingsData.email_delivery_timeout_sec || 5;
+    if (emailLoginStatus) {
+      var configured = settingsData.email_login_enabled && settingsData.email_login_address && settingsData.email_delivery_url && settingsData.email_delivery_token_configured;
+      emailLoginStatus.textContent = configured ? "Enabled" : (settingsData.email_login_enabled ? "Incomplete" : "Disabled");
+      emailLoginStatus.className = "settings-step-status " + (configured ? "configured" : "pending");
+      if (emailLoginNum) emailLoginNum.classList.toggle("done", !!configured);
+    }
     loadSessions();
   }
 
@@ -8148,6 +8328,53 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     } finally {
       btn.disabled = false;
       setText(btn, settingsData.email ? "Update Email" : "Save Email");
+    }
+  });
+
+  onEl("settingsEmailLoginSaveBtn", "click", async function() {
+    var btn = this;
+    btn.disabled = true;
+    setText(btn, "Saving...");
+    try {
+      await apiFetch("/api/settings/email-login", {
+        method: "POST",
+        body: {
+          enabled: document.getElementById("settingsEmailLoginEnabled").checked,
+          email: document.getElementById("settingsEmailLoginAddress").value.trim(),
+          url: document.getElementById("settingsEmailDeliveryURL").value.trim(),
+          token: document.getElementById("settingsEmailDeliveryToken").value.trim(),
+          scope: document.getElementById("settingsEmailDeliveryScope").value.trim(),
+          template: document.getElementById("settingsEmailDeliveryTemplate").value.trim(),
+          timeout_sec: Number(document.getElementById("settingsEmailDeliveryTimeout").value || "5")
+        }
+      });
+      showToast("Email login settings saved", "success");
+      await loadSettings();
+    } catch(err) {
+      showToast("Failed: " + err.message, "error");
+    } finally {
+      btn.disabled = false;
+      setText(btn, "Save Email Login");
+    }
+  });
+
+  onEl("settingsEmailLoginTestBtn", "click", async function() {
+    var email = document.getElementById("settingsEmailLoginAddress").value.trim();
+    if (!email) {
+      showToast("Enter the login email first", "error");
+      return;
+    }
+    var btn = this;
+    btn.disabled = true;
+    setText(btn, "Sending...");
+    try {
+      await apiFetch("/api/login/email/request-code", { method: "POST", body: { email: email } });
+      showToast("If configured, a test login code was sent", "success");
+    } catch(err) {
+      showToast("Could not send test code", "error");
+    } finally {
+      btn.disabled = false;
+      setText(btn, "Send Test Code");
     }
   });
 

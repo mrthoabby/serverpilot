@@ -21,16 +21,23 @@ const configFile = "/etc/serverpilot/config.json"
 
 // Config holds the authentication and ServerPilot configuration.
 type Config struct {
-	Username        string `json:"username"`
-	PasswordHash    string `json:"password_hash"`
-	SessionSecret   string `json:"session_secret"`
-	Domain          string `json:"domain,omitempty"`
-	Email           string `json:"email,omitempty"`
-	SSLEnabled      bool   `json:"ssl_enabled,omitempty"`
-	InsecureBlocked bool   `json:"insecure_blocked,omitempty"`
-	MFAEnabled      bool   `json:"mfa_enabled,omitempty"`
-	TOTPSecret      string `json:"totp_secret,omitempty"`
-	PreviousVersion string `json:"previous_version,omitempty"`
+	Username                string `json:"username"`
+	PasswordHash            string `json:"password_hash"`
+	SessionSecret           string `json:"session_secret"`
+	Domain                  string `json:"domain,omitempty"`
+	Email                   string `json:"email,omitempty"`
+	SSLEnabled              bool   `json:"ssl_enabled,omitempty"`
+	InsecureBlocked         bool   `json:"insecure_blocked,omitempty"`
+	MFAEnabled              bool   `json:"mfa_enabled,omitempty"`
+	TOTPSecret              string `json:"totp_secret,omitempty"`
+	EmailLoginEnabled       bool   `json:"email_login_enabled,omitempty"`
+	EmailLoginAddress       string `json:"email_login_address,omitempty"`
+	EmailDeliveryURL        string `json:"email_delivery_url,omitempty"`
+	EmailDeliveryAuthToken  string `json:"email_delivery_auth_token,omitempty"`
+	EmailDeliveryScope      string `json:"email_delivery_scope,omitempty"`
+	EmailDeliveryTemplate   string `json:"email_delivery_template,omitempty"`
+	EmailDeliveryTimeoutSec int    `json:"email_delivery_timeout_sec,omitempty"`
+	PreviousVersion         string `json:"previous_version,omitempty"`
 }
 
 // sessionEntry holds a session token with its creation time for TTL expiration.

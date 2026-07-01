@@ -21,6 +21,7 @@ type Server struct {
 	port         int
 	version      string
 	sessionStore *auth.SessionStore
+	emailOTP     *emailOTPManager
 }
 
 // NewServer creates a new web server instance.
@@ -30,6 +31,7 @@ func NewServer(config *auth.Config, port int, version string) *Server {
 		port:         port,
 		version:      version,
 		sessionStore: auth.NewSessionStore(),
+		emailOTP:     newEmailOTPManager(),
 	}
 }
 
@@ -47,11 +49,16 @@ func (s *Server) Start() error {
 
 	// Auth API routes (no auth middleware).
 	mux.HandleFunc("/api/login", s.handleLogin)
+	mux.HandleFunc("/api/login/options", s.handleLoginOptions)
+	mux.HandleFunc("/api/login/email/request-code", s.handleEmailLoginRequestCode)
+	mux.HandleFunc("/api/login/email/verify-code", s.handleEmailLoginVerifyCode)
 	mux.HandleFunc("/api/session/status", s.handleSessionStatus)
 
 	// Protected API routes.
 	mux.Handle("/api/logout", s.authMiddleware(http.HandlerFunc(s.handleLogout)))
 	mux.Handle("/api/session/reauth", s.authMiddleware(http.HandlerFunc(s.handleSessionReauth)))
+	mux.Handle("/api/session/reauth/email/request-code", s.authMiddleware(http.HandlerFunc(s.handleSessionReauthEmailRequestCode)))
+	mux.Handle("/api/session/reauth/email/verify-code", s.authMiddleware(http.HandlerFunc(s.handleSessionReauthEmailVerifyCode)))
 	mux.Handle("/api/session/reauth-status", s.authMiddleware(http.HandlerFunc(s.handleSessionReauthStatus)))
 	mux.Handle("/api/sessions", s.authMiddleware(http.HandlerFunc(s.handleSessionsList)))
 	mux.Handle("/api/sessions/revoke", s.requireReauth(http.HandlerFunc(s.handleSessionRevoke)))
@@ -113,6 +120,7 @@ func (s *Server) Start() error {
 	mux.Handle("/api/settings", s.authMiddleware(http.HandlerFunc(s.handleSettingsGet)))
 	mux.Handle("/api/settings/domain", s.requireReauth(http.HandlerFunc(s.handleSettingsDomain)))
 	mux.Handle("/api/settings/email", s.requireReauth(http.HandlerFunc(s.handleSettingsEmail)))
+	mux.Handle("/api/settings/email-login", s.requireReauth(http.HandlerFunc(s.handleSettingsEmailLogin)))
 	mux.Handle("/api/settings/ssl-enable", s.requireReauth(http.HandlerFunc(s.handleSettingsSSLEnable)))
 	mux.Handle("/api/settings/block-insecure", s.requireSecureReauth(http.HandlerFunc(s.handleSettingsBlockInsecure)))
 	mux.Handle("/api/settings/host-guard", s.requireSecureReauth(http.HandlerFunc(s.handleSettingsHostGuard)))
