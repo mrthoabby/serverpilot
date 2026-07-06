@@ -1,0 +1,23 @@
+internal/docker/docker_test.go
+  s_0ea41aef875152::t_e1f2c6d84c41e3 70-94
+internal/web/handlers.go
+  s_0ea41aef875152::t_df943150493189 420-423
+internal/docker/docker.go
+  s_0ea41aef875152::t_7fbe13aac5dd7e 307-322,331-333,350
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "747906e6c59d8568dc5d511764f8a823436bd0ab",
+  "prompts": {},
+  "sessions": {
+    "s_0ea41aef875152": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f3956-bcbd-71f1-8868-18ec889ce8be",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
