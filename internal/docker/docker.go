@@ -304,12 +304,31 @@ func validateContainerID(id string) error {
 	return nil
 }
 
+func validateContainerEnv(env []string) error {
+	for _, item := range env {
+		key, _, ok := strings.Cut(item, "=")
+		if !ok || key == "" {
+			return fmt.Errorf("invalid environment variable")
+		}
+		for i, c := range key {
+			if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' || (i > 0 && c >= '0' && c <= '9') {
+				continue
+			}
+			return fmt.Errorf("invalid environment variable")
+		}
+	}
+	return nil
+}
+
 // RecreateContainerWithEnv replaces a container with a new one using the same
 // image/runtime shape and the provided environment entries. It keeps the old
 // container renamed until the new docker run succeeds, then removes it. If the
 // run fails, it restores and starts the original container.
 func RecreateContainerWithEnv(id string, env []string) error {
 	if err := validateContainerID(id); err != nil {
+		return err
+	}
+	if err := validateContainerEnv(env); err != nil {
 		return err
 	}
 	runtime, err := inspectRuntime(id)
@@ -328,7 +347,7 @@ func RecreateContainerWithEnv(id string, env []string) error {
 	if err != nil {
 		return err
 	}
-	oldName := name + "-sp-env-old-" + strconv.FormatInt(time.Now().Unix(), 10)
+	oldName := name + "-sp-env-old-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 
 	if out, err := exec.Command(dockerBin, "stop", "--time", "10", "--", id).CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to stop container: %s", strings.TrimSpace(string(out)))

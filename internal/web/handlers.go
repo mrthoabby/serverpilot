@@ -417,6 +417,10 @@ func (s *Server) handleContainerReloadEnv(w http.ResponseWriter, r *http.Request
 
 	if err := docker.RecreateContainerWithEnv(id, env); err != nil {
 		log.Printf("container reload env (id=%s): %v", id, err)
+		if strings.Contains(strings.ToLower(err.Error()), "invalid environment variable") {
+			writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid environment file"})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to reload container environment"})
 		return
 	}

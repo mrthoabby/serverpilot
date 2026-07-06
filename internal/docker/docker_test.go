@@ -67,3 +67,28 @@ func TestBuildRecreateRunArgsSkipsPublishedPortsForHostNetwork(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateContainerEnv(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     []string
+		wantErr bool
+	}{
+		{name: "valid", env: []string{"PORT=8080", "_TOKEN=abc", "EMPTY="}},
+		{name: "missing equals", env: []string{"PORT"}, wantErr: true},
+		{name: "empty key", env: []string{"=8080"}, wantErr: true},
+		{name: "starts with digit", env: []string{"1PORT=8080"}, wantErr: true},
+		{name: "dash", env: []string{"BAD-NAME=8080"}, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateContainerEnv(tc.env)
+			if tc.wantErr && err == nil {
+				t.Fatal("validateContainerEnv returned nil error")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("validateContainerEnv returned error: %v", err)
+			}
+		})
+	}
+}
