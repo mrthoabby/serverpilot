@@ -20,6 +20,7 @@
 - `sp update`: self-update from latest GitHub release with tag validation and rollback smoke test.
 - `sp credentials [--reset]`: show/reset admin credentials.
 - `sp port [--min N --max N] [--list]`: reserve an available port for deploy workflows.
+- `sp compose`: validate, deploy, list, status, clone, sync, and delete Docker Compose projects under `/opt`.
 
 ## Package Map
 

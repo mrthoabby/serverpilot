@@ -1,6 +1,7 @@
 /* Container-centric multi-site management (loaded after main dashboard script). */
 (function() {
   var expandedContainers = {};
+  var composeProjects = [];
 
   function siteProxyPort(site) {
     var proxy = (site && site.proxy_pass) || "";
@@ -365,11 +366,13 @@
         apiFetch("/api/containers"),
         apiFetch("/api/sites"),
         apiFetch("/api/mappings"),
-        loadReplicas()
+        loadReplicas(),
+        apiFetch("/api/compose/projects").catch(function() { return { data: [] }; })
       ]);
       containers = (results[0] && results[0].data) ? results[0].data : [];
       sites = (results[1] && results[1].data) ? results[1].data : [];
       var mappingsData = (results[2] && results[2].data) ? results[2].data : results[2];
+      composeProjects = (results[4] && results[4].data) ? results[4].data : [];
       mappings = {
         mapped: (mappingsData && mappingsData.mapped) || [],
         unmappedContainers: (mappingsData && mappingsData.unmappedContainers) || [],
@@ -442,6 +445,13 @@
       var nameStrong = document.createElement("strong");
       setText(nameStrong, c.name);
       tdName.appendChild(nameStrong);
+      if (c.compose && c.compose.is_compose) {
+        var composeBadge = document.createElement("span");
+        composeBadge.className = "badge badge-info";
+        composeBadge.style.marginLeft = "6px";
+        setText(composeBadge, (c.compose.project || "compose") + "/" + (c.compose.service || "service"));
+        tdName.appendChild(composeBadge);
+      }
       var count = sitesByContainer(c).length;
       if (count) {
         var badge = document.createElement("span");
@@ -468,7 +478,7 @@
       tr.appendChild(tdStatus);
 
       var tdPorts = document.createElement("td");
-      (c.ports || []).forEach(function(p) {
+      (c.ports || []).concat(c.exposed_ports || []).forEach(function(p) {
         var ptag = document.createElement("span");
         ptag.className = "port-tag";
         if (p.host_port) setText(ptag, p.host_port + ":" + p.container_port + "/" + (p.protocol || "tcp"));
@@ -496,8 +506,32 @@
       }
     }
 
+    var standalone = [];
+    var composeGroups = {};
     containers.forEach(function(c) {
       if (replicaNames[c.name]) return;
+      if (c.compose && c.compose.is_compose && c.compose.project) {
+        if (!composeGroups[c.compose.project]) composeGroups[c.compose.project] = [];
+        composeGroups[c.compose.project].push(c);
+        return;
+      }
+      standalone.push(c);
+    });
+
+    Object.keys(composeGroups).sort().forEach(function(project) {
+      var header = document.createElement("tr");
+      header.className = "compose-group-row";
+      var td = document.createElement("td");
+      td.colSpan = 6;
+      var strong = document.createElement("strong");
+      setText(strong, "Compose stack: " + project);
+      td.appendChild(strong);
+      header.appendChild(td);
+      tbody.appendChild(header);
+      composeGroups[project].forEach(function(c) { renderRow(c, false); });
+    });
+
+    standalone.forEach(function(c) {
       renderRow(c, false);
       var reps = replicasByParentName()[c.name] || [];
       reps.forEach(function(rep) {
@@ -513,6 +547,10 @@
 
   var _origOpenAssociate = window.openAssociateModal;
   window.openAssociateModal = function(container, templateType) {
+    if (container && container.compose && container.compose.is_compose && !publishedTCPPorts(container).length) {
+      showToast("Compose service is internal-only. Publish via stack deploy before adding a site.", "warning");
+      return;
+    }
     _assocPendingContainer = container;
     document.getElementById("assocContainerId").value = container.id;
     document.getElementById("assocContainerName").value = container.name || "";

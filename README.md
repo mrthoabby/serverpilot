@@ -166,6 +166,28 @@ Descarga la última versión desde GitHub y reemplaza el binario actual. No nece
 sp --version
 ```
 
+### Docker Compose (proyectos bajo `/opt`)
+
+ServerPilot gestiona stacks Compose completos con puertos reservados en `127.0.0.1` vía `portalloc`.
+
+Variables soportadas en `docker-compose.yml`:
+
+- `${SP_COMPOSE_PORT}` — un solo endpoint público
+- `${SP_COMPOSE_PORT_<SERVICE>_<PORT>}` — múltiples endpoints
+
+Ejemplo:
+
+```sh
+sudo sp compose validate --name shop --file /opt/shop/docker-compose.yml
+sudo sp compose deploy --name shop --file /opt/shop/docker-compose.yml --json
+sudo sp compose list --json
+sudo sp compose clone --parent shop --name shop-blue --non-interactive --json
+sudo sp compose sync --name shop-blue --json
+sudo sp compose delete --name shop-blue
+```
+
+Los servicios internos (`expose:` sin `ports:`) no reciben sitio Nginx. Solo los servicios con puerto publicado por ServerPilot pueden asociar dominio.
+
 ---
 
 ## Funcionalidades del dashboard

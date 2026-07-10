@@ -51,6 +51,17 @@ type redirectDeactivateRequest struct {
 	ForceOriginal bool   `json:"force_original"`
 }
 
+func composeContainerBlocked(containerID string) error {
+	labels, err := docker.LabelsForContainer(containerID)
+	if err != nil {
+		return nil
+	}
+	if docker.IsComposeContainer(labels) {
+		return fmt.Errorf("compose-managed containers must be updated via stack deploy")
+	}
+	return nil
+}
+
 func (s *Server) handleContainerPortAnalysis(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
@@ -65,6 +76,10 @@ func (s *Server) handleContainerPortAnalysis(w http.ResponseWriter, r *http.Requ
 	}
 	if containerID == "" {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "container_id required"})
+		return
+	}
+	if err := composeContainerBlocked(containerID); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "compose containers use stack deploy for port changes"})
 		return
 	}
 	analysis, err := docker.AnalyzePortPublish(containerID)
@@ -88,6 +103,10 @@ func (s *Server) handleContainerPublishPort(w http.ResponseWriter, r *http.Reque
 	}
 	if strings.TrimSpace(req.ContainerID) == "" {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "container_id required"})
+		return
+	}
+	if err := composeContainerBlocked(req.ContainerID); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "compose containers use stack deploy for port changes"})
 		return
 	}
 	if req.HostPort < 1 || req.HostPort > 65535 {

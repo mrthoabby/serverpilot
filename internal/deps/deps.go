@@ -161,6 +161,19 @@ func CheckAndInstall() error {
 		fmt.Println("Nginx: OK")
 	}
 
+	if !ComposeAvailable() {
+		fmt.Println("Docker Compose plugin is not installed.")
+		if promptInstall("Docker Compose plugin (" + ComposePluginPackage + ")") {
+			if err := CheckAndInstallComposePlugin(); err != nil {
+				return fmt.Errorf("docker compose setup failed: %w", err)
+			}
+		} else {
+			fmt.Println("Docker Compose setup skipped. Install later with apt or re-run setup.")
+		}
+	} else {
+		fmt.Println("Docker Compose: OK")
+	}
+
 	return nil
 }
 

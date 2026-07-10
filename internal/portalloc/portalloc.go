@@ -66,11 +66,12 @@ var (
 // ─────────────────────────────────────────────────────────────────────────
 
 const (
-	baseDir      = "/var/lib/serverpilot"
 	registryName = "ports.json"
 	lockName     = "ports.json.lock"
 	accessWX     = 0o3 // POSIX W_OK|X_OK
 )
+
+var baseDir = "/var/lib/serverpilot"
 
 func registryPath() string { return filepath.Join(baseDir, registryName) }
 func lockPath() string     { return filepath.Join(baseDir, lockName) }

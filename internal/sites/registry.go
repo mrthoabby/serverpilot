@@ -52,20 +52,23 @@ type RedirectBackup struct {
 
 // SiteRecord is the authoritative ownership record for a managed site.
 type SiteRecord struct {
-	ID            string                    `json:"id"`
-	ContainerID   string                    `json:"container_id"`
-	ContainerName string                    `json:"container_name"`
-	HostPort      int                       `json:"host_port"`
-	ContainerPort int                       `json:"container_port,omitempty"`
-	Domain        string                    `json:"domain"`
-	ConfigName    string                    `json:"config_name"`
-	Template      templates.TemplateType    `json:"template"`
-	Options       templates.TemplateOptions `json:"options"`
-	State         SiteState                 `json:"state"`
-	Redirect      *RedirectSpec             `json:"redirect,omitempty"`
-	Backup        *RedirectBackup           `json:"backup,omitempty"`
-	CreatedAt     time.Time                 `json:"created_at"`
-	UpdatedAt     time.Time                 `json:"updated_at"`
+	ID             string                    `json:"id"`
+	ContainerID    string                    `json:"container_id"`
+	ContainerName  string                    `json:"container_name"`
+	HostPort       int                       `json:"host_port"`
+	ComposeProject string                    `json:"compose_project,omitempty"`
+	ComposeService string                    `json:"compose_service,omitempty"`
+	ComposeGenID   string                    `json:"compose_generation_id,omitempty"`
+	ContainerPort  int                       `json:"container_port,omitempty"`
+	Domain         string                    `json:"domain"`
+	ConfigName     string                    `json:"config_name"`
+	Template       templates.TemplateType    `json:"template"`
+	Options        templates.TemplateOptions `json:"options"`
+	State          SiteState                 `json:"state"`
+	Redirect       *RedirectSpec             `json:"redirect,omitempty"`
+	Backup         *RedirectBackup           `json:"backup,omitempty"`
+	CreatedAt      time.Time                 `json:"created_at"`
+	UpdatedAt      time.Time                 `json:"updated_at"`
 }
 
 type registry struct {

@@ -3892,6 +3892,7 @@ var knownDependencies = map[string][]string{
 	// Tiny, no-config, safe to install via one-click — same risk profile
 	// as certbot but without any state changes to the filesystem.
 	"acl": {"/usr/bin/apt-get", "install", "-y", "--", "acl"},
+	"docker-compose-plugin": {"/usr/bin/apt-get", "install", "-y", "--", "docker-compose-plugin"},
 }
 
 // handleDependencyInstall installs a missing dependency via apt with SSE streaming logs.

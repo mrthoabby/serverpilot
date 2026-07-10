@@ -85,7 +85,7 @@ var registry = map[string]appDef{
 		},
 		Uninstall: [][]string{
 			{"/usr/bin/apt-get", "purge", "-y",
-				"docker-ce", "docker-ce-cli", "containerd.io",
+				"docker.io", "docker-ce", "docker-ce-cli", "containerd.io",
 				"docker-buildx-plugin", "docker-compose-plugin", "docker-compose"},
 			{"/usr/bin/apt-get", "autoremove", "-y"},
 		},

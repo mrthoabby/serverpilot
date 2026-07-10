@@ -40,12 +40,14 @@ type PortMapping struct {
 
 // Container represents a Docker container.
 type Container struct {
-	ID        string        `json:"id"`
-	Name      string        `json:"name"`
-	Image     string        `json:"image"`
-	Status    string        `json:"status"`
-	Ports     []PortMapping `json:"ports"`
-	CreatedAt time.Time     `json:"created_at"`
+	ID           string        `json:"id"`
+	Name         string        `json:"name"`
+	Image        string        `json:"image"`
+	Status       string        `json:"status"`
+	Ports        []PortMapping `json:"ports"`
+	ExposedPorts []PortMapping `json:"exposed_ports,omitempty"`
+	Compose      ComposeMeta   `json:"compose,omitempty"`
+	CreatedAt    time.Time     `json:"created_at"`
 }
 
 // dockerPSOutput is used for JSON parsing from docker ps.
@@ -106,7 +108,7 @@ func ListContainers() ([]Container, error) {
 		containers = append(containers, container)
 	}
 
-	return containers, nil
+	return enrichContainers(containers)
 }
 
 // GetContainerDetails returns detailed information about a specific container.

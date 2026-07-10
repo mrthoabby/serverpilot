@@ -15,16 +15,16 @@ import (
 
 // CreateRequest is the input for creating a managed container-bound site.
 type CreateRequest struct {
-	ContainerID          string
-	ContainerName        string
-	HostPort             int
-	ContainerPort        int
-	Domain               string
-	Template             templates.TemplateType
-	Options              templates.TemplateOptions
-	IncludeWWW           bool
-	AllowSharedHostPort  bool
-	ReplaceExisting      bool
+	ContainerID         string
+	ContainerName       string
+	HostPort            int
+	ContainerPort       int
+	Domain              string
+	Template            templates.TemplateType
+	Options             templates.TemplateOptions
+	IncludeWWW          bool
+	AllowSharedHostPort bool
+	ReplaceExisting     bool
 }
 
 // Create renders nginx config, enables the site, and records ownership.
@@ -200,4 +200,21 @@ func AdoptFromConfig(configName, content string, fallbackHostPort int) (SiteReco
 	}
 	_ = Upsert(rec)
 	return rec, true
+}
+
+// SwitchHostPort updates a managed site's host port in the registry.
+func SwitchHostPort(siteID string, newHostPort int) error {
+	if newHostPort < 1 || newHostPort > 65535 {
+		return fmt.Errorf("invalid host port")
+	}
+	rec, ok, err := GetByID(siteID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("site not found")
+	}
+	rec.HostPort = newHostPort
+	rec.UpdatedAt = time.Now().UTC()
+	return Upsert(rec)
 }
