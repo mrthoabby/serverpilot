@@ -1,0 +1,21 @@
+docs/DEPLOY.md
+  s_8182556d4f4d67::t_765424b1b67c0d 928
+  s_8182556d4f4d67::t_aefda20979cc9b 626
+  s_8182556d4f4d67::t_8dd67ca4b6bf71 841
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "756640df4832116add6c79e7503bad4163f9093d",
+  "prompts": {},
+  "sessions": {
+    "s_8182556d4f4d67": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "050707da-cb0a-4b12-9f07-fa7a36b58cc7",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
