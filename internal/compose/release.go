@@ -14,6 +14,7 @@ import (
 type ReleaseRequest struct {
 	Name          string
 	Service       string
+	ComposeFile   string // relative to /opt/<name>/, default docker-compose.yml
 	ImageRef      string
 	RegistryUser  string
 	RegistryToken string
@@ -48,7 +49,23 @@ func ReleaseService(req ReleaseRequest, progress Progress) error {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("compose project %q not found — run sp compose deploy bootstrap first", req.Name)
+		composeFile := normalizeComposeFile(req.ComposeFile)
+		if !managedComposeReady(req.Name, composeFile) {
+			return fmt.Errorf("compose project %q not found — add %s under /opt/%s/ (and prod.env) before the first release", req.Name, composeFile, req.Name)
+		}
+		if !managedProdEnvExists(req.Name) {
+			return fmt.Errorf("compose project %q not found — create prod.env or .env under /opt/%s/ before the first release", req.Name, req.Name)
+		}
+		if err := tryBootstrapManagedProject(req, progress); err != nil {
+			return fmt.Errorf("first-release bootstrap failed: %w", err)
+		}
+		rec, ok, err = GetProject(req.Name)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("compose project %q not found after bootstrap", req.Name)
+		}
 	}
 	gen, hasGen := GetActiveGeneration(rec)
 	if !hasGen {

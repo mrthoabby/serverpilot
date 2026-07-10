@@ -180,19 +180,25 @@ Works like sp port: run the command as your SSH user; ServerPilot handles privil
 
 Requires environment variables:
   IMAGE_REF (required)
+  COMPOSE_FILE (optional, default docker-compose.yml — only used on first release bootstrap)
   REGISTRY_USER / REGISTRY_TOKEN (optional, ephemeral ghcr.io login)
 
 Example:
   export IMAGE_REF=ghcr.io/org/app:v1.2.3
-  sp compose release --name myapp --service app`,
+  sp compose release --name myapp --file docker-compose.yml --service app`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if composeProject == "" {
 			return fmt.Errorf("--name is required")
 		}
+		file := composeFilePath
+		if file == "" {
+			file = os.Getenv("COMPOSE_FILE")
+		}
 		return compose.ReleaseCLI(compose.ReleaseRequest{
-			Name:     composeProject,
-			Service:  composeReleaseService,
-			ImageRef: os.Getenv("IMAGE_REF"),
+			Name:        composeProject,
+			Service:     composeReleaseService,
+			ComposeFile: file,
+			ImageRef:    os.Getenv("IMAGE_REF"),
 		}, composeProgress())
 	},
 }

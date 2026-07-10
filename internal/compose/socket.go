@@ -28,6 +28,7 @@ type composeSocketRequest struct {
 	Op            string `json:"op"`
 	Name          string `json:"name"`
 	Service       string `json:"service"`
+	ComposeFile   string `json:"compose_file,omitempty"`
 	ImageRef      string `json:"image_ref"`
 	RegistryUser  string `json:"registry_user,omitempty"`
 	RegistryToken string `json:"registry_token,omitempty"`
@@ -119,6 +120,7 @@ func dispatchComposeSocketRequest(req composeSocketRequest) composeSocketRespons
 	releaseReq := ReleaseRequest{
 		Name:          req.Name,
 		Service:       req.Service,
+		ComposeFile:   req.ComposeFile,
 		ImageRef:      req.ImageRef,
 		RegistryUser:  req.RegistryUser,
 		RegistryToken: req.RegistryToken,
@@ -165,6 +167,9 @@ func ReleaseCLI(req ReleaseRequest, progress Progress) error {
 }
 
 func releaseViaSocket(req ReleaseRequest) (*composeSocketResponse, error) {
+	if req.ComposeFile == "" {
+		req.ComposeFile = strings.TrimSpace(os.Getenv("COMPOSE_FILE"))
+	}
 	if req.ImageRef == "" {
 		req.ImageRef = strings.TrimSpace(os.Getenv("IMAGE_REF"))
 	}
@@ -179,6 +184,7 @@ func releaseViaSocket(req ReleaseRequest) (*composeSocketResponse, error) {
 		Op:            "release",
 		Name:          req.Name,
 		Service:       req.Service,
+		ComposeFile:   req.ComposeFile,
 		ImageRef:      req.ImageRef,
 		RegistryUser:  req.RegistryUser,
 		RegistryToken: req.RegistryToken,
