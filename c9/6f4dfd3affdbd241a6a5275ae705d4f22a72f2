@@ -1,0 +1,42 @@
+cmd/compose.go
+  s_8182556d4f4d67::t_ba38521ae08767 189
+  s_8182556d4f4d67::t_4e4227b8a452a3 176-177
+internal/compose/socket.go
+  s_8182556d4f4d67::t_4e3ef0bd27f15b 153
+  s_8182556d4f4d67::t_0cf290a4e581d2 1-152,154-252
+docs/DEPLOY.md
+  s_8182556d4f4d67::t_9575d5bd3bbe7d 837
+  s_8182556d4f4d67::t_7d0cc273d03614 88
+  s_8182556d4f4d67::t_2a737b97180b7b 839
+internal/web/server.go
+  s_8182556d4f4d67::t_52af5a72fae4b8 235,238
+  s_8182556d4f4d67::t_43d3b937ae4c96 11
+  s_8182556d4f4d67::t_cc1a20bb857e68 236-237
+  s_8182556d4f4d67::t_d2336c21d02f3d 229-230
+internal/permissions/templates.go
+  s_8182556d4f4d67::t_671f7785e38a34 20-23
+internal/permissions/sudoers.go
+  s_8182556d4f4d67::t_671f7785e38a34 51-62
+internal/compose/socket_test.go
+  s_8182556d4f4d67::t_cac8bb7ba85bfb 1-24
+internal/compose/release.go
+  s_8182556d4f4d67::t_e9e0a6da5e513c 15-19
+  s_8182556d4f4d67::t_fa85e7ac117e30 64
+  s_8182556d4f4d67::t_342f82946e07dc 91-99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "c96f4dfd3affdbd241a6a5275ae705d4f22a72f2",
+  "prompts": {},
+  "sessions": {
+    "s_8182556d4f4d67": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "050707da-cb0a-4b12-9f07-fa7a36b58cc7",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
