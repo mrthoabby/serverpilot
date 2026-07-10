@@ -716,7 +716,12 @@ func (s *Server) handleMappings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Single-pass: fetches containers + sites once instead of 4× docker ps + 3× ListSites.
-	result, err := mapper.ComputeAllMappings()
+	opts := mapper.ComputeOptions{}
+	if s.config != nil {
+		opts.DashboardDomain = s.config.Domain
+	}
+	opts.DashboardPort = s.port
+	result, err := mapper.ComputeAllMappingsWith(opts)
 	if err != nil {
 		log.Printf("Error computing mappings: %v", err)
 		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to list mappings"})
@@ -3891,7 +3896,7 @@ var knownDependencies = map[string][]string{
 	// `acl` is the userspace tool package (provides setfacl + getfacl).
 	// Tiny, no-config, safe to install via one-click — same risk profile
 	// as certbot but without any state changes to the filesystem.
-	"acl": {"/usr/bin/apt-get", "install", "-y", "--", "acl"},
+	"acl":                   {"/usr/bin/apt-get", "install", "-y", "--", "acl"},
 	"docker-compose-plugin": {"/usr/bin/apt-get", "install", "-y", "--", "docker-compose-plugin"},
 }
 

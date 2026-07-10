@@ -724,11 +724,15 @@ func WriteConfigContent(name string, content string, validate bool) (string, err
 	return "", nil
 }
 
+// DashboardSiteMarker is embedded in nginx vhosts created by sp expose / dashboard settings.
+const DashboardSiteMarker = "# serverpilot_dashboard"
+
 // ServerPilotTemplate generates an nginx reverse proxy config for the ServerPilot dashboard.
 // Used by both the CLI setup flow and the web settings handler.
 // WebSocket headers are required for /api/terminal/ws and long-lived SSE streams.
 func ServerPilotTemplate(domain string, port int) string {
-	return fmt.Sprintf(`server {
+	return fmt.Sprintf(`# serverpilot_dashboard
+server {
     listen 80;
     server_name %s;
 

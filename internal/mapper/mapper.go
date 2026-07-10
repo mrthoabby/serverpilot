@@ -14,31 +14,44 @@ import (
 
 // Mapping represents a relationship between a Docker container and an Nginx site.
 type Mapping struct {
-	SiteID        string `json:"site_id,omitempty"`
-	ContainerID   string `json:"container_id"`
-	ContainerName string `json:"container_name"`
-	ContainerPort string `json:"container_port"`
-	HostPort      string `json:"host_port"`
-	NginxDomain   string `json:"nginx_domain"`
-	NginxConfPath string `json:"nginx_config_path"`
-	SSLEnabled    bool   `json:"ssl_enabled"`
-	SSLAutoRenew  bool   `json:"ssl_auto_renew"`
-	Template      string `json:"template,omitempty"`
-	Orphaned      bool   `json:"orphaned,omitempty"`
-	RedirectActive bool  `json:"redirect_active,omitempty"`
+	SiteID         string `json:"site_id,omitempty"`
+	ContainerID    string `json:"container_id"`
+	ContainerName  string `json:"container_name"`
+	ContainerPort  string `json:"container_port"`
+	HostPort       string `json:"host_port"`
+	NginxDomain    string `json:"nginx_domain"`
+	NginxConfPath  string `json:"nginx_config_path"`
+	SSLEnabled     bool   `json:"ssl_enabled"`
+	SSLAutoRenew   bool   `json:"ssl_auto_renew"`
+	Template       string `json:"template,omitempty"`
+	Orphaned       bool   `json:"orphaned,omitempty"`
+	RedirectActive bool   `json:"redirect_active,omitempty"`
+}
+
+// ComputeOptions tunes mapping inference (e.g. dashboard site detection).
+type ComputeOptions struct {
+	DashboardDomain string
+	DashboardPort   int
 }
 
 // MappingsResult holds all mapping data computed in a single pass.
 type MappingsResult struct {
-	Mapped             []Mapping          `json:"mapped"`
-	UnmappedContainers []docker.Container `json:"unmappedContainers"`
-	OrphanedSites      []nginx.Site       `json:"orphanedSites"`
-	StandaloneRedirects []nginx.Site      `json:"standalone_redirects"`
-	UnassignedSites    []nginx.Site       `json:"unassigned_sites"`
+	Mapped              []Mapping          `json:"mapped"`
+	UnmappedContainers  []docker.Container `json:"unmappedContainers"`
+	OrphanedSites       []nginx.Site       `json:"orphanedSites"`
+	DashboardSites      []nginx.Site       `json:"dashboardSites"`
+	StandaloneRedirects []nginx.Site       `json:"standalone_redirects"`
+	UnassignedSites     []nginx.Site       `json:"unassigned_sites"`
 }
 
 // ComputeAllMappings fetches containers and sites once, then computes associations.
 func ComputeAllMappings() (*MappingsResult, error) {
+	return ComputeAllMappingsWith(ComputeOptions{})
+}
+
+// ComputeAllMappingsWith is like ComputeAllMappings but accepts dashboard hints so
+// the ServerPilot panel vhost is not classified as an orphaned site.
+func ComputeAllMappingsWith(opts ComputeOptions) (*MappingsResult, error) {
 	containers, err := docker.ListContainers()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list containers: %w", err)
@@ -145,6 +158,11 @@ func ComputeAllMappings() (*MappingsResult, error) {
 			}
 		}
 		if !attached {
+			configName := configBaseName(site)
+			if isDashboardSite(site, readConfigSafe(configName), opts) {
+				result.DashboardSites = append(result.DashboardSites, site)
+				continue
+			}
 			if port != "" && !activePorts[port] {
 				result.OrphanedSites = append(result.OrphanedSites, site)
 			} else {
@@ -164,11 +182,11 @@ func ComputeAllMappings() (*MappingsResult, error) {
 
 func mappingFromRecord(rec sites.SiteRecord, site nginx.Site) Mapping {
 	m := Mapping{
-		SiteID:        rec.ID,
-		ContainerID:   rec.ContainerID,
-		ContainerName: rec.ContainerName,
-		NginxDomain:   rec.Domain,
-		Template:      string(rec.Template),
+		SiteID:         rec.ID,
+		ContainerID:    rec.ContainerID,
+		ContainerName:  rec.ContainerName,
+		NginxDomain:    rec.Domain,
+		Template:       string(rec.Template),
 		RedirectActive: rec.State == sites.StateRedirectOverlay,
 	}
 	if rec.HostPort > 0 {
@@ -184,6 +202,42 @@ func mappingFromRecord(rec sites.SiteRecord, site nginx.Site) Mapping {
 		m.SSLAutoRenew = site.SSLAutoRnw
 	}
 	return m
+}
+
+func configBaseName(site nginx.Site) string {
+	configName := site.ConfigPath
+	if idx := strings.LastIndex(configName, "/"); idx >= 0 {
+		configName = configName[idx+1:]
+	}
+	return configName
+}
+
+// isDashboardSite reports nginx vhosts that proxy to the ServerPilot dashboard process.
+// They intentionally have no Docker container and must not appear as orphaned sites.
+func isDashboardSite(site nginx.Site, configContent string, opts ComputeOptions) bool {
+	if strings.Contains(configContent, nginx.DashboardSiteMarker) {
+		return true
+	}
+	if opts.DashboardDomain != "" && strings.EqualFold(site.Domain, opts.DashboardDomain) {
+		return true
+	}
+	if opts.DashboardPort < 1 || site.ProxyPass == "" {
+		return false
+	}
+	port, err := extractPortFromProxyPass(site.ProxyPass)
+	if err != nil || port != strconv.Itoa(opts.DashboardPort) {
+		return false
+	}
+	if !strings.Contains(site.ProxyPass, "127.0.0.1") && !strings.Contains(site.ProxyPass, "localhost") {
+		return false
+	}
+	meta := templates.ParseMetadataFromConfig(configContent)
+	if meta.SiteID != "" || meta.ContainerID != "" || meta.Template != "" {
+		return false
+	}
+	// Legacy dashboard vhosts created before DashboardSiteMarker (sp expose template).
+	return strings.Contains(configContent, "proxy_buffering off") &&
+		strings.Contains(configContent, "proxy_read_timeout 86400")
 }
 
 func readConfigSafe(name string) string {

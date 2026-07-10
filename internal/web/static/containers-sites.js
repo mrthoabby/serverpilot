@@ -306,6 +306,27 @@
 
     var unassigned = mappings.unassigned_sites || [];
     var orphans = mappings.orphanedSites || [];
+    if (mappings.dashboardSites && mappings.dashboardSites.length) {
+      var dashCard = document.createElement("div");
+      dashCard.className = "card";
+      dashCard.style.marginTop = "1rem";
+      var dashHdr = document.createElement("div");
+      dashHdr.className = "card-header";
+      var dashTitle = document.createElement("h2");
+      setText(dashTitle, "ServerPilot Dashboard");
+      dashHdr.appendChild(dashTitle);
+      dashCard.appendChild(dashHdr);
+      var dashBody = document.createElement("div");
+      dashBody.style.padding = "1rem";
+      mappings.dashboardSites.forEach(function(s) {
+        var row = document.createElement("div");
+        row.style.marginBottom = "8px";
+        setText(row, (s.domain || "?") + " — ServerPilot panel (no container)");
+        dashBody.appendChild(row);
+      });
+      dashCard.appendChild(dashBody);
+      wrap.appendChild(dashCard);
+    }
     if (unassigned.length || orphans.length) {
       var card2 = document.createElement("div");
       card2.className = "card";
@@ -377,6 +398,7 @@
         mapped: (mappingsData && mappingsData.mapped) || [],
         unmappedContainers: (mappingsData && mappingsData.unmappedContainers) || [],
         orphanedSites: (mappingsData && mappingsData.orphanedSites) || [],
+        dashboardSites: (mappingsData && mappingsData.dashboardSites) || [],
         standalone_redirects: (mappingsData && mappingsData.standalone_redirects) || [],
         unassigned_sites: (mappingsData && mappingsData.unassigned_sites) || []
       };
