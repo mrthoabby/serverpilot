@@ -1,0 +1,45 @@
+internal/mapper/mapper.go
+  s_8182556d4f4d67::t_cbd987fe771a98 31-34,39-44,49-54
+  s_8182556d4f4d67::t_f25c32d21f02cc 228,235-240
+  s_8182556d4f4d67::t_abab32dfd17c18 161-165
+  s_8182556d4f4d67::t_1434e3c5939e1c 29,207-227,229-234,241-242
+  s_8182556d4f4d67::t_246cf7b1fedaf5 26-28
+  s_8182556d4f4d67::t_b82a7d25637276 30
+internal/web/static/index.html
+  s_8182556d4f4d67::t_5fe31838214b8f 4489-4490
+  s_8182556d4f4d67::t_9005429d31a770 5093-5094,5096
+  s_8182556d4f4d67::t_5c69f089c62cd0 5124-5125,5136-5177
+  s_8182556d4f4d67::t_f4dba706279c47 3244
+  s_8182556d4f4d67::t_3814f15a584268 5178-5179
+internal/web/handlers.go
+  s_8182556d4f4d67::t_c0c712c334f751 719-724
+  s_8182556d4f4d67::t_d699e66247eaeb 3899
+internal/web/static/containers-sites.js
+  s_8182556d4f4d67::t_7bedd0290d6375 401
+  s_8182556d4f4d67::t_d5f528190ff97d 309-329
+internal/mapper/mapper_test.go
+  s_8182556d4f4d67::t_c72b3a5142e7e6 48
+  s_8182556d4f4d67::t_7284cf4ae1d93c 32-40,42-45,50-51
+  s_8182556d4f4d67::t_6ada712e68dc3f 41,46-47,49
+  s_8182556d4f4d67::t_e152b2d53385f0 3-7
+  s_8182556d4f4d67::t_42a38c935c8098 52
+internal/nginx/nginx.go
+  s_8182556d4f4d67::t_3d0ffd941eab80 727-729
+  s_8182556d4f4d67::t_0784ed443af274 734-735
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "02f39bfb64404e65e4e0f41b0e917663d5811c30",
+  "prompts": {},
+  "sessions": {
+    "s_8182556d4f4d67": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "050707da-cb0a-4b12-9f07-fa7a36b58cc7",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
