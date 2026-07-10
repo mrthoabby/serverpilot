@@ -61,11 +61,10 @@ func CheckAndInstallComposePlugin() error {
 	if !promptInstall(pkg) {
 		return fmt.Errorf("docker compose is required but not installed")
 	}
-	if err := installPackage(pkg); err != nil {
+	if err := InstallComposePlugin(func(line string) {
+		fmt.Println("  " + line)
+	}); err != nil {
 		return fmt.Errorf("failed to install %s: %w", pkg, err)
-	}
-	if !ComposeAvailable() {
-		return fmt.Errorf("docker compose still unavailable after installing %s", pkg)
 	}
 	fmt.Println("  Docker Compose installed successfully.")
 	return nil

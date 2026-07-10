@@ -270,32 +270,7 @@ func promptInstall(name string) bool {
 var pkgNameRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9.+_-]*$`)
 
 func installPackage(pkg string) error {
-	if !pkgNameRegex.MatchString(pkg) {
-		return fmt.Errorf("invalid package name")
-	}
-
-	// DEBIAN_FRONTEND=noninteractive prevents apt from spawning interactive
-	// dialogs (debconf/postfix) that would block the daemon installer.
-	env := append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
-
-	updateCmd := exec.Command("/usr/bin/apt-get", "update", "-y")
-	updateCmd.Env = env
-	updateCmd.Stdout = os.Stdout
-	updateCmd.Stderr = os.Stderr
-	if err := updateCmd.Run(); err != nil {
-		return fmt.Errorf("apt-get update failed: %w", err)
-	}
-
-	// "--" stops option processing so a package name beginning with "-"
-	// would still be impossible to inject (we already reject it via regex,
-	// but defense-in-depth is cheap here).
-	installCmd := exec.Command("/usr/bin/apt-get", "install", "-y", "--", pkg)
-	installCmd.Env = env
-	installCmd.Stdout = os.Stdout
-	installCmd.Stderr = os.Stderr
-	if err := installCmd.Run(); err != nil {
-		return fmt.Errorf("apt-get install failed: %w", err)
-	}
-
-	return nil
+	return installPackageLogged(pkg, func(line string) {
+		fmt.Println(line)
+	})
 }

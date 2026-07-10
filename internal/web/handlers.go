@@ -3927,7 +3927,7 @@ func (s *Server) handleDependencyInstall(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if req.Package == "docker" {
+	if req.Package == "docker" || req.Package == deps.ComposePluginPackage {
 		deps.FixDockerAptSources()
 	}
 
@@ -3942,32 +3942,33 @@ func (s *Server) handleDependencyInstall(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	sseWriteLog(w, flusher, "[Step 1/2] Installing "+req.Package+"...")
-	sseWriteLog(w, flusher, "Running: "+strings.Join(installArgs, " "))
-
-	cmd := exec.Command(installArgs[0], installArgs[1:]...)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		sseWriteLog(w, flusher, "ERROR: failed to create stdout pipe: "+err.Error())
-		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to start installer"}`)
-		return
-	}
-	cmd.Stderr = cmd.Stdout
-
-	if err := cmd.Start(); err != nil {
-		sseWriteLog(w, flusher, "ERROR: failed to start installer: "+err.Error())
-		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"failed to start installer"}`)
-		return
-	}
-
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		line := scanner.Text()
+	logLine := func(line string) {
 		log.Printf("[install %s] %s", req.Package, line)
 		sseWriteLog(w, flusher, line)
 	}
 
-	if err := cmd.Wait(); err != nil {
+	if req.Package == deps.ComposePluginPackage {
+		sseWriteLog(w, flusher, "[Step 1/2] Installing Docker Compose plugin...")
+		if err := deps.InstallComposePlugin(logLine); err != nil {
+			sseWriteLog(w, flusher, "ERROR: installation failed: "+err.Error())
+			sseWriteEvent(w, flusher, "done", `{"success":false,"error":"installation failed"}`)
+			return
+		}
+		sseWriteLog(w, flusher, "[Step 2/2] Verifying installation...")
+		if !deps.ComposeAvailable() {
+			sseWriteLog(w, flusher, "ERROR: docker compose still not available after installation.")
+			sseWriteEvent(w, flusher, "done", `{"success":false,"error":"installation completed but docker compose not available"}`)
+			return
+		}
+		sseWriteLog(w, flusher, req.Package+" installed successfully!")
+		sseWriteEvent(w, flusher, "done", `{"success":true,"message":"`+req.Package+` installed successfully"}`)
+		return
+	}
+
+	sseWriteLog(w, flusher, "[Step 1/2] Installing "+req.Package+"...")
+	sseWriteLog(w, flusher, "Running: "+strings.Join(installArgs, " "))
+
+	if err := deps.InstallPackageArgv(installArgs, logLine); err != nil {
 		sseWriteLog(w, flusher, "ERROR: installation failed: "+err.Error())
 		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"installation failed"}`)
 		return

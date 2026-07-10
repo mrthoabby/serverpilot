@@ -836,6 +836,7 @@ FASE F — Releases siguientes
 | Síntoma | Diagnóstico | Acción |
 |---------|-------------|--------|
 | `docker: unknown command: docker compose` | Plugin Compose no instalado en servidor | Apps → Server Dependencies → Install Docker Compose; release.sh debe usar `sp compose release`, no docker compose |
+| Install Docker Compose falla en panel | `docker-compose-plugin` no está en repos default con `docker.io` | Actualizar `sp`; el instalador hace fallback al binario oficial. Manual: ver §8 |
 | Misma versión después del deploy | Falta pull o no se usa sp compose release | Verificar release.sh llama `sp compose release` |
 | `pull access denied` | Registry privado sin login | Pasar REGISTRY_TOKEN al SSH step |
 | db reiniciada | up sin --no-deps en release.sh | Corregir release.sh; el levantamiento de db es bootstrap ServerPilot, no CI |
@@ -861,8 +862,12 @@ bash /opt/app/deploy/release.sh
 # o directamente:
 # sp compose release --name app --service app
 
-# Copiar release.sh del repo al servidor (mismo paso que hace el CI)
-scp deploy/release.sh deploy@servidor:/opt/app/deploy/release.sh
+# Instalar Compose manualmente si el panel falla (docker.io sin repo Docker CE):
+sudo mkdir -p /usr/libexec/docker/cli-plugins
+sudo curl -fSL https://github.com/docker/compose/releases/download/v2.32.4/docker-compose-linux-x86_64 \
+  -o /usr/libexec/docker/cli-plugins/docker-compose
+sudo chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+docker compose version
 ```
 
 ---
