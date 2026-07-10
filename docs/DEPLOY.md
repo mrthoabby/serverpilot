@@ -2,7 +2,49 @@
 
 > **Audiencia:** agentes y equipos que configuran el pipeline de deploy.  
 > **Objetivo:** preparar tu aplicación y tu workflow para que ServerPilot pueda ejecutar el release automático en el servidor.  
-> **Regla de oro:** ServerPilot **no recibe código fuente**. Solo recibe **imágenes Docker** vía registry + ejecución de `release.sh` por SSH.
+> **Regla de oro:** ServerPilot **no recibe código fuente** en cada release. El CI construye y pushea **imágenes Docker** al registry, copia `deploy/release.sh` **desde el repo de la app** al servidor y lo ejecuta por SSH.
+
+---
+
+## División bootstrap vs cada release
+
+```
+BOOTSTRAP (una vez, antes del primer tag):
+  ServerPilot / operador:
+    - /opt/<APP_NAME>/ existe
+    - prod.env en servidor (secretos runtime)
+    - (camino 2) docker-compose.yml en servidor + primer compose up
+    - usuario SSH deploy + claves
+  Equipo app (repo):
+    - deploy/release.sh versionado en el repo
+    - workflow GitHub Actions
+
+CADA RELEASE (automático, cada tag v*):
+  CI en GitHub Actions:
+    - build + push imagen
+    - scp deploy/release.sh → /opt/<APP_NAME>/deploy/release.sh
+    - SSH: export vars + bash release.sh
+```
+
+**`release.sh` vive en el repo de la aplicación.** ServerPilot **no** lo instala ni lo mantiene. El CI lo sube en cada deploy para que cambios al script se desplieguen solos.
+
+### Quién levanta qué (regla fija)
+
+| Acción | Camino 1 (Docker simple) | Camino 2 (Compose) |
+|--------|--------------------------|---------------------|
+| **Levantamiento inicial** (primera vez que algo corre en prod) | **CI + `release.sh`** — `docker pull` + `docker run` en el primer tag | **ServerPilot** — bootstrap: `docker-compose.yml`, `prod.env`, `sp compose deploy` levanta **todo el stack** (app + db + redis, etc.) |
+| **Cada release siguiente** | **CI + `release.sh`** — recrea solo el container de la app | **CI + `release.sh`** — `pull` + `up --no-deps` **solo el servicio de la app** |
+| **db / redis / workers** | No aplica (un solo container) | **ServerPilot en bootstrap** los levanta; **`release.sh` NUNCA los levanta ni los recrea** |
+| **Puertos host compose** | — | **ServerPilot en bootstrap** (`sp compose deploy`); **`release.sh` NO reasigna** |
+| **Nginx / dominio / SSL** | **ServerPilot** (panel) | **ServerPilot** (panel) |
+| **`prod.env`** | **ServerPilot** (o operador) lo crea antes del primer deploy | **ServerPilot** (o operador) lo crea **antes del bootstrap** |
+
+```
+REGLA CAMINO 2:
+  ServerPilot levanta el stack completo UNA VEZ (bootstrap) y asigna SP_COMPOSE_PORT_*.
+  release.sh del repo SOLO actualiza el servicio de aplicación.
+  Si db/redis no están Up, NO es trabajo de release.sh — falta bootstrap ServerPilot.
+```
 
 ---
 
@@ -36,12 +78,13 @@ ENTONCES → CAMINO 2 (Docker Compose)
 ```
 INVARIANTE_1: El CI construye y pushea la imagen al registry (GHCR u otro).
 INVARIANTE_2: El servidor NUNCA ejecuta git clone, npm install, go build, etc.
-INVARIANTE_3: El deploy en prod ocurre EN EL SERVIDOR vía SSH + release.sh.
+INVARIANTE_3: El deploy en prod ocurre EN EL SERVIDOR vía SSH + release.sh (copiado desde el repo en cada release).
 INVARIANTE_4: Tags de imagen inmutables: v1.2.3 o sha-abc1234. PROHIBIDO :latest en prod.
 INVARIANTE_5: Secretos de runtime (DB, API keys) → prod.env en servidor. NO en GitHub.
 INVARIANTE_6: Secretos de conexión (SSH) → GitHub Secrets. NO en prod.env.
 INVARIANTE_7: Registry login en servidor es TEMPORAL dentro de release.sh. NO persistir tokens.
 INVARIANTE_8: Publicar containers en 127.0.0.1. Nginx (ServerPilot) expone el dominio.
+INVARIANTE_9: (camino 2) Puertos host en compose usan ${SP_COMPOSE_PORT...}; ServerPilot asigna valores en bootstrap (sp compose deploy). release.sh NO reasigna puertos.
 ```
 
 ---
@@ -51,12 +94,13 @@ INVARIANTE_8: Publicar containers en 127.0.0.1. Nginx (ServerPilot) expone el do
 El agente **elige** `APP_NAME` y lo usa **idéntico** en todos lados:
 
 ```
-APP_NAME        := "<minúsculas, sin espacios>"     # ej. payments-api
-REGISTRY        := "ghcr.io"
-ORG             := "<org o usuario github>"
-IMAGE_NAME      := REGISTRY + "/" + ORG + "/" + APP_NAME
-RELEASE_SCRIPT  := "/opt/" + APP_NAME + "/deploy/release.sh"
-COMPOSE_DIR     := "/opt/" + APP_NAME              # solo camino 2
+APP_NAME            := "<minúsculas, sin espacios>"     # ej. payments-api
+REGISTRY            := "ghcr.io"
+ORG                 := "<org o usuario github>"
+IMAGE_NAME          := REGISTRY + "/" + ORG + "/" + APP_NAME
+RELEASE_SCRIPT_REPO := "deploy/release.sh"              # en el repo — fuente de verdad
+RELEASE_SCRIPT_SRV  := "/opt/" + APP_NAME + "/deploy/release.sh"  # destino en servidor (CI lo copia)
+COMPOSE_DIR         := "/opt/" + APP_NAME              # solo camino 2
 ```
 
 **Validación del nombre:**
@@ -69,12 +113,15 @@ ASSERT APP_NAME is stable (no fechas, no nombres de persona)
 **Cuando el agente terminó de configurar GitHub + workflow:**
 
 ```
+ASSERT deploy/release.sh existe en el repo y está commiteado
 NOTIFY ServerPilot team:
   "Deploy listo para provisionar. APP_NAME=<APP_NAME>, CAMINO=<1|2>"
 WAIT until ServerPilot confirms:
   - /opt/<APP_NAME>/ exists
-  - release.sh installed
-  - (camino 2) bootstrap done, prod.env ready
+  - prod.env listo
+  - (camino 2) docker-compose.yml en servidor
+  - (camino 2) bootstrap con sp compose deploy hecho (stack Up)
+  - (camino 2) mapa de puertos asignados (SP_COMPOSE_PORT_* → host port) documentado
 THEN enable workflow (push tag v*)
 ```
 
@@ -109,7 +156,8 @@ JOB must declare: environment: production
 | `IMAGE_NAME` | `ghcr.io/org/payments-api` | Al definir APP_NAME |
 | `CONTAINER_PORT` | `8080` | Al leer Dockerfile EXPOSE/listen |
 | `DEPLOY_PORT` | `3042` | **Después** del primer deploy exitoso (`sp port`) |
-| `RELEASE_SCRIPT` | `/opt/payments-api/deploy/release.sh` | Al definir APP_NAME |
+| `RELEASE_SCRIPT_REPO` | `deploy/release.sh` | Archivo en el repo |
+| `RELEASE_SCRIPT_SRV` | `/opt/payments-api/deploy/release.sh` | Destino que el CI copia por SCP |
 
 **Camino 2:**
 
@@ -118,7 +166,8 @@ JOB must declare: environment: production
 | `IMAGE_NAME` | `ghcr.io/org/payments-api` | Al definir APP_NAME |
 | `COMPOSE_DIR` | `/opt/payments-api` | Al definir APP_NAME |
 | `RELEASE_SERVICE` | `app` | Nombre del servicio que TU imagen reemplaza |
-| `RELEASE_SCRIPT` | `/opt/payments-api/deploy/release.sh` | Al definir APP_NAME |
+| `RELEASE_SCRIPT_REPO` | `deploy/release.sh` | Archivo en el repo |
+| `RELEASE_SCRIPT_SRV` | `/opt/payments-api/deploy/release.sh` | Destino que el CI copia por SCP |
 
 ### 3.4 Servidor — `prod.env` (runtime, NO GitHub)
 
@@ -167,10 +216,15 @@ PROCEDIMIENTO release_pipeline:
     docker push IMAGE_NAME:TAG
     SI falla → ABORT pipeline
 
-  STEP 5 — deploy via SSH
+  STEP 5 — copiar release.sh al servidor
+    ASSERT archivo existe en repo: deploy/release.sh
+    SCP: RELEASE_SCRIPT_REPO → RELEASE_SCRIPT_SRV en el servidor
+    chmod 700 RELEASE_SCRIPT_SRV
+
+  STEP 6 — deploy via SSH
     CONECTAR: SSH_USER@SSH_HOST con SSH_PRIVATE_KEY
     EXPORTAR env vars (ver sección del camino elegido)
-    EJECUTAR: bash RELEASE_SCRIPT
+    EJECUTAR: bash RELEASE_SCRIPT_SRV
     SI exit code != 0 → ABORT pipeline, alertar
 
   POSTCONDICIÓN:
@@ -200,12 +254,16 @@ NO APLICA SI:
 ## C1. Arquitectura
 
 ```
-[GitHub Actions] --build push--> [GHCR]
-[GitHub Actions] --SSH--------> [Servidor]
-                                  release.sh:
-                                    sp port (si DEPLOY_PORT vacío)
-                                    docker pull IMAGE_REF
-                                    docker run -p 127.0.0.1:DEPLOY_PORT:CONTAINER_PORT
+BOOTSTRAP (una vez — ServerPilot prepara el servidor):
+  ServerPilot: /opt/APP_NAME/, usuario SSH, (opcional) prod.env
+  Equipo app: deploy/release.sh en el repo
+
+PRIMER RELEASE (CI + release.sh levanta el container):
+  release.sh: sp port (si hace falta) + docker pull + docker run
+
+CADA RELEASE SIGUIENTE (CI + release.sh):
+  docker pull + docker run (mismo DEPLOY_PORT fijo en GitHub Variables)
+
 [ServerPilot/Nginx] -----------> dominio público → 127.0.0.1:DEPLOY_PORT
 ```
 
@@ -215,6 +273,7 @@ NO APLICA SI:
 REPO/
   Dockerfile              # OBLIGATORIO
   .dockerignore           # OBLIGATORIO
+  deploy/release.sh       # OBLIGATORIO — script de deploy en el servidor
   .github/workflows/release.yml
 ```
 
@@ -226,9 +285,9 @@ MUST define CMD o ENTRYPOINT que escuche en ese puerto
 MUST NOT bake secrets en la imagen
 ```
 
-## C1. `release.sh` en el servidor (ServerPilot lo instala)
+## C1. `deploy/release.sh` en el repo (la app lo versiona)
 
-Ruta fija: `/opt/<APP_NAME>/deploy/release.sh`
+El CI copia este archivo a `/opt/<APP_NAME>/deploy/release.sh` en cada release.
 
 ```bash
 #!/usr/bin/env bash
@@ -289,7 +348,7 @@ env:
   IMAGE_NAME: ghcr.io/TU_ORG/NOMBRE_APP
   CONTAINER_NAME: NOMBRE_APP
   CONTAINER_PORT: "8080"
-  RELEASE_SCRIPT: /opt/NOMBRE_APP/deploy/release.sh
+  RELEASE_SCRIPT_SRV: /opt/NOMBRE_APP/deploy/release.sh
 
 jobs:
   release:
@@ -315,6 +374,15 @@ jobs:
           push: true
           tags: ${{ env.IMAGE_NAME }}:${{ github.ref_name }}
 
+      - name: Upload release script
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: deploy/release.sh
+          target: ${{ env.RELEASE_SCRIPT_SRV }}
+
       - uses: appleboy/ssh-action@v1.2.0
         env:
           IMAGE_REF: ${{ env.IMAGE_NAME }}:${{ github.ref_name }}
@@ -328,7 +396,9 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           envs: IMAGE_REF,CONTAINER_NAME,CONTAINER_PORT,DEPLOY_PORT,REGISTRY_USER,REGISTRY_TOKEN
-          script: bash ${{ env.RELEASE_SCRIPT }}
+          script: |
+            chmod 700 ${{ env.RELEASE_SCRIPT_SRV }}
+            bash ${{ env.RELEASE_SCRIPT_SRV }}
 ```
 
 ## C1. Secuencia post-primer-deploy
@@ -373,29 +443,42 @@ NO APLICA SI:
 ## C2. Arquitectura
 
 ```
-BOOTSTRAP (una vez, ServerPilot):
-  crear /opt/APP_NAME/docker-compose.yml  (sin build:)
-  crear /opt/APP_NAME/prod.env
-  sp compose deploy → levanta app + db, asigna SP_COMPOSE_PORT
+BOOTSTRAP (una vez — ServerPilot levanta TODO el stack):
+  ServerPilot / operador:
+    crear /opt/APP_NAME/docker-compose.yml  (sin build:)
+    crear /opt/APP_NAME/prod.env
+    sp compose deploy (panel o API) → reserva puertos, escribe SP_COMPOSE_PORT_*,
+      genera override 127.0.0.1, compose up de TODOS los servicios
+    entregar mapa: servicio → env var → host port (ej. app → SP_COMPOSE_PORT → 3042)
+  Equipo app:
+    deploy/release.sh en el repo (aún no se ejecuta en bootstrap)
 
-CADA RELEASE (tu CI):
+CADA RELEASE (CI + release.sh — SOLO el servicio de la app):
   build push imagen solo de TU servicio
-  SSH → release.sh:
+  scp deploy/release.sh → servidor
+  SSH → release.sh (del repo):
     export IMAGE_REF=...
     docker compose pull RELEASE_SERVICE
     docker compose up -d --no-deps --no-build RELEASE_SERVICE
 
-  db/redis: NO se tocan
+  db/redis/workers: YA estaban Up desde bootstrap — release.sh NO los toca
 ```
 
 ## C2. División de responsabilidades
 
-| Componente | Quién lo construye en CI | Quién lo actualiza en release |
-|------------|--------------------------|-------------------------------|
-| Tu app (`app`, `web`) | SÍ — `docker build` | SÍ — `pull` + `up --no-deps` |
-| Postgres, Redis, etc. | NO — imagen pública fija | NO — quedan corriendo |
-| docker-compose.yml en servidor | NO | NO — estable |
-| prod.env | NO | NO — solo cambios manuales controlados |
+| Componente | Quién lo levanta (primera vez) | Quién lo actualiza (cada release) |
+|------------|--------------------------------|-------------------------------------|
+| Tu app (`app`, `web`) | **ServerPilot** (bootstrap compose up) | **CI + `release.sh`** — `pull` + `up --no-deps` |
+| Postgres, Redis, workers, etc. | **ServerPilot** (bootstrap compose up) | **Nadie** — siguen corriendo; no se recrean |
+| docker-compose.yml en servidor | **ServerPilot** | **Nadie** — estable |
+| deploy/release.sh | **Equipo app** (en el repo) | **CI** lo copia y ejecuta |
+| prod.env | **ServerPilot** / operador | **Nadie** en CI — solo cambios manuales |
+| Nginx / dominio / SSL | **ServerPilot** | **Nadie** en CI |
+
+| Componente | Quién lo construye en CI (imagen) |
+|------------|-----------------------------------|
+| Tu app | SÍ — `docker build` |
+| Postgres, Redis, etc. | NO — imagen pública fija en el manifiesto del servidor |
 
 ## C2. Manifiesto en servidor (`/opt/<APP_NAME>/docker-compose.yml`)
 
@@ -432,12 +515,105 @@ volumes:
 
 ```
 PROHIBIDO build: en servicios de producción
+PROHIBIDO puertos host fijos (ej. "3042:8080") — solo ${SP_COMPOSE_PORT...}
 IMAGE_REF solo en el servicio que TU CI construye
-ports: + ${SP_COMPOSE_PORT} → servicio público (Nginx)
+ports: + ${SP_COMPOSE_PORT...} → servicio público (Nginx)
 expose: → interno, sin dominio
+Bootstrap SIEMPRE con sp compose deploy — NO docker compose up manual sin ServerPilot
 ```
 
-## C2. `release.sh` en el servidor
+## C2.1 Puertos Compose — uno o varios servicios públicos
+
+ServerPilot asigna **un puerto host distinto** por cada endpoint publicado (máx. **16** por proyecto).
+
+### Convención de variables
+
+| Caso | Variable en el manifiesto | Ejemplo valor tras bootstrap |
+|------|---------------------------|------------------------------|
+| **1 solo** servicio público | `SP_COMPOSE_PORT` | `SP_COMPOSE_PORT=3042` |
+| **Varios** servicios públicos | `SP_COMPOSE_PORT_<SERVICIO>_<PUERTO_CONTAINER>` | `SP_COMPOSE_PORT_APP_8080=3042`, `SP_COMPOSE_PORT_ADMIN_3000=3043` |
+
+Reglas de naming (ServerPilot las aplica al analizar el compose):
+
+```
+SERVICIO en mayúsculas, guiones → guión bajo (app-api → APP_API)
+PUERTO = puerto interno del container (8080, 3000, etc.)
+```
+
+### Qué hace ServerPilot en bootstrap (`sp compose deploy`)
+
+```
+1. Analiza cada ports: con ${SP_COMPOSE_PORT...}
+2. Reserva un puerto en 3000–3999 por endpoint (portalloc)
+3. Escribe serverpilot.env con todas las SP_COMPOSE_PORT_*=####
+4. Genera override con 127.0.0.1:${VAR}:puerto_container
+5. Persiste el mapa en el registry compose (servicio, env_var, host_port)
+6. Ejecuta compose up de todo el stack
+```
+
+**`release.sh` NO toca puertos.** Solo actualiza la imagen del servicio CI. Los `SP_COMPOSE_PORT_*` quedan fijos desde el bootstrap.
+
+### Manifiesto — varios servicios públicos (ejemplo)
+
+```yaml
+services:
+  app:
+    image: ${IMAGE_REF:?IMAGE_REF is required}
+    env_file:
+      - /opt/NOMBRE_APP/prod.env
+    ports:
+      - "${SP_COMPOSE_PORT_APP_8080}:8080"
+
+  admin:
+    image: ghcr.io/org/admin-panel:1.0.0   # imagen fija si no la construye este CI
+    env_file:
+      - /opt/NOMBRE_APP/prod.env
+    ports:
+      - "${SP_COMPOSE_PORT_ADMIN_3000}:3000"
+
+  db:
+    image: postgres:16-alpine
+    expose:
+      - "5432"
+    env_file:
+      - /opt/NOMBRE_APP/prod.env
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+volumes:
+  db_data:
+```
+
+Si solo hay **un** endpoint público, podés usar la forma corta `${SP_COMPOSE_PORT}:8080` (ServerPilot normaliza a `SP_COMPOSE_PORT`).
+
+### Nginx — un dominio por servicio público
+
+```
+Por cada servicio con puerto host asignado:
+  Associate Site en dashboard → 127.0.0.1:<host_port del registry>
+  (ej. app → 3042, admin → 3043 en dominios distintos)
+```
+
+Consultar mapa asignado: panel Compose / `GET /api/compose/projects` → `endpoints[]` con `service`, `env_var`, `host_port`.
+
+### Checklist bootstrap puertos (camino 2)
+
+```
+[ ] Manifiesto usa ${SP_COMPOSE_PORT...} en cada ports: público
+[ ] sp compose deploy completado (no compose up manual)
+[ ] docker compose ps → app + db (+ admin si aplica) Up
+[ ] Mapa documentado: servicio / env_var / host_port
+[ ] Associate Site hecho por cada endpoint que necesita dominio
+[ ] Recién entonces habilitar workflow de release
+```
+
+---
+
+## C2.2 `deploy/release.sh` en el repo (la app lo versiona)
+
+**Importante:** este script **no hace bootstrap**. Asume que ServerPilot **ya levantó** el stack completo (app + dependencias). Solo actualiza el servicio `RELEASE_SERVICE`.
+
+El CI copia este archivo a `/opt/<APP_NAME>/deploy/release.sh` en cada release.
 
 ```bash
 #!/usr/bin/env bash
@@ -514,7 +690,7 @@ env:
   IMAGE_NAME: ghcr.io/TU_ORG/NOMBRE_APP
   COMPOSE_DIR: /opt/NOMBRE_APP
   RELEASE_SERVICE: app
-  RELEASE_SCRIPT: /opt/NOMBRE_APP/deploy/release.sh
+  RELEASE_SCRIPT_SRV: /opt/NOMBRE_APP/deploy/release.sh
 
 jobs:
   release:
@@ -540,6 +716,15 @@ jobs:
           push: true
           tags: ${{ env.IMAGE_NAME }}:${{ github.ref_name }}
 
+      - name: Upload release script
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: deploy/release.sh
+          target: ${{ env.RELEASE_SCRIPT_SRV }}
+
       - uses: appleboy/ssh-action@v1.2.0
         env:
           IMAGE_REF: ${{ env.IMAGE_NAME }}:${{ github.ref_name }}
@@ -554,7 +739,9 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           envs: IMAGE_REF,TAG_NAME,COMPOSE_DIR,RELEASE_SERVICE,HOST_PORT,REGISTRY_USER,REGISTRY_TOKEN
-          script: bash ${{ env.RELEASE_SCRIPT }}
+          script: |
+            chmod 700 ${{ env.RELEASE_SCRIPT_SRV }}
+            bash ${{ env.RELEASE_SCRIPT_SRV }}
 ```
 
 ## C2. Validación final (camino 2)
@@ -564,6 +751,8 @@ CHECK docker compose ps → servicio RELEASE_SERVICE Up
 CHECK servicio db → siguió Up (no recreado)
 CHECK curl http://127.0.0.1:HOST_PORT/health → 200
 CHECK (opcional) body contiene TAG_NAME
+CHECK mapa puertos sin cambios (mismos SP_COMPOSE_PORT_* que en bootstrap)
+CHECK (multi-puerto) cada servicio público responde en su host_port del registry
 ```
 
 ---
@@ -574,11 +763,12 @@ CHECK (opcional) body contiene TAG_NAME
 FASE A — Definición
   [ ] Elegir CAMINO (1 o 2) según árbol de decisión §0
   [ ] Definir APP_NAME (regex válido)
-  [ ] Derivar IMAGE_NAME, RELEASE_SCRIPT, COMPOSE_DIR
+  [ ] Derivar IMAGE_NAME, RELEASE_SCRIPT_REPO, RELEASE_SCRIPT_SRV, COMPOSE_DIR
 
 FASE B — Repo
   [ ] Crear/validar Dockerfile
   [ ] Crear .dockerignore
+  [ ] Crear deploy/release.sh (plantilla §C1 o §C2)
   [ ] Implementar GET /health → 200
   [ ] Crear .github/workflows/release.yml (plantilla §C1 o §C2)
 
@@ -589,14 +779,15 @@ FASE C — GitHub
   [ ] Workflow permissions: packages: write
 
 FASE D — Coordinación ServerPilot
-  [ ] NOTIFY: APP_NAME + camino
-  [ ] WAIT confirmación: /opt/APP_NAME/, release.sh, (C2) bootstrap + prod.env
+  [ ] NOTIFY: APP_NAME + camino + (C2) cantidad de servicios públicos
+  [ ] WAIT confirmación: /opt/APP_NAME/, prod.env, (C2) compose + sp compose deploy
+  [ ] (C2) Recibir mapa puertos (servicio → host_port) antes del primer tag
 
 FASE E — Primer release
   [ ] git tag v0.1.0 && git push origin v0.1.0
   [ ] Verificar pipeline verde
   [ ] (C1) Guardar DEPLOY_PORT en GitHub Variables
-  [ ] Associate Site + SSL en dashboard
+  [ ] Associate Site + SSL en dashboard (C2: uno por cada servicio público)
 
 FASE F — Releases siguientes
   [ ] Solo push tag v* → pipeline automático
@@ -616,7 +807,10 @@ FASE F — Releases siguientes
 ❌ secretos de app en GitHub Secrets
 ❌ PAT de registry guardado en ~/.docker del servidor
 ❌ publicar en 0.0.0.0
-❌ ejecutar deploy antes de que ServerPilot confirme /opt/APP_NAME/
+❌ ejecutar deploy antes de que ServerPilot confirme /opt/APP_NAME/ y prod.env
+❌ release.sh solo en el servidor sin versionarlo en el repo
+❌ docker compose up manual en bootstrap sin sp compose deploy (puertos no quedan registrados)
+❌ puertos host fijos en docker-compose.yml de producción
 ❌ imprimir REGISTRY_TOKEN en logs (no set -x con secrets)
 ```
 
@@ -628,9 +822,12 @@ FASE F — Releases siguientes
 |---------|-------------|--------|
 | Misma versión después del deploy | Falta pull | Verificar release.sh hace pull |
 | `pull access denied` | Registry privado sin login | Pasar REGISTRY_TOKEN al SSH step |
-| db reiniciada | up sin --no-deps | Corregir release.sh camino 2 |
+| db reiniciada | up sin --no-deps en release.sh | Corregir release.sh; el levantamiento de db es bootstrap ServerPilot, no CI |
+| Stack no corre antes del primer tag (C2) | Bootstrap ServerPilot pendiente | Completar sp compose deploy antes de habilitar workflow |
+| Puertos compose mal / Nginx 502 (C2) | Bootstrap sin sp compose deploy o puerto fijo | Usar ${SP_COMPOSE_PORT...} + sp compose deploy; ver mapa en registry |
+| Dos servicios, dominio equivocado (C2) | Falta Associate por servicio | Un site Nginx por host_port público del registry |
 | Puerto Nginx roto (C1) | sp port cada vez | Fijar DEPLOY_PORT en vars |
-| `release.sh: not found` | ServerPilot no provisionó | Esperar confirmación equipo SP |
+| `release.sh: not found` | Falta en repo o falló el SCP | Verificar `deploy/release.sh` y step Upload release script |
 | Health check falla | HOST_PORT o TAG_NAME mal | Alinear con puerto interno real |
 
 ---
@@ -645,4 +842,117 @@ bash /opt/app/deploy/release.sh
 # Camino 2 — debug manual en servidor
 export IMAGE_REF=ghcr.io/org/app:v1.0.0 COMPOSE_DIR=/opt/app RELEASE_SERVICE=app TAG_NAME=v1.0.0
 bash /opt/app/deploy/release.sh
+
+# Copiar release.sh del repo al servidor (mismo paso que hace el CI)
+scp deploy/release.sh deploy@servidor:/opt/app/deploy/release.sh
+```
+
+---
+
+## 9. Prompt para apps legacy — crear `deploy/release.sh` (Camino 2 Compose)
+
+Copiá este bloque y dáselo al agente o al equipo que migra una app vieja:
+
+```text
+Tarea: crear deploy/release.sh en ESTE repositorio para el flujo CI/CD ServerPilot (Camino 2 — Docker Compose).
+
+=== QUIÉN LEVANTA QUÉ (NO NEGOCIABLE) ===
+
+ServerPilot (bootstrap, UNA VEZ, antes del primer tag):
+  - Crea /opt/<APP_NAME>/docker-compose.yml y prod.env
+  - Ejecuta sp compose deploy → levanta TODO el stack, asigna SP_COMPOSE_PORT_* por endpoint
+  - Entrega mapa servicio → env_var → host_port (registry compose)
+  - Configura Nginx/SSL (un site por servicio público)
+
+CI + deploy/release.sh (CADA tag v*):
+  - Build + push de la imagen de TU servicio
+  - Copia release.sh al servidor y lo ejecuta
+  - SOLO hace: compose pull + up --no-deps --no-build del servicio RELEASE_SERVICE
+
+release.sh NO hace bootstrap. NO levanta db, redis ni workers.
+Si esas dependencias no están Up, el problema es bootstrap ServerPilot — no arreglar con compose up sin --no-deps.
+
+=== CONTEXTO ===
+
+- ServerPilot NO recibe código fuente en cada release.
+- GitHub Actions: build → push imagen a GHCR → scp deploy/release.sh al servidor → SSH ejecuta el script.
+- En el servidor DEBE existir ya (bootstrap ServerPilot completado):
+  - /opt/<APP_NAME>/docker-compose.yml  (manifiesto estable, sin build:)
+  - /opt/<APP_NAME>/prod.env            (secretos runtime, NO en GitHub)
+  - stack completo corriendo (docker compose ps → app + db/etc. Up)
+  - SP_COMPOSE_PORT_* ya asignados (release.sh NO los cambia)
+- Cada release SOLO actualiza el servicio de la aplicación; db/redis/workers NO se recrean.
+
+Datos de esta app (completar antes de ejecutar):
+  APP_NAME=________________
+  RELEASE_SERVICE=________________     # servicio en docker-compose que usa IMAGE_REF (ej. app, web, api)
+  COMPOSE_DIR=/opt/<APP_NAME>
+  HOST_PORT=________________         # puerto interno para health check (ej. 8080)
+  HEALTH_PATH=/health                # o la ruta real
+  REGISTRY=ghcr.io/<org>/<APP_NAME>
+
+El script deploy/release.sh DEBE:
+1. Usar set -euo pipefail
+2. Exigir IMAGE_REF y COMPOSE_DIR por env
+3. Aceptar RELEASE_SERVICE (default: app)
+4. Login registry EFÍMERO si vienen REGISTRY_USER + REGISTRY_TOKEN (mktemp, trap cleanup, docker logout)
+5. export IMAGE_REF
+6. cd "$COMPOSE_DIR"
+7. docker compose pull "$RELEASE_SERVICE"
+8. docker compose up -d --no-deps --no-build "$RELEASE_SERVICE"
+9. Opcional: si TAG_NAME está definido, curl a http://127.0.0.1:${HOST_PORT}${HEALTH_PATH} hasta 15 intentos
+
+PROHIBIDO en release.sh:
+- git pull, rsync, npm install, docker build en el servidor
+- compose up SIN --no-deps (recrearía db — eso es bootstrap, no release)
+- compose up de servicios que no sean RELEASE_SERVICE
+- levantar el stack por primera vez (bootstrap) — eso es ServerPilot
+- guardar tokens en ~/.docker del servidor
+- usar :latest
+
+Entregables:
+1. Archivo deploy/release.sh ejecutable (chmod +x en repo)
+2. Lista de variables que el workflow debe exportar en el step SSH
+3. Si falta GET /health, indicar qué endpoint usar o proponer uno mínimo
+
+Plantilla base (adaptar, no copiar ciego):
+
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE_REF="${IMAGE_REF:?IMAGE_REF is required}"
+COMPOSE_DIR="${COMPOSE_DIR:?COMPOSE_DIR is required}"
+SERVICE="${RELEASE_SERVICE:-app}"
+TAG_NAME="${TAG_NAME:-}"
+HOST_PORT="${HOST_PORT:-8080}"
+HEALTH_PATH="${HEALTH_PATH:-/health}"
+
+if [ -n "${REGISTRY_TOKEN:-}" ] && [ -n "${REGISTRY_USER:-}" ]; then
+  CFG="$(mktemp -d)"
+  TOK="$(mktemp)"
+  chmod 600 "$TOK"
+  printf '%s' "$REGISTRY_TOKEN" > "$TOK"
+  export DOCKER_CONFIG="$CFG"
+  docker login ghcr.io -u "$REGISTRY_USER" --password-stdin < "$TOK"
+  trap 'rm -f "$TOK"; docker logout ghcr.io 2>/dev/null; rm -rf "$CFG"' EXIT
+fi
+
+export IMAGE_REF
+cd "$COMPOSE_DIR"
+docker compose pull "$SERVICE"
+docker compose up -d --no-deps --no-build "$SERVICE"
+
+if [ -n "$TAG_NAME" ]; then
+  for _ in $(seq 1 15); do
+    if curl -fsS "http://127.0.0.1:${HOST_PORT}${HEALTH_PATH}" | grep -Fq "$TAG_NAME"; then
+      echo "Deploy OK: $TAG_NAME"
+      exit 0
+    fi
+    sleep 2
+  done
+  echo "Health check failed for $TAG_NAME" >&2
+  exit 1
+fi
+
+Referencia completa: docs/DEPLOY.md secciones C2 y §4.
 ```
