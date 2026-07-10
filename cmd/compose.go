@@ -18,6 +18,7 @@ var (
 	composeNonInteractive bool
 	composeParent         string
 	composeShareConfirm   bool
+	composeReleaseService string
 )
 
 var composeCmd = &cobra.Command{
@@ -167,6 +168,33 @@ var composeSyncCmd = &cobra.Command{
 	},
 }
 
+var composeReleaseCmd = &cobra.Command{
+	Use:   "release",
+	Short: "Pull and recreate one service after CI (Camino 2)",
+	Long: `Updates a single service in a project already bootstrapped with sp compose deploy.
+
+Requires environment variables:
+  IMAGE_REF (required)
+  REGISTRY_USER / REGISTRY_TOKEN (optional, ephemeral ghcr.io login)
+
+Example:
+  export IMAGE_REF=ghcr.io/org/app:v1.2.3
+  sp compose release --name myapp --service app`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := requireRootForComposeMutation(); err != nil {
+			return err
+		}
+		if composeProject == "" {
+			return fmt.Errorf("--name is required")
+		}
+		return compose.ReleaseService(compose.ReleaseRequest{
+			Name:     composeProject,
+			Service:  composeReleaseService,
+			ImageRef: os.Getenv("IMAGE_REF"),
+		}, composeProgress())
+	},
+}
+
 var composeDeleteCmd = &cobra.Command{
 	Use:   "delete",
 	Short: "Delete a compose project stack",
@@ -197,8 +225,9 @@ func init() {
 	composeCmd.PersistentFlags().BoolVar(&composeNonInteractive, "non-interactive", false, "Fail instead of prompting")
 	composeCmd.PersistentFlags().StringVar(&composeParent, "parent", "", "Parent compose project for clone/sync")
 	composeCmd.PersistentFlags().BoolVar(&composeShareConfirm, "share-confirm", false, "Confirm writable shared volumes")
+	composeReleaseCmd.Flags().StringVar(&composeReleaseService, "service", "app", "Compose service to update")
 
-	composeCmd.AddCommand(composeValidateCmd, composeDeployCmd, composeListCmd, composeStatusCmd, composeCloneCmd, composeSyncCmd, composeDeleteCmd)
+	composeCmd.AddCommand(composeValidateCmd, composeDeployCmd, composeListCmd, composeStatusCmd, composeCloneCmd, composeSyncCmd, composeReleaseCmd, composeDeleteCmd)
 	rootCmd.AddCommand(composeCmd)
 }
 

@@ -143,6 +143,44 @@ func (r *Runner) Down(removeVolumes bool) error {
 	return nil
 }
 
+func (r *Runner) runtimeEnv(imageRef string) []string {
+	env := minimalComposeEnv(r.EnvFile)
+	if imageRef != "" {
+		env = append(env, "IMAGE_REF="+imageRef)
+	}
+	return env
+}
+
+// PullService pulls the image for one compose service.
+func (r *Runner) PullService(service, imageRef string) error {
+	cmd, err := r.command("pull", service)
+	if err != nil {
+		return err
+	}
+	cmd.Env = r.runtimeEnv(imageRef)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("compose pull failed")
+	}
+	return nil
+}
+
+// UpServiceNoDeps recreates one service without touching dependencies.
+func (r *Runner) UpServiceNoDeps(service, imageRef string) error {
+	cmd, err := r.command("up", "-d", "--no-deps", "--no-build", service)
+	if err != nil {
+		return err
+	}
+	cmd.Env = r.runtimeEnv(imageRef)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("compose up failed")
+	}
+	return nil
+}
+
 // PsJSON returns compose ps output as JSON lines.
 func (r *Runner) PsJSON() ([]byte, error) {
 	cmd, err := r.command("ps", "--format", "json")

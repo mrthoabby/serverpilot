@@ -85,6 +85,7 @@ INVARIANTE_6: Secretos de conexión (SSH) → GitHub Secrets. NO en prod.env.
 INVARIANTE_7: Registry login en servidor es TEMPORAL dentro de release.sh. NO persistir tokens.
 INVARIANTE_8: Publicar containers en 127.0.0.1. Nginx (ServerPilot) expone el dominio.
 INVARIANTE_9: (camino 2) Puertos host en compose usan ${SP_COMPOSE_PORT...}; ServerPilot asigna valores en bootstrap (sp compose deploy). release.sh NO reasigna puertos.
+INVARIANTE_10: release.sh NO invoca docker/docker compose directamente en Camino 2 — solo comandos sp (sp compose release).
 ```
 
 ---
@@ -456,10 +457,9 @@ BOOTSTRAP (una vez — ServerPilot levanta TODO el stack):
 CADA RELEASE (CI + release.sh — SOLO el servicio de la app):
   build push imagen solo de TU servicio
   scp deploy/release.sh → servidor
-  SSH → release.sh (del repo):
-    export IMAGE_REF=...
-    docker compose pull RELEASE_SERVICE
-    docker compose up -d --no-deps --no-build RELEASE_SERVICE
+  SSH → release.sh:
+    export IMAGE_REF, APP_NAME, REGISTRY_* ...
+    sp compose release --name APP_NAME --service RELEASE_SERVICE
 
   db/redis/workers: YA estaban Up desde bootstrap — release.sh NO los toca
 ```
@@ -599,6 +599,9 @@ Consultar mapa asignado: panel Compose / `GET /api/compose/projects` → `endpoi
 ### Checklist bootstrap puertos (camino 2)
 
 ```
+[ ] Server Dependencies en panel sin pendientes críticas (Docker, Nginx, Compose)
+[ ] Docker instalado en el servidor
+[ ] Docker Compose plugin instalado (panel → Apps → Server Dependencies → Install, o sp setup)
 [ ] Manifiesto usa ${SP_COMPOSE_PORT...} en cada ports: público
 [ ] sp compose deploy completado (no compose up manual)
 [ ] docker compose ps → app + db (+ admin si aplica) Up
@@ -611,7 +614,25 @@ Consultar mapa asignado: panel Compose / `GET /api/compose/projects` → `endpoi
 
 ## C2.2 `deploy/release.sh` en el repo (la app lo versiona)
 
-**Importante:** este script **no hace bootstrap**. Asume que ServerPilot **ya levantó** el stack completo (app + dependencias). Solo actualiza el servicio `RELEASE_SERVICE`.
+**Importante:** este script **no hace bootstrap**. Asume que ServerPilot **ya levantó** el stack con `sp compose deploy`. Solo actualiza el servicio `RELEASE_SERVICE`.
+
+### Regla: solo comandos `sp` en el release (Camino 2)
+
+```
+PROHIBIDO en release.sh:
+  docker compose pull ...
+  docker compose up ...
+  docker-compose (v1)
+  lógica custom que duplique ServerPilot
+
+OBLIGATORIO:
+  sp compose release --name <APP_NAME> --service <RELEASE_SERVICE>
+  (con IMAGE_REF y opcional REGISTRY_USER / REGISTRY_TOKEN en el entorno)
+```
+
+`sp compose release` usa el registry interno de ServerPilot (puertos `SP_COMPOSE_PORT_*`, override, env de la generación activa). Por eso el bootstrap **debe** haber sido `sp compose deploy`, no un `docker compose up` manual.
+
+Si ves `docker: unknown command: docker compose` en CI, el servidor **no tiene** el plugin Compose — instalar en **Apps → Server Dependencies → Docker Compose → Install** (o `sp setup`) **antes** del primer deploy.
 
 El CI copia este archivo a `/opt/<APP_NAME>/deploy/release.sh` en cada release.
 
@@ -619,26 +640,16 @@ El CI copia este archivo a `/opt/<APP_NAME>/deploy/release.sh` en cada release.
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE_REF="${IMAGE_REF:?IMAGE_REF is required}"
-COMPOSE_DIR="${COMPOSE_DIR:?COMPOSE_DIR is required}"
+export IMAGE_REF="${IMAGE_REF:?IMAGE_REF is required}"
+APP_NAME="${APP_NAME:?APP_NAME is required}"
 SERVICE="${RELEASE_SERVICE:-app}"
 TAG_NAME="${TAG_NAME:-}"
 HOST_PORT="${HOST_PORT:-8080}"
 
-if [ -n "${REGISTRY_TOKEN:-}" ] && [ -n "${REGISTRY_USER:-}" ]; then
-  CFG="$(mktemp -d)"
-  TOK="$(mktemp)"
-  chmod 600 "$TOK"
-  printf '%s' "$REGISTRY_TOKEN" > "$TOK"
-  export DOCKER_CONFIG="$CFG"
-  docker login ghcr.io -u "$REGISTRY_USER" --password-stdin < "$TOK"
-  trap 'rm -f "$TOK"; docker logout ghcr.io 2>/dev/null; rm -rf "$CFG"' EXIT
-fi
+# REGISTRY_USER y REGISTRY_TOKEN los exporta el workflow SSH (opcional).
+# sp compose release hace login efímero, pull y up --no-deps internamente.
 
-export IMAGE_REF
-cd "$COMPOSE_DIR"
-docker compose pull "$SERVICE"
-docker compose up -d --no-deps --no-build "$SERVICE"
+sp compose release --name "$APP_NAME" --service "$SERVICE"
 
 if [ -n "$TAG_NAME" ]; then
   for _ in $(seq 1 15); do
@@ -653,25 +664,28 @@ if [ -n "$TAG_NAME" ]; then
 fi
 ```
 
-**Por qué `compose pull`:**
+**Qué hace `sp compose release` (no lo reimplementes en bash):**
 
 ```
-La imagen nueva existe en GHCR después del push.
-El compose en disco es solo receta; NO trae la imagen hasta pull.
-SIN pull → up reutiliza capas viejas → deploy silenciosamente fallido.
+1. Login registry efímero (si REGISTRY_USER + REGISTRY_TOKEN)
+2. compose pull <service> con IMAGE_REF
+3. compose up -d --no-deps --no-build <service>
+4. Usa el manifiesto + override + serverpilot.env de la generación activa
 ```
 
 ## C2. Variables que el SSH step DEBE exportar
 
 ```
 IMAGE_REF        = IMAGE_NAME + ":" + TAG
-COMPOSE_DIR      = "/opt/" + APP_NAME
+APP_NAME         = nombre del proyecto compose (igual que bootstrap sp compose deploy)
 RELEASE_SERVICE  = "app"   # o web, api — el que TU build reemplaza
-TAG_NAME         = TAG     # opcional, para health check
+TAG_NAME         = TAG     # opcional, para health check en release.sh
 HOST_PORT        = "8080"  # puerto interno para curl /health
 REGISTRY_USER    = github.actor
 REGISTRY_TOKEN   = secrets.GITHUB_TOKEN
 ```
+
+`COMPOSE_DIR` ya no se exporta al release Camino 2 — `sp compose release` resuelve paths desde el registry ServerPilot.
 
 ## C2. Workflow GitHub Actions — plantilla completa
 
@@ -688,7 +702,7 @@ permissions:
 
 env:
   IMAGE_NAME: ghcr.io/TU_ORG/NOMBRE_APP
-  COMPOSE_DIR: /opt/NOMBRE_APP
+  APP_NAME: NOMBRE_APP
   RELEASE_SERVICE: app
   RELEASE_SCRIPT_SRV: /opt/NOMBRE_APP/deploy/release.sh
 
@@ -728,8 +742,8 @@ jobs:
       - uses: appleboy/ssh-action@v1.2.0
         env:
           IMAGE_REF: ${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+          APP_NAME: ${{ env.APP_NAME }}
           TAG_NAME: ${{ github.ref_name }}
-          COMPOSE_DIR: ${{ env.COMPOSE_DIR }}
           RELEASE_SERVICE: ${{ env.RELEASE_SERVICE }}
           HOST_PORT: "8080"
           REGISTRY_USER: ${{ github.actor }}
@@ -738,7 +752,7 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: IMAGE_REF,TAG_NAME,COMPOSE_DIR,RELEASE_SERVICE,HOST_PORT,REGISTRY_USER,REGISTRY_TOKEN
+          envs: IMAGE_REF,APP_NAME,TAG_NAME,RELEASE_SERVICE,HOST_PORT,REGISTRY_USER,REGISTRY_TOKEN
           script: |
             chmod 700 ${{ env.RELEASE_SCRIPT_SRV }}
             bash ${{ env.RELEASE_SCRIPT_SRV }}
@@ -809,7 +823,8 @@ FASE F — Releases siguientes
 ❌ publicar en 0.0.0.0
 ❌ ejecutar deploy antes de que ServerPilot confirme /opt/APP_NAME/ y prod.env
 ❌ release.sh solo en el servidor sin versionarlo en el repo
-❌ docker compose up manual en bootstrap sin sp compose deploy (puertos no quedan registrados)
+❌ docker compose / docker-compose en release.sh (usar sp compose release)
+❌ bootstrap con docker compose up manual (usar sp compose deploy)
 ❌ puertos host fijos en docker-compose.yml de producción
 ❌ imprimir REGISTRY_TOKEN en logs (no set -x con secrets)
 ```
@@ -820,7 +835,8 @@ FASE F — Releases siguientes
 
 | Síntoma | Diagnóstico | Acción |
 |---------|-------------|--------|
-| Misma versión después del deploy | Falta pull | Verificar release.sh hace pull |
+| `docker: unknown command: docker compose` | Plugin Compose no instalado en servidor | Apps → Server Dependencies → Install Docker Compose; release.sh debe usar `sp compose release`, no docker compose |
+| Misma versión después del deploy | Falta pull o no se usa sp compose release | Verificar release.sh llama `sp compose release` |
 | `pull access denied` | Registry privado sin login | Pasar REGISTRY_TOKEN al SSH step |
 | db reiniciada | up sin --no-deps en release.sh | Corregir release.sh; el levantamiento de db es bootstrap ServerPilot, no CI |
 | Stack no corre antes del primer tag (C2) | Bootstrap ServerPilot pendiente | Completar sp compose deploy antes de habilitar workflow |
@@ -840,8 +856,10 @@ export IMAGE_REF=ghcr.io/org/app:v1.0.0 CONTAINER_NAME=app CONTAINER_PORT=8080 D
 bash /opt/app/deploy/release.sh
 
 # Camino 2 — debug manual en servidor
-export IMAGE_REF=ghcr.io/org/app:v1.0.0 COMPOSE_DIR=/opt/app RELEASE_SERVICE=app TAG_NAME=v1.0.0
+export IMAGE_REF=ghcr.io/org/app:v1.0.0 APP_NAME=app RELEASE_SERVICE=app TAG_NAME=v1.0.0
 bash /opt/app/deploy/release.sh
+# o directamente:
+# sp compose release --name app --service app
 
 # Copiar release.sh del repo al servidor (mismo paso que hace el CI)
 scp deploy/release.sh deploy@servidor:/opt/app/deploy/release.sh
@@ -867,80 +885,55 @@ ServerPilot (bootstrap, UNA VEZ, antes del primer tag):
 CI + deploy/release.sh (CADA tag v*):
   - Build + push de la imagen de TU servicio
   - Copia release.sh al servidor y lo ejecuta
-  - SOLO hace: compose pull + up --no-deps --no-build del servicio RELEASE_SERVICE
+  - SOLO llama: sp compose release --name APP_NAME --service RELEASE_SERVICE
+  - NO usar docker compose ni docker login en release.sh (sp lo hace)
 
 release.sh NO hace bootstrap. NO levanta db, redis ni workers.
-Si esas dependencias no están Up, el problema es bootstrap ServerPilot — no arreglar con compose up sin --no-deps.
+NO invocar docker compose directamente — si falta el plugin, instalar Docker Compose en Server Dependencies.
 
 === CONTEXTO ===
 
 - ServerPilot NO recibe código fuente en cada release.
-- GitHub Actions: build → push imagen a GHCR → scp deploy/release.sh al servidor → SSH ejecuta el script.
-- En el servidor DEBE existir ya (bootstrap ServerPilot completado):
-  - /opt/<APP_NAME>/docker-compose.yml  (manifiesto estable, sin build:)
-  - /opt/<APP_NAME>/prod.env            (secretos runtime, NO en GitHub)
-  - stack completo corriendo (docker compose ps → app + db/etc. Up)
-  - SP_COMPOSE_PORT_* ya asignados (release.sh NO los cambia)
-- Cada release SOLO actualiza el servicio de la aplicación; db/redis/workers NO se recrean.
+- GitHub Actions: build → push → scp release.sh → SSH ejecuta el script.
+- Bootstrap previo obligatorio: sp compose deploy (no docker compose up manual).
+- En el servidor DEBE existir:
+  - proyecto registrado por sp compose deploy
+  - stack Up (app + db/etc.)
+  - SP_COMPOSE_PORT_* asignados
+  - Docker Compose plugin instalado (Server Dependencies)
 
-Datos de esta app (completar antes de ejecutar):
+Datos de esta app (completar):
   APP_NAME=________________
-  RELEASE_SERVICE=________________     # servicio en docker-compose que usa IMAGE_REF (ej. app, web, api)
-  COMPOSE_DIR=/opt/<APP_NAME>
-  HOST_PORT=________________         # puerto interno para health check (ej. 8080)
-  HEALTH_PATH=/health                # o la ruta real
+  RELEASE_SERVICE=________________
+  HOST_PORT=________________
+  HEALTH_PATH=/health
   REGISTRY=ghcr.io/<org>/<APP_NAME>
 
 El script deploy/release.sh DEBE:
-1. Usar set -euo pipefail
-2. Exigir IMAGE_REF y COMPOSE_DIR por env
-3. Aceptar RELEASE_SERVICE (default: app)
-4. Login registry EFÍMERO si vienen REGISTRY_USER + REGISTRY_TOKEN (mktemp, trap cleanup, docker logout)
-5. export IMAGE_REF
-6. cd "$COMPOSE_DIR"
-7. docker compose pull "$RELEASE_SERVICE"
-8. docker compose up -d --no-deps --no-build "$RELEASE_SERVICE"
-9. Opcional: si TAG_NAME está definido, curl a http://127.0.0.1:${HOST_PORT}${HEALTH_PATH} hasta 15 intentos
+1. set -euo pipefail
+2. Exigir IMAGE_REF y APP_NAME
+3. export IMAGE_REF (y REGISTRY_USER / REGISTRY_TOKEN si el workflow los pasa)
+4. ejecutar: sp compose release --name "$APP_NAME" --service "${RELEASE_SERVICE:-app}"
+5. Opcional: health check con curl + TAG_NAME
 
 PROHIBIDO en release.sh:
-- git pull, rsync, npm install, docker build en el servidor
-- compose up SIN --no-deps (recrearía db — eso es bootstrap, no release)
-- compose up de servicios que no sean RELEASE_SERVICE
-- levantar el stack por primera vez (bootstrap) — eso es ServerPilot
-- guardar tokens en ~/.docker del servidor
-- usar :latest
+- docker compose / docker-compose / docker login / docker pull / docker run
+- git pull, build en servidor, compose up sin --no-deps
+- bootstrap del stack
 
-Entregables:
-1. Archivo deploy/release.sh ejecutable (chmod +x en repo)
-2. Lista de variables que el workflow debe exportar en el step SSH
-3. Si falta GET /health, indicar qué endpoint usar o proponer uno mínimo
-
-Plantilla base (adaptar, no copiar ciego):
+Plantilla base:
 
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE_REF="${IMAGE_REF:?IMAGE_REF is required}"
-COMPOSE_DIR="${COMPOSE_DIR:?COMPOSE_DIR is required}"
+export IMAGE_REF="${IMAGE_REF:?IMAGE_REF is required}"
+APP_NAME="${APP_NAME:?APP_NAME is required}"
 SERVICE="${RELEASE_SERVICE:-app}"
 TAG_NAME="${TAG_NAME:-}"
 HOST_PORT="${HOST_PORT:-8080}"
 HEALTH_PATH="${HEALTH_PATH:-/health}"
 
-if [ -n "${REGISTRY_TOKEN:-}" ] && [ -n "${REGISTRY_USER:-}" ]; then
-  CFG="$(mktemp -d)"
-  TOK="$(mktemp)"
-  chmod 600 "$TOK"
-  printf '%s' "$REGISTRY_TOKEN" > "$TOK"
-  export DOCKER_CONFIG="$CFG"
-  docker login ghcr.io -u "$REGISTRY_USER" --password-stdin < "$TOK"
-  trap 'rm -f "$TOK"; docker logout ghcr.io 2>/dev/null; rm -rf "$CFG"' EXIT
-fi
-
-export IMAGE_REF
-cd "$COMPOSE_DIR"
-docker compose pull "$SERVICE"
-docker compose up -d --no-deps --no-build "$SERVICE"
+sp compose release --name "$APP_NAME" --service "$SERVICE"
 
 if [ -n "$TAG_NAME" ]; then
   for _ in $(seq 1 15); do
@@ -954,5 +947,5 @@ if [ -n "$TAG_NAME" ]; then
   exit 1
 fi
 
-Referencia completa: docs/DEPLOY.md secciones C2 y §4.
+Referencia: docs/DEPLOY.md §C2.2 y §9.
 ```

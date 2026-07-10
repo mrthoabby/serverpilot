@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/mrthoabby/serverpilot/internal/compose"
+	"github.com/mrthoabby/serverpilot/internal/deps"
 )
 
 type composeValidateRequest struct {
@@ -160,6 +161,22 @@ func (s *Server) streamComposeOperation(w http.ResponseWriter, stage string, run
 
 	sseWriteEvent(w, flusher, "stage", jsonString(map[string]string{"stage": stage}))
 	sseWriteLog(w, flusher, "Starting compose operation...")
+	if !deps.ComposeAvailable() {
+		pkg := deps.ComposePluginPackageForDistro()
+		if pkg == "" {
+			sseWriteEvent(w, flusher, "done", jsonString(map[string]interface{}{
+				"success": false,
+				"error":   "docker compose is not available on this distribution",
+			}))
+			return
+		}
+		sseWriteEvent(w, flusher, "done", jsonString(map[string]interface{}{
+			"success":            false,
+			"error":              "docker compose is not installed",
+			"dependency_missing": pkg,
+		}))
+		return
+	}
 	result, err := run(func(msg string) {
 		sseWriteLog(w, flusher, msg)
 	})

@@ -133,6 +133,7 @@ func (s *Server) Start() error {
 	mux.Handle("/api/settings/ssl-enable", s.requireReauth(http.HandlerFunc(s.handleSettingsSSLEnable)))
 	mux.Handle("/api/settings/block-insecure", s.requireSecureReauth(http.HandlerFunc(s.handleSettingsBlockInsecure)))
 	mux.Handle("/api/settings/host-guard", s.requireSecureReauth(http.HandlerFunc(s.handleSettingsHostGuard)))
+	mux.Handle("/api/dependencies", s.authMiddleware(http.HandlerFunc(s.handleDependenciesList)))
 	mux.Handle("/api/dependencies/install", s.requireSecureReauth(http.HandlerFunc(s.handleDependencyInstall)))
 	mux.Handle("/api/gdapp/activate", s.requireReauth(http.HandlerFunc(s.handleGDAppActivate)))
 	mux.Handle("/api/gdapp/deactivate", s.requireSecureReauth(http.HandlerFunc(s.handleGDAppDeactivate)))

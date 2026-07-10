@@ -1905,6 +1905,19 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         </div>
       </div>
 
+      <div class="card" id="serverDependenciesCard">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+          <h2>Server Dependencies</h2>
+          <button class="btn btn-sm btn-outline" onclick="loadDependencies()">&#x21bb; Refresh</button>
+        </div>
+        <p style="padding:0 1.25rem;color:var(--text-secondary);font-size:0.8125rem;margin-bottom:0.75rem;">
+          Packages required or recommended by ServerPilot. Missing items can be installed here (same flow as <code>sp setup</code>).
+        </p>
+        <div id="dependenciesContent">
+          <div class="spinner"><div class="spinner-ring"></div>Checking dependencies...</div>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
           <h2>Installed Applications</h2>
@@ -3288,7 +3301,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     images:     function() { return loadImages(); },
     mappings:   function() { return loadMappings(); },
     resources:  function() { return loadResources(); },
-    apps:       function() { loadManagedApps(); return loadApps(); },  // no auto-refresh for apps
+    apps:       function() { loadManagedApps(); loadDependencies(); return loadApps(); },  // no auto-refresh for apps
     users:      function() { loadSystemUsers(); return loadDeployUsers(); },
     cases:      function() { return loadCases(); },
     db:         function() { return loadDBConnections(); },
@@ -6183,6 +6196,73 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
   }
 
+  async function loadDependencies() {
+    var el = document.getElementById("dependenciesContent");
+    if (!el) return;
+    el.innerHTML = '<div class="spinner"><div class="spinner-ring"></div>Checking dependencies...</div>';
+    try {
+      var resp = await apiFetch("/api/dependencies");
+      var items = (resp && resp.data) ? resp.data : [];
+      renderDependencies(items);
+    } catch (err) {
+      el.innerHTML = '<p style="padding:1rem;color:var(--red);">Error: ' + escapeHtml(err.message || "error") + '</p>';
+    }
+  }
+
+  function renderDependencies(items) {
+    var el = document.getElementById("dependenciesContent");
+    if (!el) return;
+    if (!items || items.length === 0) {
+      el.innerHTML = '<p style="padding:1.25rem;color:var(--text-secondary);">No dependencies to show.</p>';
+      return;
+    }
+
+    var missing = items.filter(function(d) { return !d.installed; });
+    var summary = missing.length === 0
+      ? '<p style="padding:0 1.25rem 0.75rem;color:var(--green);font-size:0.8125rem;">All tracked dependencies are installed.</p>'
+      : '<p style="padding:0 1.25rem 0.75rem;color:var(--yellow);font-size:0.8125rem;">' +
+        missing.length + ' pending ' + (missing.length === 1 ? 'dependency' : 'dependencies') + '.</p>';
+
+    var rows = items.map(function(dep) {
+      var status = dep.installed
+        ? '<span style="color:var(--green);font-weight:600;">Installed</span>'
+        : '<span style="color:var(--yellow);font-weight:600;">Missing</span>';
+      var req = dep.required
+        ? '<span style="font-size:0.7rem;padding:2px 8px;border-radius:999px;background:rgba(248,81,73,0.15);color:var(--red);margin-left:6px;">required</span>'
+        : '<span style="font-size:0.7rem;padding:2px 8px;border-radius:999px;background:var(--bg-secondary);color:var(--text-muted);margin-left:6px;">optional</span>';
+      var action = '';
+      if (!dep.installed && dep.installable) {
+        action = '<button class="btn btn-sm" style="background:var(--accent);color:#fff;border:none;font-size:0.75rem;" ' +
+          'onclick="installDependency(' + attrJSON(dep.id) + ', refreshDependenciesAndApps)">Install</button>';
+      } else if (!dep.installed && !dep.installable) {
+        action = '<span style="color:var(--text-muted);font-size:0.75rem;">manual install</span>';
+      } else {
+        action = '<span style="color:var(--text-muted);font-size:0.75rem;">—</span>';
+      }
+      return '<tr style="border-bottom:1px solid var(--border);">' +
+        '<td style="padding:0.75rem 1rem;">' +
+          '<div style="font-weight:600;color:var(--text-primary);">' + escapeHtml(dep.name) + req + '</div>' +
+          '<div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px;">' + escapeHtml(dep.description || '') + '</div>' +
+        '</td>' +
+        '<td style="padding:0.75rem 1rem;font-size:0.8125rem;">' + status + '</td>' +
+        '<td style="padding:0.75rem 1rem;text-align:right;">' + action + '</td>' +
+      '</tr>';
+    }).join('');
+
+    el.innerHTML = summary +
+      '<table style="width:100%;border-collapse:collapse;">' +
+        '<thead><tr style="border-bottom:2px solid var(--border);">' +
+          '<th style="padding:0.5rem 1rem;text-align:left;font-size:0.75rem;color:var(--text-muted);">Dependency</th>' +
+          '<th style="padding:0.5rem 1rem;text-align:left;font-size:0.75rem;color:var(--text-muted);">Status</th>' +
+          '<th style="padding:0.5rem 1rem;text-align:right;font-size:0.75rem;color:var(--text-muted);">Action</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+
+  async function refreshDependenciesAndApps() {
+    await loadDependencies();
+    await loadApps();
+  }
+
   // attrJSON serialises a JS value into a string safe to embed inside an
   // HTML attribute that uses double-quote delimiters (the common case for
   // inline onclick handlers below). Plain JSON.stringify would emit the
@@ -7503,6 +7583,8 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   })();
   // Apps tab.
   window.loadApps                = loadApps;
+  window.loadDependencies        = loadDependencies;
+  window.refreshDependenciesAndApps = refreshDependenciesAndApps;
   window.openAppUninstallModal   = openAppUninstallModal;
   window.closeAppUninstallModal  = closeAppUninstallModal;
   window.executeUninstall        = executeUninstall;
@@ -7644,23 +7726,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
   }
 
-  // installACLSupport drives the same SSE-streaming dependency-install
-  // endpoint that certbot uses, but for the `acl` apt package. The
-  // package list is hardcoded server-side (see knownDependencies) so
-  // there is no path for the UI to request an arbitrary package.
-  //
-  // The SSE response is consumed via fetch + ReadableStream so we can
-  // disable the button and surface a small status message while apt-get
-  // runs. After "done", we re-fetch /api/permissions/capabilities to
-  // confirm ACL is now available, then re-render the modal.
-  async function installACLSupport() {
-    var btn = document.getElementById("installAclBtn");
-    var msg = document.getElementById("installAclMsg");
-    if (!btn || !msg) return;
-    btn.disabled = true;
-    msg.style.color = "var(--text-muted)";
-    msg.textContent = "Running apt install acl...";
-
+  // installDependency runs a one-click apt install for a hardcoded package
+  // slug (see knownDependencies in handlers.go). onSuccess is optional.
+  async function installDependency(packageSlug, onSuccess) {
+    if (!packageSlug) return false;
+    showToast("Installing " + packageSlug + "…", "info");
     try {
       var resp = await fetch("/api/dependencies/install", {
         method: "POST",
@@ -7671,13 +7741,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
           "X-SP-Build":  "1",
           "X-SP-Source": "ui"
         },
-        body: JSON.stringify({ package: "acl" })
+        body: JSON.stringify({ package: packageSlug })
       });
       if (!resp.ok || !resp.body) {
         throw new Error("install request failed (HTTP " + resp.status + ")");
       }
-      // Consume the SSE stream; we don't render every line, just wait for
-      // a "done" event or stream close.
       var reader = resp.body.getReader();
       var decoder = new TextDecoder();
       var buf = "";
@@ -7696,19 +7764,49 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         }
       }
       if (!success) {
-        msg.style.color = "#f85149";
-        msg.textContent = "apt install acl did not complete successfully — check journalctl -u serverpilot";
-        btn.disabled = false;
-        return;
+        showToast("Install failed for " + packageSlug, "error");
+        return false;
       }
-      msg.style.color = "#3fb950";
-      msg.textContent = "Installed. Re-checking ACL support...";
-      // Give the kernel a tick to propagate the new binaries.
-      await new Promise(function(r){ setTimeout(r, 300); });
-      await refreshManagedAppPerms(_permsCurrentApp);
+      showToast(packageSlug + " installed", "success");
+      if (typeof onSuccess === "function") await onSuccess();
+      return true;
+    } catch (err) {
+      showToast("Install failed: " + (err.message || "error"), "error");
+      return false;
+    }
+  }
+
+  // installACLSupport drives the same SSE-streaming dependency-install
+  // endpoint that certbot uses, but for the `acl` apt package. The
+  // package list is hardcoded server-side (see knownDependencies) so
+  // there is no path for the UI to request an arbitrary package.
+  //
+  // The SSE response is consumed via fetch + ReadableStream so we can
+  // disable the button and surface a small status message while apt-get
+  // runs. After "done", we re-fetch /api/permissions/capabilities to
+  // confirm ACL is now available, then re-render the modal.
+  async function installACLSupport() {
+    var btn = document.getElementById("installAclBtn");
+    var msg = document.getElementById("installAclMsg");
+    if (!btn || !msg) return;
+    btn.disabled = true;
+    msg.style.color = "var(--text-muted)";
+    msg.textContent = "Running apt install acl...";
+
+    try {
+      var ok = await installDependency("acl", async function() {
+        msg.style.color = "var(--green)";
+        msg.textContent = "ACL support installed.";
+        if (_permsCurrentApp) await refreshManagedAppPerms(_permsCurrentApp);
+      });
+      if (!ok) {
+        msg.style.color = "#f85149";
+        msg.textContent = "apt install acl did not complete successfully.";
+      }
     } catch (err) {
       msg.style.color = "#f85149";
-      msg.textContent = "Install failed: " + (err.message || "error");
+      msg.textContent = "Install failed.";
+    } finally {
       btn.disabled = false;
     }
   }
@@ -7837,6 +7935,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   window.openManagedAppPermsModal  = openManagedAppPermsModal;
   window.closeManagedAppPermsModal = closeManagedAppPermsModal;
   window.setManagedAppLevel        = setManagedAppLevel;
+  window.installDependency       = installDependency;
   window.installACLSupport         = installACLSupport;
   window.openSystemAppPermsModal   = openSystemAppPermsModal;
   window.closeSystemAppPermsModal  = closeSystemAppPermsModal;

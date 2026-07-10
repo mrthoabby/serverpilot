@@ -50,3 +50,26 @@ func TestComposeValidateRejectsUnknownFields(t *testing.T) {
 		t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestDependenciesListGET(t *testing.T) {
+	s := &Server{}
+	req := httptest.NewRequest(http.MethodGet, "/api/dependencies", nil)
+	rec := httptest.NewRecorder()
+	s.handleDependenciesList(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"docker"`) {
+		t.Fatalf("expected docker in response: %s", rec.Body.String())
+	}
+}
+
+func TestDependenciesListRejectsPOST(t *testing.T) {
+	s := &Server{}
+	req := httptest.NewRequest(http.MethodPost, "/api/dependencies", nil)
+	rec := httptest.NewRecorder()
+	s.handleDependenciesList(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", rec.Code)
+	}
+}

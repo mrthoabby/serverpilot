@@ -3892,12 +3892,20 @@ type dependencyInstallRequest struct {
 // The slugs themselves are validated against this map at request time,
 // so the UI can never request an arbitrary package.
 var knownDependencies = map[string][]string{
-	"certbot": {"/usr/bin/apt-get", "install", "-y", "--", "certbot", "python3-certbot-nginx"},
-	// `acl` is the userspace tool package (provides setfacl + getfacl).
-	// Tiny, no-config, safe to install via one-click — same risk profile
-	// as certbot but without any state changes to the filesystem.
+	"docker":                {"/usr/bin/apt-get", "install", "-y", "--", "docker.io"},
+	"nginx":                 {"/usr/bin/apt-get", "install", "-y", "--", "nginx"},
+	"certbot":               {"/usr/bin/apt-get", "install", "-y", "--", "certbot", "python3-certbot-nginx"},
 	"acl":                   {"/usr/bin/apt-get", "install", "-y", "--", "acl"},
 	"docker-compose-plugin": {"/usr/bin/apt-get", "install", "-y", "--", "docker-compose-plugin"},
+}
+
+// handleDependenciesList reports install state for dashboard-managed packages.
+func (s *Server) handleDependenciesList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: deps.ListDashboardDependencies()})
 }
 
 // handleDependencyInstall installs a missing dependency via apt with SSE streaming logs.
@@ -3917,6 +3925,10 @@ func (s *Server) handleDependencyInstall(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "unknown dependency: " + req.Package})
 		return
+	}
+
+	if req.Package == "docker" {
+		deps.FixDockerAptSources()
 	}
 
 	flusher, flusherOk := w.(http.Flusher)
@@ -3963,10 +3975,35 @@ func (s *Server) handleDependencyInstall(w http.ResponseWriter, r *http.Request)
 
 	sseWriteLog(w, flusher, "[Step 2/2] Verifying installation...")
 	// Verify the dependency is now available.
-	if req.Package == "certbot" {
-		if _, findErr := findCertbot(); findErr != nil {
-			sseWriteLog(w, flusher, "ERROR: "+req.Package+" still not found after installation.")
+	switch req.Package {
+	case "certbot":
+		if !deps.IsCertbotInstalled() {
+			sseWriteLog(w, flusher, "ERROR: certbot still not found after installation.")
 			sseWriteEvent(w, flusher, "done", `{"success":false,"error":"installation completed but binary not found"}`)
+			return
+		}
+	case deps.ComposePluginPackage:
+		if !deps.ComposeAvailable() {
+			sseWriteLog(w, flusher, "ERROR: docker compose still not available after installation.")
+			sseWriteEvent(w, flusher, "done", `{"success":false,"error":"installation completed but docker compose not available"}`)
+			return
+		}
+	case "docker":
+		if !deps.DockerInstalled() {
+			sseWriteLog(w, flusher, "ERROR: docker still not found after installation.")
+			sseWriteEvent(w, flusher, "done", `{"success":false,"error":"installation completed but docker not found"}`)
+			return
+		}
+	case "nginx":
+		if !deps.NginxInstalled() {
+			sseWriteLog(w, flusher, "ERROR: nginx still not found after installation.")
+			sseWriteEvent(w, flusher, "done", `{"success":false,"error":"installation completed but nginx not found"}`)
+			return
+		}
+	case "acl":
+		if !deps.ACLToolsInstalled() {
+			sseWriteLog(w, flusher, "ERROR: acl tools still not found after installation.")
+			sseWriteEvent(w, flusher, "done", `{"success":false,"error":"installation completed but acl tools not found"}`)
 			return
 		}
 	}
