@@ -1,0 +1,154 @@
+internal/docker/publish_test.go
+  s_ffa45bffb369d6::t_8873d7d072951c 1-15
+internal/web/handlers.go
+  s_ffa45bffb369d6::t_66705642bbf640 40
+  s_ffa45bffb369d6::t_3e0fc9c0d3fc4c 1351,1367-1403,1410-1416
+  s_ffa45bffb369d6::t_155f48c51bd6ec 1404-1409
+  s_ffa45bffb369d6::t_1b8e9e7e8f35e9 100-110
+  s_ffa45bffb369d6::t_6bb8d9a2979941 1051-1056
+  s_ffa45bffb369d6::t_b32d4c2a0d1147 2653-2654
+internal/sites/service.go
+  s_ffa45bffb369d6::t_b2352b2c676a74 1-203
+internal/templates/render_test.go
+  s_ffa45bffb369d6::t_3031e8669d35ad 3-6
+  s_ffa45bffb369d6::t_d7ebd5a2465fb9 23
+  s_ffa45bffb369d6::t_24ddb45547affd 50-52
+  s_ffa45bffb369d6::t_49f5bf3f690264 1-2,7-22,24-49,53-58
+internal/web/static/containers-sites.js
+  s_ffa45bffb369d6::t_9bb81c7132b8ee 1-595,606
+  s_ffa45bffb369d6::t_e8f350ca5c7358 596-605
+internal/docker/publish.go
+  s_ffa45bffb369d6::t_e00e9182ea988d 193
+  s_ffa45bffb369d6::t_f5e2815a71348b 6,8,10
+  s_ffa45bffb369d6::t_db1ab71d6fa69b 191
+  s_ffa45bffb369d6::t_9e3a48440bc06a 1-5,7,9,11-170,179-181,192,198,200-202,204-206,209-212
+  s_ffa45bffb369d6::t_e6de1be7d3aad0 171-178,182-185,187-188,190,194-197,199,203,207-208
+  s_ffa45bffb369d6::t_bacd471e58db42 186,189
+internal/templates/templates.go
+  s_ffa45bffb369d6::t_8b701d2d68437e 250-255
+internal/templates/options.go
+  s_ffa45bffb369d6::t_ef81f0518decb3 1-177
+internal/sites/registry_test.go
+  s_ffa45bffb369d6::t_8ecff87128c588 1-49
+internal/templates/render.go
+  s_ffa45bffb369d6::t_6124efbbee53a5 123,127,132,136
+  s_ffa45bffb369d6::t_d8320bbf16d55d 60
+  s_ffa45bffb369d6::t_1820f63b21b348 161
+  s_ffa45bffb369d6::t_9f7ca49deea9f5 1-57,59,61-63,65,67-122,124-126,128-131,133-135,137-160,162-167,169-177,179-193,195-208,210-212,214-222,226-270
+  s_ffa45bffb369d6::t_6f530c821bada1 178
+  s_ffa45bffb369d6::t_8a0939f75b9159 194
+  s_ffa45bffb369d6::t_337dd9721a9c4b 64,66
+  s_ffa45bffb369d6::t_765e83b8a42b26 209,213,223-225
+  s_ffa45bffb369d6::t_c9ac2ad8ab2a17 168
+  s_ffa45bffb369d6::t_8e60ac080643b8 58
+internal/templates/options_test.go
+  s_ffa45bffb369d6::t_3a8c64fd108e55 1-44
+internal/sites/redirect.go
+  s_ffa45bffb369d6::t_41620998c80f73 1-172
+internal/sites/registry.go
+  s_ffa45bffb369d6::t_e412a1e95996f8 128
+  s_ffa45bffb369d6::t_e332382caed885 1-9,11-22,25-74,78-127,129-152,154-253,273-299
+  s_ffa45bffb369d6::t_7741139eac078a 75-77
+  s_ffa45bffb369d6::t_5892dd0aa09ed4 153
+  s_ffa45bffb369d6::t_d0a6d4078b5f2d 10
+  s_ffa45bffb369d6::t_6c861a9740ad61 254-272
+  s_ffa45bffb369d6::t_b8bdc342aa737d 23-24
+internal/web/handlers_containers_sites_test.go
+  s_ffa45bffb369d6::t_4afe1f26f29938 1-27
+internal/mapper/mapper.go
+  s_ffa45bffb369d6::t_3b21d6fc92fe5f 5-6,11-12,17,21,26-28,36-37,40,47,52-55,57,59-99,101-124,126-130,134-135,140,143,147-153,162-172,174-179,181-187,189-194,197,206,208-212,215,219-226,229,235,238,241-263
+internal/web/handlers_containers_sites.go
+  s_ffa45bffb369d6::t_6c14de0c5e023e 172
+  s_ffa45bffb369d6::t_88a6ffc5a3146b 1-3,5-171,173-186
+  s_ffa45bffb369d6::t_2afc521bd1060e 4
+internal/web/server.go
+  s_ffa45bffb369d6::t_ac2f609a405b92 72-75
+internal/mapper/mapper_test.go
+  s_ffa45bffb369d6::t_ae9eebcb1fe478 22-24
+  s_ffa45bffb369d6::t_2d0364975a9995 1-6,10-21,25-35
+  s_ffa45bffb369d6::t_b53243f4ee58f1 7-9
+internal/web/static/index.html
+  s_e2c5bf7c88e4ef::t_01e74c76ac0f49 1440
+  s_e2c5bf7c88e4ef::t_774962d512a70b 1639
+  s_e2c5bf7c88e4ef::t_023d4e4009175a 262-278,280-292,296,298-302
+  s_e2c5bf7c88e4ef::t_1bdb2508d31b92 229
+  s_e2c5bf7c88e4ef::t_e5676bc0495db9 2857
+  s_e2c5bf7c88e4ef::t_4b8a5a6308d523 1424
+  s_ffa45bffb369d6::t_138ce3edff6083 2809-2829
+  s_e2c5bf7c88e4ef::t_4e3db41e236221 1307,1309-1330
+  s_ffa45bffb369d6::t_910d976c62c97a 5532
+  s_e2c5bf7c88e4ef::t_da30d2dad5913b 1710
+  s_e2c5bf7c88e4ef::t_c9a3608cefe5d8 388
+  s_ffa45bffb369d6::t_7a4c77a43a7565 1076-1085
+  s_e2c5bf7c88e4ef::t_65b797e64e11cb 544-545
+  s_e2c5bf7c88e4ef::t_8c7a8f4dac3ac5 1436
+  s_e2c5bf7c88e4ef::t_a0a0c74c40cee0 1448
+  s_ffa45bffb369d6::t_e985c88ac5c58d 1488
+  s_e2c5bf7c88e4ef::t_f15cd075d86c6a 2490
+  s_ffa45bffb369d6::t_085631fbbd3bb7 3248
+  s_e2c5bf7c88e4ef::t_aad7cf18fa6b8f 613-614
+  s_e2c5bf7c88e4ef::t_3b75c47d6f6097 962,964
+  s_e2c5bf7c88e4ef::t_b7bb21514a5ae1 1420-1421
+  s_e2c5bf7c88e4ef::t_9460debb281fa3 1398-1400,1402,1405-1415
+  s_e2c5bf7c88e4ef::t_752c6e9ee85451 580-581,586
+  s_e2c5bf7c88e4ef::t_cf2d3aa9a130de 1252-1261
+  s_e2c5bf7c88e4ef::t_029c43670d060a 592-593
+  s_e2c5bf7c88e4ef::t_ed30ace9fcae4d 1211-1251,1262-1271,1273-1306,1308
+  s_ffa45bffb369d6::t_a15706e945d80b 4092
+  s_e2c5bf7c88e4ef::t_75341e60a9ca14 1428
+  s_e2c5bf7c88e4ef::t_a8400a340f0f14 1648,1650,1654
+  s_e2c5bf7c88e4ef::t_9aee376e135c98 397-398
+  s_ffa45bffb369d6::t_7684d4a5507f83 12251
+  s_e2c5bf7c88e4ef::t_8100ebc57312b2 1452
+  s_e2c5bf7c88e4ef::t_dfd644c6ba3b85 491
+  s_ffa45bffb369d6::t_51feecddf38238 1470,1472
+  s_e2c5bf7c88e4ef::t_ab9d9a414cf89f 1432
+  s_e2c5bf7c88e4ef::t_8b168d577096d2 887
+  s_e2c5bf7c88e4ef::t_3e659f3ee983f7 3074-3105
+  s_e2c5bf7c88e4ef::t_eb27aa41a60ae9 9451
+  s_e2c5bf7c88e4ef::t_9bc0d6413d8944 2029
+  s_e2c5bf7c88e4ef::t_f3634653fd60a8 10470
+  s_e2c5bf7c88e4ef::t_d215972b14ebc1 9456
+  s_ffa45bffb369d6::t_f49224349671d5 2777,2781-2785,2789,2792,2794-2795
+  s_e2c5bf7c88e4ef::t_3dfa2b7bafee3e 924
+  s_ffa45bffb369d6::t_05d1d0e1435957 1480-1481
+  s_e2c5bf7c88e4ef::t_ea0a37d2e92359 2473,2479
+  s_e2c5bf7c88e4ef::t_6bdc25a4c19f0b 62
+  s_e2c5bf7c88e4ef::t_b11c69b7f507d9 1460
+  s_e2c5bf7c88e4ef::t_8e63885571284c 9391,9422
+  s_e2c5bf7c88e4ef::t_ba32f63bdb80a4 2495
+  s_e2c5bf7c88e4ef::t_14aa50c45fd469 2354
+  s_ffa45bffb369d6::t_bfc9ddef9100a6 5634
+  s_e2c5bf7c88e4ef::t_a0ca6022c7b41b 30-31,34-39
+  s_e2c5bf7c88e4ef::t_535690d4c60bd2 1403-1404
+  s_e2c5bf7c88e4ef::t_bf1ca8865df218 234-236,240-241
+  s_e2c5bf7c88e4ef::t_6d090e5395f909 1444
+  s_e2c5bf7c88e4ef::t_57cc10b0dbd8e9 311,313-314,325-333,335,341,347-351,354
+  s_e2c5bf7c88e4ef::t_8dfeab062c27d8 279,295,297,303
+  s_e2c5bf7c88e4ef::t_202145e70fdb14 406-410
+  s_e2c5bf7c88e4ef::t_e3ded2979468a9 1456
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "abdfbd57d76db9f8756a9670b0a5ca3504335be8",
+  "prompts": {},
+  "sessions": {
+    "s_e2c5bf7c88e4ef": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3955f94f-e3b9-4780-8bf9-96aae7decb02",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    },
+    "s_ffa45bffb369d6": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "606b6df3-9ef0-4710-8e57-746172ad4e81",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
