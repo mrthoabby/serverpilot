@@ -120,7 +120,7 @@ func Clone(req CloneRequest, progress Progress) (*ProjectRecord, error) {
 		OverrideFile:   overridePath,
 	}
 	progress("Starting clone stack...")
-	if err := runner.Up(); err != nil {
+	if err := runner.Up(""); err != nil {
 		_ = runner.Down(false)
 		portalloc.ReleaseOwners(owners)
 		return nil, err

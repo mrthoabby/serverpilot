@@ -16,10 +16,13 @@ type composeValidateRequest struct {
 }
 
 type composeDeployRequest struct {
-	Name        string `json:"name"`
-	Alias       string `json:"alias,omitempty"`
-	RootDir     string `json:"root_dir"`
-	ComposeFile string `json:"compose_file"`
+	Name          string `json:"name"`
+	Alias         string `json:"alias,omitempty"`
+	RootDir       string `json:"root_dir"`
+	ComposeFile   string `json:"compose_file"`
+	AppImageRef   string `json:"app_image_ref,omitempty"`
+	RegistryUser  string `json:"registry_user,omitempty"`
+	RegistryToken string `json:"registry_token,omitempty"`
 }
 
 type composeCloneRequest struct {
@@ -79,10 +82,13 @@ func (s *Server) handleComposeDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	s.streamComposeOperation(w, "compose-deploy", func(progress compose.Progress) (interface{}, error) {
 		return compose.Deploy(compose.DeployRequest{
-			Name:        req.Name,
-			Alias:       req.Alias,
-			RootDir:     req.RootDir,
-			ComposeFile: req.ComposeFile,
+			Name:          req.Name,
+			Alias:         req.Alias,
+			RootDir:       req.RootDir,
+			ComposeFile:   req.ComposeFile,
+			AppImageRef:   req.AppImageRef,
+			RegistryUser:  req.RegistryUser,
+			RegistryToken: req.RegistryToken,
 		}, progress)
 	})
 }

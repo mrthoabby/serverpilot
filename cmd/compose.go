@@ -64,10 +64,13 @@ var composeDeployCmd = &cobra.Command{
 		}
 		root := projectRootFromFile(composeFilePath)
 		rec, err := compose.Deploy(compose.DeployRequest{
-			Name:        composeProject,
-			Alias:       composeAlias,
-			RootDir:     root,
-			ComposeFile: composeFilePath,
+			Name:          composeProject,
+			Alias:         composeAlias,
+			RootDir:       root,
+			ComposeFile:   composeFilePath,
+			AppImageRef:   os.Getenv("IMAGE_REF"),
+			RegistryUser:  os.Getenv("REGISTRY_USER"),
+			RegistryToken: os.Getenv("REGISTRY_TOKEN"),
 		}, composeProgress())
 		if err != nil {
 			return err

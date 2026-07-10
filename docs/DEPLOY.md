@@ -596,6 +596,26 @@ Por cada servicio con puerto host asignado:
 
 Consultar mapa asignado: panel Compose / `GET /api/compose/projects` → `endpoints[]` con `service`, `env_var`, `host_port`.
 
+### Checklist bootstrap (camino 2) — operador, una vez
+
+```
+[ ] /opt/<APP_NAME>/ con docker-compose.yml (+ docker-compose.base.yml u otros includes locales si aplica)
+[ ] prod.env (o .env) con secretos runtime — NO subir desde el repo
+[ ] Server Dependencies: Docker + Docker Compose plugin instalados
+[ ] sp start -d activo
+[ ] Imagen inicial en registry (tag que ya exista en GHCR)
+[ ] export IMAGE_REF=ghcr.io/org/app:vX.Y.Z   (+ REGISTRY_USER/TOKEN si el registry es privado)
+[ ] sudo -E sp compose deploy --name <APP_NAME> --file /opt/<APP_NAME>/docker-compose.yml
+[ ] sp compose list → aparece <APP_NAME>
+[ ] Copiar SP_COMPOSE_PORT_* de serverpilot.env a vars GitHub si hace falta health check
+[ ] Associate Site + SSL por cada endpoint público
+[ ] Recién entonces habilitar workflow (solo sp compose release)
+```
+
+**`docker-compose.base.yml`:** si el manifiesto usa `include:` o referencia archivos locales, **todos deben estar en el servidor** bajo `/opt/<APP_NAME>/` antes del deploy. ServerPilot no los sube desde el repo.
+
+**`IMAGE_REF` en bootstrap (solo operador, no CI):** si el servicio de app usa `image: ${IMAGE_REF}`, el operador exporta un tag que **ya exista** en el registry al ejecutar `sp compose deploy` (`sudo -E` preserva el entorno). El CI **no** participa en bootstrap; en cada release solo pasa `IMAGE_REF` a `sp compose release`.
+
 ### Checklist bootstrap puertos (camino 2)
 
 ```
@@ -837,7 +857,8 @@ FASE F — Releases siguientes
 |---------|-------------|--------|
 | `docker: unknown command: docker compose` | Plugin Compose no instalado en servidor | Apps → Server Dependencies → Install Docker Compose; release.sh debe usar `sp compose release` |
 | Install Docker Compose falla en panel | `docker-compose-plugin` no está en repos default con `docker.io` | Actualizar `sp`; el instalador hace fallback al binario oficial. Manual: ver §8 |
-| `sp compose release is unavailable` | ServerPilot no está corriendo en el servidor | Operador: `sp start -d` |
+| `compose project not found` | Bootstrap compose pendiente | Operador: `sudo -E sp compose deploy` (ver checklist bootstrap §C2.1) |
+| `sp compose release is unavailable` | ServerPilot no está corriendo | Operador: `sp start -d` |
 | `this compose command must be run as root` en CI | `release.sh` llama `sp compose deploy` | Quitar bootstrap del script; operador hace `sudo sp compose deploy` una vez en servidor |
 | Misma versión después del deploy | Falta pull o no se usa sp compose release | Verificar release.sh llama `sp compose release` |
 | `pull access denied` | Registry privado sin login | Pasar REGISTRY_TOKEN al SSH step |

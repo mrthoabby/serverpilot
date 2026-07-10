@@ -83,8 +83,16 @@ func Deploy(req DeployRequest, progress Progress) (*ProjectRecord, error) {
 		EnvFile:        envPath,
 		OverrideFile:   overridePath,
 	}
+	cleanupLogin, err := ephemeralRegistryLogin(req.RegistryUser, req.RegistryToken)
+	if err != nil {
+		portalloc.ReleaseOwners(owners)
+		return nil, err
+	}
+	if cleanupLogin != nil {
+		defer cleanupLogin()
+	}
 	progress("Starting compose stack...")
-	if err := runner.Up(); err != nil {
+	if err := runner.Up(req.AppImageRef); err != nil {
 		_ = runner.Down(false)
 		portalloc.ReleaseOwners(owners)
 		return nil, err

@@ -103,8 +103,9 @@ func (r *Runner) ConfigJSON() ([]byte, error) {
 	return out, nil
 }
 
-// Up starts the stack in detached mode.
-func (r *Runner) Up() error {
+// Up starts the stack in detached mode. imageRef is optional and only used when
+// the compose manifest references ${IMAGE_REF} (bootstrap deploy).
+func (r *Runner) Up(imageRef string) error {
 	args, err := r.upArgs()
 	if err != nil {
 		return err
@@ -116,7 +117,7 @@ func (r *Runner) Up() error {
 	ctx, _ := r.withContext()
 	cmd := exec.CommandContext(ctx, dockerBin, args...)
 	cmd.Dir = r.ProjectRoot
-	cmd.Env = minimalComposeEnv(r.EnvFile)
+	cmd.Env = r.runtimeEnv(imageRef)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

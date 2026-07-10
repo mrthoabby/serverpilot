@@ -113,8 +113,11 @@ type CloneRequest struct {
 
 // DeployRequest carries deploy parameters.
 type DeployRequest struct {
-	Name        string `json:"name"`
-	Alias       string `json:"alias,omitempty"`
-	RootDir     string `json:"root_dir"`
-	ComposeFile string `json:"compose_file"`
+	Name          string `json:"name"`
+	Alias         string `json:"alias,omitempty"`
+	RootDir       string `json:"root_dir"`
+	ComposeFile   string `json:"compose_file"`
+	AppImageRef   string `json:"app_image_ref,omitempty"` // bootstrap only: resolves ${IMAGE_REF} in manifest
+	RegistryUser  string `json:"registry_user,omitempty"` // optional private registry login at bootstrap
+	RegistryToken string `json:"registry_token,omitempty"`
 }
