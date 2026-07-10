@@ -623,6 +623,7 @@ PROHIBIDO en release.sh:
   docker compose pull ...
   docker compose up ...
   docker-compose (v1)
+  sp compose deploy          ← bootstrap: solo operador/panel, NUNCA CI
   lógica custom que duplique ServerPilot
 
 OBLIGATORIO:
@@ -837,6 +838,7 @@ FASE F — Releases siguientes
 | `docker: unknown command: docker compose` | Plugin Compose no instalado en servidor | Apps → Server Dependencies → Install Docker Compose; release.sh debe usar `sp compose release` |
 | Install Docker Compose falla en panel | `docker-compose-plugin` no está en repos default con `docker.io` | Actualizar `sp`; el instalador hace fallback al binario oficial. Manual: ver §8 |
 | `sp compose release is unavailable` | ServerPilot no está corriendo en el servidor | Operador: `sp start -d` |
+| `this compose command must be run as root` en CI | `release.sh` llama `sp compose deploy` | Quitar bootstrap del script; operador hace `sudo sp compose deploy` una vez en servidor |
 | Misma versión después del deploy | Falta pull o no se usa sp compose release | Verificar release.sh llama `sp compose release` |
 | `pull access denied` | Registry privado sin login | Pasar REGISTRY_TOKEN al SSH step |
 | db reiniciada | up sin --no-deps en release.sh | Corregir release.sh; el levantamiento de db es bootstrap ServerPilot, no CI |
@@ -923,6 +925,7 @@ El script deploy/release.sh DEBE:
 
 PROHIBIDO en release.sh:
 - docker compose / docker-compose / docker login / docker pull / docker run
+- sp compose deploy (bootstrap — una vez por operador en servidor, no en CI)
 - git pull, build en servidor, compose up sin --no-deps
 - bootstrap del stack
 
