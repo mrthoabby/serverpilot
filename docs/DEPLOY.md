@@ -1,212 +1,426 @@
-# Cómo levantar tu aplicación en ServerPilot
+# Cómo preparar tu flujo de GitHub Actions para el CI/CD con ServerPilot
 
-Esta guía es para **equipos de desarrollo y operaciones** que despliegan en un servidor donde ya está instalado ServerPilot (`sp`).
-
-ServerPilot no reemplaza tu código ni tu pipeline de CI/CD: te da **puertos seguros**, **containers visibles**, **Nginx + SSL** y, si lo necesitás, **stacks Docker Compose** administrados.
-
-Hay **dos formas principales** de levantar una aplicación:
-
-| Enfoque | Cuándo usarlo |
-|--------|----------------|
-| **Container individual** (`sp port` + `docker run`) | Una sola app en un container, deploys simples, imágenes ya construidas en CI |
-| **Docker Compose** (`sp compose`) | Varios servicios juntos (web + api + db + redis), `docker-compose.yml` en el repo |
+> **Audiencia:** agentes y equipos que configuran el pipeline de deploy.  
+> **Objetivo:** preparar tu aplicación y tu workflow para que ServerPilot pueda ejecutar el release automático en el servidor.  
+> **Regla de oro:** ServerPilot **no recibe código fuente**. Solo recibe **imágenes Docker** vía registry + ejecución de `release.sh` por SSH.
 
 ---
 
-## Antes de empezar
+## 0. Decisión obligatoria — ¿qué camino usar?
 
-### En el servidor (una sola vez)
+```
+SI el proyecto en producción es:
+  - UN solo proceso
+  - UN solo Dockerfile
+  - SIN dependencias locales en el mismo host (db/redis externos o embebidos en la misma imagen)
+ENTONCES → CAMINO 1 (Docker simple)
 
-El administrador del servidor debe haber ejecutado:
-
-```sh
-sudo sp setup    # Docker, Nginx, Compose (opcional), credenciales del dashboard
-sudo sp start -d # Dashboard en http://IP:8090
+SI el proyecto en producción es:
+  - Varios servicios en docker-compose.yml (app + db, app + redis, etc.)
+  - Dependencias que deben correr en el mismo host que la app
+ENTONCES → CAMINO 2 (Docker Compose)
 ```
 
-### Tu acceso
+| Señal en el repo | Camino |
+|------------------|--------|
+| Solo `Dockerfile`, deploy = un container | **1** |
+| `docker-compose.yml` con app + db/redis/worker | **2** |
+| Dockerfile + compose para dev local, prod con stack en servidor | **2** |
 
-1. Conectate por **SSH** al servidor con tu usuario de deploy (o el que te hayan creado).
-2. Verificá que podés usar Docker y `sp`:
-
-```sh
-docker --version
-sp --version
-```
-
-3. Si vas a usar Compose:
-
-```sh
-docker compose version
-```
-
-Si Compose no está instalado, el admin puede volver a correr `sudo sp setup` y aceptar instalar el plugin, o instalar `docker-compose-plugin` con apt.
-
-### Dónde vive el código
-
-- Apps simples: cualquier ruta; lo habitual es `/opt/<nombre-app>/`.
-- **Compose obligatorio bajo `/opt`**: el proyecto debe estar en algo como `/opt/mi-app/` con su `docker-compose.yml` adentro.
+**No mezclar caminos en producción.** Elegí uno y seguí solo ese procedimiento.
 
 ---
 
-## Flujo 1 — Container individual (comando `sp`)
-
-Este es el camino clásico: **una imagen Docker, un puerto, un dominio**.
-
-### Resumen del flujo
+## 1. Invariantes (válidos para ambos caminos)
 
 ```
-CI construye imagen → SSH al servidor → sp port → docker run → Dashboard: Associate Site → SSL
+INVARIANTE_1: El CI construye y pushea la imagen al registry (GHCR u otro).
+INVARIANTE_2: El servidor NUNCA ejecuta git clone, npm install, go build, etc.
+INVARIANTE_3: El deploy en prod ocurre EN EL SERVIDOR vía SSH + release.sh.
+INVARIANTE_4: Tags de imagen inmutables: v1.2.3 o sha-abc1234. PROHIBIDO :latest en prod.
+INVARIANTE_5: Secretos de runtime (DB, API keys) → prod.env en servidor. NO en GitHub.
+INVARIANTE_6: Secretos de conexión (SSH) → GitHub Secrets. NO en prod.env.
+INVARIANTE_7: Registry login en servidor es TEMPORAL dentro de release.sh. NO persistir tokens.
+INVARIANTE_8: Publicar containers en 127.0.0.1. Nginx (ServerPilot) expone el dominio.
 ```
 
-### Paso 1: Entrar al servidor
+---
 
-```sh
-ssh deploy@tu-servidor
+## 2. Variables globales que el agente debe definir primero
+
+El agente **elige** `APP_NAME` y lo usa **idéntico** en todos lados:
+
+```
+APP_NAME        := "<minúsculas, sin espacios>"     # ej. payments-api
+REGISTRY        := "ghcr.io"
+ORG             := "<org o usuario github>"
+IMAGE_NAME      := REGISTRY + "/" + ORG + "/" + APP_NAME
+RELEASE_SCRIPT  := "/opt/" + APP_NAME + "/deploy/release.sh"
+COMPOSE_DIR     := "/opt/" + APP_NAME              # solo camino 2
 ```
 
-### Paso 2: Reservar un puerto con ServerPilot
+**Validación del nombre:**
 
-ServerPilot asigna un puerto libre en el rango **3000–3999** (por defecto) y evita choques con otros servicios:
-
-```sh
-PORT=$(sp port)
-echo "Puerto asignado: $PORT"
+```
+ASSERT APP_NAME matches regex: ^[a-z][a-z0-9-]*$
+ASSERT APP_NAME is stable (no fechas, no nombres de persona)
 ```
 
-Para otro rango:
+**Cuando el agente terminó de configurar GitHub + workflow:**
 
-```sh
-PORT=$(sp port --min 4000 --max 4999)
+```
+NOTIFY ServerPilot team:
+  "Deploy listo para provisionar. APP_NAME=<APP_NAME>, CAMINO=<1|2>"
+WAIT until ServerPilot confirms:
+  - /opt/<APP_NAME>/ exists
+  - release.sh installed
+  - (camino 2) bootstrap done, prod.env ready
+THEN enable workflow (push tag v*)
 ```
 
-Ver reservas activas:
+---
 
-```sh
-sp port --list
+## 3. Matriz de configuración — GitHub vs servidor
+
+### 3.1 GitHub — Environments
+
+```
+CREATE environment: production
+OPTIONAL CREATE environment: staging
+
+BIND secrets SSH only to the environment used by deploy job
+JOB must declare: environment: production
 ```
 
-**Importante:** el puerto queda en `127.0.0.1` del servidor. Nginx (vía ServerPilot) es quien lo expone al mundo con tu dominio.
+### 3.2 GitHub — Secrets (obligatorios)
 
-### Paso 3: Levantar el container
+| Secret | Valor | Quién lo provee |
+|--------|-------|-----------------|
+| `SSH_HOST` | hostname o IP del servidor | ServerPilot |
+| `SSH_USER` | usuario deploy | ServerPilot |
+| `SSH_PRIVATE_KEY` | clave privada Ed25519 completa | ServerPilot |
 
-Ejemplo con imagen que ya subiste a un registry:
+### 3.3 GitHub — Variables (por camino)
 
-```sh
-docker pull registry.example.com/mi-app:1.2.3
+**Camino 1:**
 
+| Variable | Ejemplo | Cuándo se conoce |
+|----------|---------|------------------|
+| `IMAGE_NAME` | `ghcr.io/org/payments-api` | Al definir APP_NAME |
+| `CONTAINER_PORT` | `8080` | Al leer Dockerfile EXPOSE/listen |
+| `DEPLOY_PORT` | `3042` | **Después** del primer deploy exitoso (`sp port`) |
+| `RELEASE_SCRIPT` | `/opt/payments-api/deploy/release.sh` | Al definir APP_NAME |
+
+**Camino 2:**
+
+| Variable | Ejemplo | Cuándo se conoce |
+|----------|---------|------------------|
+| `IMAGE_NAME` | `ghcr.io/org/payments-api` | Al definir APP_NAME |
+| `COMPOSE_DIR` | `/opt/payments-api` | Al definir APP_NAME |
+| `RELEASE_SERVICE` | `app` | Nombre del servicio que TU imagen reemplaza |
+| `RELEASE_SCRIPT` | `/opt/payments-api/deploy/release.sh` | Al definir APP_NAME |
+
+### 3.4 Servidor — `prod.env` (runtime, NO GitHub)
+
+```
+# Camino 1: opcional si pasás env al docker run (habitualmente pocos)
+# Camino 2: OBLIGATORIO para app + db
+
+DATABASE_URL=...
+API_KEY=...
+# todo lo que la app necesita para arrancar
+```
+
+### 3.5 Registry — token en CI (no guardar en servidor)
+
+```
+GitHub Actions:
+  PUSH  → secrets.GITHUB_TOKEN (permissions: packages: write)
+  PULL en servidor → pasar mismo token como REGISTRY_TOKEN al SSH step (efímero)
+
+REGISTRY_USER := github.actor
+REGISTRY_TOKEN := secrets.GITHUB_TOKEN
+```
+
+---
+
+## 4. Procedimiento común del pipeline (ambos caminos)
+
+```
+PROCEDIMIENTO release_pipeline:
+
+  TRIGGER: push tag matching v*  (ej. v1.2.3)
+
+  STEP 1 — checkout
+    git checkout ref del tag
+
+  STEP 2 — test
+    ejecutar tests del proyecto (stack-agnóstico)
+    SI falla → ABORT pipeline
+
+  STEP 3 — build image
+    docker build -t IMAGE_NAME:TAG .
+    TAG := github.ref_name  (ej. v1.2.3)
+
+  STEP 4 — push image
+    docker login ghcr.io
+    docker push IMAGE_NAME:TAG
+    SI falla → ABORT pipeline
+
+  STEP 5 — deploy via SSH
+    CONECTAR: SSH_USER@SSH_HOST con SSH_PRIVATE_KEY
+    EXPORTAR env vars (ver sección del camino elegido)
+    EJECUTAR: bash RELEASE_SCRIPT
+    SI exit code != 0 → ABORT pipeline, alertar
+
+  POSTCONDICIÓN:
+    container(s) corriendo en servidor con imagen TAG
+    (camino 2) solo servicio RELEASE_SERVICE recreado
+```
+
+**El runner de GitHub NO ejecuta `docker run` ni `compose up` en producción.** Solo en el servidor.
+
+---
+
+# CAMINO 1 — Docker simple (solo Dockerfile)
+
+## C1. Cuándo aplica
+
+```
+APLICA SI:
+  - Un Dockerfile en la raíz (o ruta fija en el workflow)
+  - Un solo container en producción
+  - Puerto interno conocido (EXPOSE o documentado)
+
+NO APLICA SI:
+  - Necesitás postgres/redis como containers separados en el mismo host
+  → usar CAMINO 2
+```
+
+## C1. Arquitectura
+
+```
+[GitHub Actions] --build push--> [GHCR]
+[GitHub Actions] --SSH--------> [Servidor]
+                                  release.sh:
+                                    sp port (si DEPLOY_PORT vacío)
+                                    docker pull IMAGE_REF
+                                    docker run -p 127.0.0.1:DEPLOY_PORT:CONTAINER_PORT
+[ServerPilot/Nginx] -----------> dominio público → 127.0.0.1:DEPLOY_PORT
+```
+
+## C1. Archivos que el agente crea en el repo
+
+```
+REPO/
+  Dockerfile              # OBLIGATORIO
+  .dockerignore           # OBLIGATORIO
+  .github/workflows/release.yml
+```
+
+**Dockerfile — requisitos mínimos:**
+
+```
+MUST expose exactly one application port (ej. EXPOSE 8080)
+MUST define CMD o ENTRYPOINT que escuche en ese puerto
+MUST NOT bake secrets en la imagen
+```
+
+## C1. `release.sh` en el servidor (ServerPilot lo instala)
+
+Ruta fija: `/opt/<APP_NAME>/deploy/release.sh`
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE_REF="${IMAGE_REF:?IMAGE_REF is required}"
+CONTAINER_NAME="${CONTAINER_NAME:?CONTAINER_NAME is required}"
+CONTAINER_PORT="${CONTAINER_PORT:?CONTAINER_PORT is required}"
+DEPLOY_PORT="${DEPLOY_PORT:-$(sp port)}"
+
+if [ -n "${REGISTRY_TOKEN:-}" ] && [ -n "${REGISTRY_USER:-}" ]; then
+  CFG="$(mktemp -d)"
+  TOK="$(mktemp)"
+  chmod 600 "$TOK"
+  printf '%s' "$REGISTRY_TOKEN" > "$TOK"
+  export DOCKER_CONFIG="$CFG"
+  docker login ghcr.io -u "$REGISTRY_USER" --password-stdin < "$TOK"
+  trap 'rm -f "$TOK"; docker logout ghcr.io 2>/dev/null; rm -rf "$CFG"' EXIT
+fi
+
+docker pull "$IMAGE_REF"
+docker stop "$CONTAINER_NAME" 2>/dev/null || true
+docker rm "$CONTAINER_NAME" 2>/dev/null || true
 docker run -d \
-  --name mi-app \
+  --name "$CONTAINER_NAME" \
   --restart unless-stopped \
-  -p 127.0.0.1:${PORT}:8080 \
-  -e NODE_ENV=production \
-  registry.example.com/mi-app:1.2.3
+  -p "127.0.0.1:${DEPLOY_PORT}:${CONTAINER_PORT}" \
+  "$IMAGE_REF"
 ```
 
-Reglas:
+## C1. Variables que el SSH step DEBE exportar
 
-- Usá **`-p 127.0.0.1:PUERTO:PUERTO_CONTAINER`** — no publiques en `0.0.0.0` manualmente.
-- El puerto del container (`8080` en el ejemplo) debe ser el que escucha tu app dentro de la imagen.
-- Usá el `PORT` que devolvió `sp port`.
-
-### Paso 4: Verificar que corre
-
-```sh
-docker ps --filter name=mi-app
-curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:${PORT}/
+```
+IMAGE_REF       = IMAGE_NAME + ":" + TAG
+CONTAINER_NAME  = APP_NAME
+CONTAINER_PORT  = <puerto interno, ej. "8080">
+DEPLOY_PORT     = vars.DEPLOY_PORT  (vacío solo en primer deploy)
+REGISTRY_USER   = github.actor
+REGISTRY_TOKEN  = secrets.GITHUB_TOKEN
 ```
 
-### Paso 5: Asociar dominio en el dashboard
+## C1. Workflow GitHub Actions — plantilla completa
 
-1. Abrí el dashboard de ServerPilot (`http://IP:8090` o el dominio del panel).
-2. Pestaña **Docker Containers**.
-3. Encontrá tu container → **Associate Site**.
-4. Elegí plantilla (**API** o **NestJS** si usás WebSockets).
-5. Dominio: `api.midominio.com`.
-6. Confirmá y, si querés, habilitá **SSL** desde la pestaña de sitios.
+Reemplazá `TU_ORG` y `NOMBRE_APP` por valores reales.
 
-ServerPilot crea el vhost de Nginx apuntando a `127.0.0.1:PUERTO`.
+```yaml
+name: Release
 
-### Paso 6: Actualizar en un release nuevo (CI/CD)
+on:
+  push:
+    tags: ["v*"]
 
-Patrón típico en tu script de deploy:
+permissions:
+  contents: read
+  packages: write
 
-```sh
-#!/bin/sh
-set -eu
+env:
+  IMAGE_NAME: ghcr.io/TU_ORG/NOMBRE_APP
+  CONTAINER_NAME: NOMBRE_APP
+  CONTAINER_PORT: "8080"
+  RELEASE_SCRIPT: /opt/NOMBRE_APP/deploy/release.sh
 
-IMAGE="registry.example.com/mi-app:${VERSION}"
-PORT="${DEPLOY_PORT:-$(sp port)}"   # o reutilizá el mismo puerto si ya está reservado
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
 
-docker pull "$IMAGE"
-docker stop mi-app 2>/dev/null || true
-docker rm mi-app 2>/dev/null || true
+      - name: Test
+        run: |
+          # AGENT: reemplazar con comando real de tests
+          echo "run tests"
 
-docker run -d \
-  --name mi-app \
-  --restart unless-stopped \
-  -p 127.0.0.1:${PORT}:8080 \
-  "$IMAGE"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+
+      - uses: appleboy/ssh-action@v1.2.0
+        env:
+          IMAGE_REF: ${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+          CONTAINER_NAME: ${{ env.CONTAINER_NAME }}
+          CONTAINER_PORT: ${{ env.CONTAINER_PORT }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: IMAGE_REF,CONTAINER_NAME,CONTAINER_PORT,DEPLOY_PORT,REGISTRY_USER,REGISTRY_TOKEN
+          script: bash ${{ env.RELEASE_SCRIPT }}
 ```
 
-Si el sitio Nginx ya existe y el puerto no cambió, no hace falta tocar el dashboard.
+## C1. Secuencia post-primer-deploy
 
-### Réplicas (opcional)
+```
+PRIMER deploy exitoso:
+  1. release.sh llamó sp port → obtuvo DEPLOY_PORT (ej. 3042)
+  2. AGENT: guardar DEPLOY_PORT=3042 en GitHub Variables (environment production)
+  3. ServerPilot: Associate Site en dashboard → dominio → SSL (una vez)
 
-Para clones blue/green de **un solo container** (no Compose), el dashboard ofrece **Create Replica**. No uses réplicas en containers que pertenezcan a un stack Compose.
+DEPLOYS siguientes:
+  ASSERT vars.DEPLOY_PORT está definido
+  ASSERT release.sh NO llama sp port de nuevo
+  ASSERT mismo puerto → Nginx sigue funcionando
+```
+
+## C1. Validación final (camino 1)
+
+```
+CHECK docker ps --filter name=APP_NAME → Status Up
+CHECK curl -sf http://127.0.0.1:DEPLOY_PORT/health → HTTP 200
+CHECK imagen en uso == IMAGE_NAME:TAG esperado
+```
 
 ---
 
-## Flujo 2 — Docker Compose (`sp compose`)
+# CAMINO 2 — Docker Compose (stack en servidor)
 
-Usá este flujo cuando tu repo trae **`docker-compose.yml`** con varios servicios (web, api, base de datos, colas, etc.).
-
-### Resumen del flujo
+## C2. Cuándo aplica
 
 ```
-Código en /opt/mi-app → docker-compose.yml con ${SP_COMPOSE_PORT} → sp compose validate → sp compose deploy → Associate Site (solo servicios públicos)
+APLICA SI:
+  - Producción requiere app + dependencias (db, redis, etc.) en el mismo host
+  - Solo la imagen de TU servicio cambia en cada release
+  - Dependencias usan imágenes públicas fijas (postgres:16-alpine, redis:7, etc.)
+
+NO APLICA SI:
+  - Un solo container alcanza
+  → usar CAMINO 1
 ```
 
-### Reglas que debés respetar
+## C2. Arquitectura
 
-1. **Proyecto bajo `/opt`**, por ejemplo `/opt/mi-app/`.
-2. **No uses puertos fijos** en el host (`"8080:80"` está prohibido). Usá variables de ServerPilot.
-3. Los puertos públicos se publican solo en **`127.0.0.1`**; ServerPilot los asigna al hacer deploy.
-4. Servicios solo con `expose:` son **internos** (no reciben sitio Nginx).
-5. No uses `privileged`, `network_mode: host`, montajes de `/`, ni el socket de Docker en el compose.
+```
+BOOTSTRAP (una vez, ServerPilot):
+  crear /opt/APP_NAME/docker-compose.yml  (sin build:)
+  crear /opt/APP_NAME/prod.env
+  sp compose deploy → levanta app + db, asigna SP_COMPOSE_PORT
 
-### Variables de puerto
+CADA RELEASE (tu CI):
+  build push imagen solo de TU servicio
+  SSH → release.sh:
+    export IMAGE_REF=...
+    docker compose pull RELEASE_SERVICE
+    docker compose up -d --no-deps --no-build RELEASE_SERVICE
 
-| Variable | Uso |
-|----------|-----|
-| `${SP_COMPOSE_PORT}` | Un solo servicio expuesto al público |
-| `${SP_COMPOSE_PORT_WEB_8080}` | Varios servicios: `SERVICIO` + `_` + puerto interno |
+  db/redis: NO se tocan
+```
 
-Convención para varios endpoints: `SP_COMPOSE_PORT_<SERVICE>_<CONTAINER_PORT>` en mayúsculas, con guiones del nombre de servicio reemplazados por `_`.
+## C2. División de responsabilidades
 
-### Ejemplo de `docker-compose.yml`
+| Componente | Quién lo construye en CI | Quién lo actualiza en release |
+|------------|--------------------------|-------------------------------|
+| Tu app (`app`, `web`) | SÍ — `docker build` | SÍ — `pull` + `up --no-deps` |
+| Postgres, Redis, etc. | NO — imagen pública fija | NO — quedan corriendo |
+| docker-compose.yml en servidor | NO | NO — estable |
+| prod.env | NO | NO — solo cambios manuales controlados |
+
+## C2. Manifiesto en servidor (`/opt/<APP_NAME>/docker-compose.yml`)
+
+ServerPilot lo crea en bootstrap. **El agente NO lo sube desde el repo.**
 
 ```yaml
 services:
-  web:
-    build: .
+  app:
+    image: ${IMAGE_REF:?IMAGE_REF is required}
+    env_file:
+      - /opt/NOMBRE_APP/prod.env
     ports:
       - "${SP_COMPOSE_PORT}:8080"
-    environment:
-      API_URL: http://api:3000
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
-      interval: 10s
-      timeout: 3s
+      interval: 30s
+      timeout: 5s
       retries: 3
-
-  api:
-    image: nginx:alpine
-    expose:
-      - "80"          # interno: no recibe dominio
 
   db:
     image: postgres:16-alpine
+    expose:
+      - "5432"
+    env_file:
+      - /opt/NOMBRE_APP/prod.env
     volumes:
       - db_data:/var/lib/postgresql/data
 
@@ -214,203 +428,221 @@ volumes:
   db_data:
 ```
 
-`expose` = solo red interna del stack.  
-`ports` con `${SP_COMPOSE_PORT...}` = ServerPilot asigna puerto host y luego podés ponerle dominio.
+**Reglas del manifiesto:**
 
-### Paso 1: Subir el proyecto al servidor
-
-```sh
-ssh deploy@tu-servidor
-sudo mkdir -p /opt/mi-app
-sudo chown deploy:deploy /opt/mi-app
-cd /opt/mi-app
-git clone https://github.com/tu-org/mi-app.git .
-# o rsync/scp desde tu máquina
+```
+PROHIBIDO build: en servicios de producción
+IMAGE_REF solo en el servicio que TU CI construye
+ports: + ${SP_COMPOSE_PORT} → servicio público (Nginx)
+expose: → interno, sin dominio
 ```
 
-### Paso 2: Validar antes de desplegar
+## C2. `release.sh` en el servidor
 
-```sh
-sudo sp compose validate \
-  --name mi-app \
-  --file /opt/mi-app/docker-compose.yml
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE_REF="${IMAGE_REF:?IMAGE_REF is required}"
+COMPOSE_DIR="${COMPOSE_DIR:?COMPOSE_DIR is required}"
+SERVICE="${RELEASE_SERVICE:-app}"
+TAG_NAME="${TAG_NAME:-}"
+HOST_PORT="${HOST_PORT:-8080}"
+
+if [ -n "${REGISTRY_TOKEN:-}" ] && [ -n "${REGISTRY_USER:-}" ]; then
+  CFG="$(mktemp -d)"
+  TOK="$(mktemp)"
+  chmod 600 "$TOK"
+  printf '%s' "$REGISTRY_TOKEN" > "$TOK"
+  export DOCKER_CONFIG="$CFG"
+  docker login ghcr.io -u "$REGISTRY_USER" --password-stdin < "$TOK"
+  trap 'rm -f "$TOK"; docker logout ghcr.io 2>/dev/null; rm -rf "$CFG"' EXIT
+fi
+
+export IMAGE_REF
+cd "$COMPOSE_DIR"
+docker compose pull "$SERVICE"
+docker compose up -d --no-deps --no-build "$SERVICE"
+
+if [ -n "$TAG_NAME" ]; then
+  for _ in $(seq 1 15); do
+    if curl -fsS "http://127.0.0.1:${HOST_PORT}/health" | grep -Fq "$TAG_NAME"; then
+      echo "Deploy OK: $TAG_NAME"
+      exit 0
+    fi
+    sleep 2
+  done
+  echo "Health check failed for $TAG_NAME" >&2
+  exit 1
+fi
 ```
 
-Con salida JSON (útil en CI):
+**Por qué `compose pull`:**
 
-```sh
-sudo sp compose validate \
-  --name mi-app \
-  --file /opt/mi-app/docker-compose.yml \
-  --json
+```
+La imagen nueva existe en GHCR después del push.
+El compose en disco es solo receta; NO trae la imagen hasta pull.
+SIN pull → up reutiliza capas viejas → deploy silenciosamente fallido.
 ```
 
-Si hay errores de política (puerto fijo, paths fuera de `/opt`, etc.), el comando te los lista **sin levantar nada**.
+## C2. Variables que el SSH step DEBE exportar
 
-### Paso 3: Desplegar el stack
-
-```sh
-sudo sp compose deploy \
-  --name mi-app \
-  --file /opt/mi-app/docker-compose.yml \
-  --alias "Mi App Producción" \
-  --json
+```
+IMAGE_REF        = IMAGE_NAME + ":" + TAG
+COMPOSE_DIR      = "/opt/" + APP_NAME
+RELEASE_SERVICE  = "app"   # o web, api — el que TU build reemplaza
+TAG_NAME         = TAG     # opcional, para health check
+HOST_PORT        = "8080"  # puerto interno para curl /health
+REGISTRY_USER    = github.actor
+REGISTRY_TOKEN   = secrets.GITHUB_TOKEN
 ```
 
-ServerPilot:
+## C2. Workflow GitHub Actions — plantilla completa
 
-1. Analiza el compose y Dockerfiles.
-2. Reserva puertos en `127.0.0.1`.
-3. Genera override y archivo de entorno con los puertos.
-4. Ejecuta `docker compose up -d`.
-5. Registra el proyecto en su inventario.
+```yaml
+name: Release
 
-### Paso 4: Ver estado
+on:
+  push:
+    tags: ["v*"]
 
-```sh
-sudo sp compose list --json
-sudo sp compose status --name mi-app --json
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/TU_ORG/NOMBRE_APP
+  COMPOSE_DIR: /opt/NOMBRE_APP
+  RELEASE_SERVICE: app
+  RELEASE_SCRIPT: /opt/NOMBRE_APP/deploy/release.sh
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test
+        run: |
+          # AGENT: reemplazar con comando real de tests
+          echo "run tests"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+
+      - uses: appleboy/ssh-action@v1.2.0
+        env:
+          IMAGE_REF: ${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+          TAG_NAME: ${{ github.ref_name }}
+          COMPOSE_DIR: ${{ env.COMPOSE_DIR }}
+          RELEASE_SERVICE: ${{ env.RELEASE_SERVICE }}
+          HOST_PORT: "8080"
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: IMAGE_REF,TAG_NAME,COMPOSE_DIR,RELEASE_SERVICE,HOST_PORT,REGISTRY_USER,REGISTRY_TOKEN
+          script: bash ${{ env.RELEASE_SCRIPT }}
 ```
 
-En el dashboard, los containers aparecen agrupados bajo **Compose stack: mi-app**, con el servicio (`web`, `api`, etc.).
+## C2. Validación final (camino 2)
 
-### Paso 5: Dominio y SSL (solo servicios publicados)
-
-1. Dashboard → **Docker Containers** → stack **mi-app**.
-2. En el servicio que tiene puerto publicado (ej. `web`) → **Associate Site**.
-3. Dominio + plantilla + SSL igual que en el flujo de container individual.
-
-Los servicios internos (`db`, `redis`, etc.) **no** deben tener sitio Nginx.
-
-### Paso 6: Release / CI/CD con Compose
-
-Script de deploy en tu pipeline (corre por SSH en el servidor):
-
-```sh
-#!/bin/sh
-set -eu
-
-cd /opt/mi-app
-git fetch --tags
-git checkout "${VERSION}"
-
-sudo sp compose validate --name mi-app --file docker-compose.yml
-sudo sp compose deploy --name mi-app --file docker-compose.yml --json
 ```
-
-Cada `deploy` exitoso crea una **nueva generación** del stack. Los sitios Nginx siguen apuntando al puerto reservado mientras el servicio público mantenga el mismo endpoint.
-
-### Paso 7: Clonar el stack completo (staging / blue-green)
-
-Para duplicar **todo** el proyecto (todos los servicios), no un container suelto:
-
-```sh
-sudo sp compose clone \
-  --parent mi-app \
-  --name mi-app-staging \
-  --alias "Staging" \
-  --non-interactive \
-  --json
-```
-
-En modo interactivo (dashboard o CLI futura con políticas por volumen), elegís por cada volumen persistente:
-
-| Política | Efecto |
-|----------|--------|
-| `empty` | Datos nuevos (ideal staging limpio) |
-| `copy` | Copia datos del padre (pausa breve de escritores si hace falta) |
-| `share` | Mismo volumen (riesgo si ambos escriben; requiere confirmación explícita) |
-
-Si el padre se actualizó y el clon quedó viejo:
-
-```sh
-sudo sp compose sync --name mi-app-staging --json
-```
-
-Eliminar un stack clonado:
-
-```sh
-sudo sp compose delete --name mi-app-staging
-```
-
----
-
-## Prompt / checklist — Docker Compose en ServerPilot
-
-Copiá y completá esto antes de pedir un deploy o armar tu PR:
-
-```text
-PROYECTO SERVERPILOT — DOCKER COMPOSE
-
-Nombre del proyecto (sp compose --name): _______________
-Ruta en servidor (debe ser bajo /opt):   /opt/_______________
-Archivo compose:                        docker-compose.yml
-Servicio público (el que lleva dominio): _______________
-Puerto interno de ese servicio:         _______________
-
-En docker-compose.yml:
-[ ] El servicio público usa ports: "${SP_COMPOSE_PORT}:<puerto-interno}"
-    (o ${SP_COMPOSE_PORT_<SERVICE>_<PORT>} si hay varios públicos)
-[ ] No hay puertos fijos tipo "8080:80" o "3000:3000"
-[ ] Servicios internos usan solo expose: o sin ports
-[ ] No hay privileged, network_mode: host, ni montajes de / o docker.sock
-[ ] Build context y Dockerfiles están dentro de /opt/<proyecto>/
-[ ] Hay healthcheck en el servicio público (recomendado)
-
-Comandos:
-  sudo sp compose validate --name <nombre> --file /opt/<app>/docker-compose.yml
-  sudo sp compose deploy   --name <nombre> --file /opt/<app>/docker-compose.yml --json
-
-Después del deploy:
-[ ] Container público visible en dashboard bajo "Compose stack: <nombre>"
-[ ] Associate Site en el servicio correcto (no en db/redis)
-[ ] SSL habilitado si aplica
-
-Dominio objetivo: _______________
-Plantilla Nginx:  [ ] API  [ ] NestJS (WebSocket)
+CHECK docker compose ps → servicio RELEASE_SERVICE Up
+CHECK servicio db → siguió Up (no recreado)
+CHECK curl http://127.0.0.1:HOST_PORT/health → 200
+CHECK (opcional) body contiene TAG_NAME
 ```
 
 ---
 
-## ¿Cuál flujo elijo?
+## 5. Orden de ejecución para el agente (checklist maestro)
 
-| Pregunta | Respuesta → Flujo |
-|----------|-------------------|
-| ¿Un solo proceso/container? | **Container + `sp port`** |
-| ¿Varios servicios en compose.yml? | **`sp compose`** |
-| ¿Solo necesito cambiar la imagen? | Container: `docker pull` + `docker run` |
-| ¿Necesito clonar web+api+db juntos? | **`sp compose clone`** |
-| ¿Base de datos compartida entre prod y staging? | Evitá `share`; preferí `empty` o `copy` con cuidado |
+```
+FASE A — Definición
+  [ ] Elegir CAMINO (1 o 2) según árbol de decisión §0
+  [ ] Definir APP_NAME (regex válido)
+  [ ] Derivar IMAGE_NAME, RELEASE_SCRIPT, COMPOSE_DIR
 
----
+FASE B — Repo
+  [ ] Crear/validar Dockerfile
+  [ ] Crear .dockerignore
+  [ ] Implementar GET /health → 200
+  [ ] Crear .github/workflows/release.yml (plantilla §C1 o §C2)
 
-## Errores frecuentes
+FASE C — GitHub
+  [ ] Crear environment production
+  [ ] Configurar secrets: SSH_HOST, SSH_USER, SSH_PRIVATE_KEY
+  [ ] Configurar variables según camino (§3.3)
+  [ ] Workflow permissions: packages: write
 
-| Error | Causa | Solución |
-|-------|--------|----------|
-| `project must live under /opt` | Compose fuera de `/opt` | Mové el proyecto a `/opt/<nombre>/` |
-| `must use ${SP_COMPOSE_PORT...}` | Puerto fijo en compose | Reemplazá por la variable de ServerPilot |
-| No aparece "Associate Site" | Servicio solo `expose`, sin `ports` | Es interno; solo el servicio con `ports` + deploy recibe sitio |
-| `compose containers use stack deploy` | Intentás publish-port en un servicio Compose | Redeploy con `sp compose deploy` |
-| Puerto en uso | No usaste `sp port` o `sp compose` | Dejá que ServerPilot asigne el puerto |
+FASE D — Coordinación ServerPilot
+  [ ] NOTIFY: APP_NAME + camino
+  [ ] WAIT confirmación: /opt/APP_NAME/, release.sh, (C2) bootstrap + prod.env
 
----
+FASE E — Primer release
+  [ ] git tag v0.1.0 && git push origin v0.1.0
+  [ ] Verificar pipeline verde
+  [ ] (C1) Guardar DEPLOY_PORT en GitHub Variables
+  [ ] Associate Site + SSL en dashboard
 
-## Referencia rápida de comandos
-
-```sh
-# Container individual
-PORT=$(sp port)
-docker run -d --name mi-app -p 127.0.0.1:${PORT}:8080 imagen:tag
-
-# Compose
-sudo sp compose validate --name APP --file /opt/APP/docker-compose.yml
-sudo sp compose deploy   --name APP --file /opt/APP/docker-compose.yml --json
-sudo sp compose list --json
-sudo sp compose status --name APP --json
-sudo sp compose clone --parent APP --name APP-staging --non-interactive
-sudo sp compose sync --name APP-staging
-sudo sp compose delete --name APP-staging
+FASE F — Releases siguientes
+  [ ] Solo push tag v* → pipeline automático
+  [ ] Verificar /health
 ```
 
-Para más detalle del producto y del dashboard, ver el [README principal](../README.md).
+---
+
+## 6. Anti-patrones (el agente NO debe hacer esto)
+
+```
+❌ git pull / rsync del repo al servidor en cada release
+❌ docker build en el servidor
+❌ build: en compose de producción
+❌ compose up sin --no-deps (recrea db)
+❌ :latest en producción
+❌ secretos de app en GitHub Secrets
+❌ PAT de registry guardado en ~/.docker del servidor
+❌ publicar en 0.0.0.0
+❌ ejecutar deploy antes de que ServerPilot confirme /opt/APP_NAME/
+❌ imprimir REGISTRY_TOKEN en logs (no set -x con secrets)
+```
+
+---
+
+## 7. Troubleshooting
+
+| Síntoma | Diagnóstico | Acción |
+|---------|-------------|--------|
+| Misma versión después del deploy | Falta pull | Verificar release.sh hace pull |
+| `pull access denied` | Registry privado sin login | Pasar REGISTRY_TOKEN al SSH step |
+| db reiniciada | up sin --no-deps | Corregir release.sh camino 2 |
+| Puerto Nginx roto (C1) | sp port cada vez | Fijar DEPLOY_PORT en vars |
+| `release.sh: not found` | ServerPilot no provisionó | Esperar confirmación equipo SP |
+| Health check falla | HOST_PORT o TAG_NAME mal | Alinear con puerto interno real |
+
+---
+
+## 8. Referencia one-liner
+
+```bash
+# Camino 1 — debug manual en servidor
+export IMAGE_REF=ghcr.io/org/app:v1.0.0 CONTAINER_NAME=app CONTAINER_PORT=8080 DEPLOY_PORT=3042
+bash /opt/app/deploy/release.sh
+
+# Camino 2 — debug manual en servidor
+export IMAGE_REF=ghcr.io/org/app:v1.0.0 COMPOSE_DIR=/opt/app RELEASE_SERVICE=app TAG_NAME=v1.0.0
+bash /opt/app/deploy/release.sh
+```
