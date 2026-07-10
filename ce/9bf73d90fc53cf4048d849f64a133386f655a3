@@ -1,0 +1,41 @@
+internal/compose/bootstrap_release_test.go
+  s_8182556d4f4d67::t_9793806a81a9d7 24
+  s_8182556d4f4d67::t_795132edcdac26 1-13,15-23,25-47
+  s_8182556d4f4d67::t_5c7693d46e6f4d 14
+internal/compose/socket.go
+  s_8182556d4f4d67::t_ecc0f72c611aef 123
+  s_8182556d4f4d67::t_541b5ef7a90517 187
+  s_8182556d4f4d67::t_32a43ef36f94df 31
+  s_8182556d4f4d67::t_69e0a49cf728d0 170-171
+  s_8182556d4f4d67::t_9e583eeccc9ec7 172
+cmd/compose.go
+  s_8182556d4f4d67::t_7f56c9e757d8a8 183,188,193-196,198-201
+internal/compose/release.go
+  s_8182556d4f4d67::t_780f32231ced84 17
+  s_8182556d4f4d67::t_92865aeab9d89d 52-54
+  s_8182556d4f4d67::t_a6716fa2391b68 55-68
+docs/DEPLOY.md
+  s_8182556d4f4d67::t_51a72f5d8b0ba6 619-621,626
+  s_8182556d4f4d67::t_226f597bb056d3 599-611
+  s_8182556d4f4d67::t_fe4635b52864fa 869
+internal/compose/bootstrap_release.go
+  s_8182556d4f4d67::t_7bb4f68a49b732 1-7,9-12,15-18,20-23,25-35,45,47-67
+  s_8182556d4f4d67::t_35c0345ac8cf12 13-14,19,24,36-44,46
+  s_8182556d4f4d67::t_9c7acc3d0da9ac 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "ce9bf73d90fc53cf4048d849f64a133386f655a3",
+  "prompts": {},
+  "sessions": {
+    "s_8182556d4f4d67": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "050707da-cb0a-4b12-9f07-fa7a36b58cc7",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
