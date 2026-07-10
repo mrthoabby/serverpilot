@@ -1,0 +1,36 @@
+internal/deps/compose_install.go
+  s_8182556d4f4d67::t_73c507b4d3ca04 210-214,217
+  s_8182556d4f4d67::t_625a3c71c97cac 1-3,5-17,47-209,215-216,218
+  s_8182556d4f4d67::t_504ee6b95330f3 18-20
+  s_8182556d4f4d67::t_2c2d7975a662bb 21-46
+  s_8182556d4f4d67::t_38d7d3797df4bf 4
+internal/deps/deps.go
+  s_8182556d4f4d67::t_6606ee44f9adcd 273-275
+docs/DEPLOY.md
+  s_8182556d4f4d67::t_d38bd3e5f85a59 865-870
+  s_8182556d4f4d67::t_4b18be93b9d29d 839
+internal/deps/compose.go
+  s_8182556d4f4d67::t_90a90e208a72c8 64-66
+internal/web/handlers.go
+  s_8182556d4f4d67::t_ce2d1c0e30db52 3930,3945-3947,3950-3964,3968-3969,3971
+internal/deps/compose_install_test.go
+  s_8182556d4f4d67::t_dc46695d08b8fa 3-6
+  s_8182556d4f4d67::t_4f743d39623dcd 1-2,7-27,29-31
+  s_8182556d4f4d67::t_33d0699019b7e5 28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "d87f51e5fd680839ae874400431273bd273586a8",
+  "prompts": {},
+  "sessions": {
+    "s_8182556d4f4d67": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "050707da-cb0a-4b12-9f07-fa7a36b58cc7",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
