@@ -1,0 +1,136 @@
+internal/web/handlers_compose_test.go
+  s_0569f95c212c7f::t_b3868dc0ee3473 13-15,18-20,22-27,31
+  s_0569f95c212c7f::t_e52d250367d84d 1-12,16-17,21,28-30,32-41,45-52
+  s_0569f95c212c7f::t_50615c709b509c 42-44
+internal/portalloc/batch.go
+  s_0569f95c212c7f::t_8766d984c50852 1-59
+internal/sites/registry.go
+  s_0569f95c212c7f::t_7b1f40e4fe3e6a 59-61
+internal/compose/paths_test.go
+  s_0569f95c212c7f::t_904b5ae65b58ba 50-52
+  s_0569f95c212c7f::t_eb625a866141c4 1-14,16-20,24-49,53-54
+  s_0569f95c212c7f::t_1e285d45e1373e 15
+  s_0569f95c212c7f::t_4bee79ee99dec4 21-23
+internal/docker/enrich.go
+  s_0569f95c212c7f::t_f32b868239b2c9 55-63
+  s_0569f95c212c7f::t_5cadef37f63633 1-23,34-54
+  s_0569f95c212c7f::t_763e7955164384 24-33
+internal/compose/testdata/fixture/docker-compose.yml
+  s_0569f95c212c7f::t_6ee6fbc9e013ef 1-22
+internal/docker/docker.go
+  s_0569f95c212c7f::t_ebcdcf1683b380 43-50
+  s_0569f95c212c7f::t_aca99f4aeea3f6 111
+internal/compose/deploy.go
+  s_0569f95c212c7f::t_227fdbfe8b11f8 1-274
+internal/web/static/containers-sites.js
+  s_0569f95c212c7f::t_86fc757bd665bc 448-454
+  s_0569f95c212c7f::t_e6444c57b5c2aa 4
+  s_0569f95c212c7f::t_f54b80a2fb8661 369-370,375
+  s_0569f95c212c7f::t_6d22df8cf27b99 481
+  s_0569f95c212c7f::t_3b50c80cf8b941 509-510,513-534
+  s_0569f95c212c7f::t_ef6126ff01c919 550-553
+internal/sites/service.go
+  s_0569f95c212c7f::t_32c9eed3801851 204-220
+internal/portalloc/portalloc.go
+  s_0569f95c212c7f::t_0b768f5b35c5b0 74
+internal/deps/compose.go
+  s_0569f95c212c7f::t_28527bae19aa24 1-72
+internal/deps/deps.go
+  s_0569f95c212c7f::t_78d5a4c6b5ca28 164-176
+internal/compose/registry.go
+  s_0569f95c212c7f::t_ea10f1917fbd14 1-215
+internal/compose/analyze_test.go
+  s_0569f95c212c7f::t_6cf2c2ad9958ad 24,50
+  s_0569f95c212c7f::t_fdbe4756460740 1-23,25-49,51-62
+internal/deps/compose_test.go
+  s_0569f95c212c7f::t_702b2409f2f5fc 1-19
+internal/compose/analyze.go
+  s_0569f95c212c7f::t_94eb466cec0573 112-114
+  s_0569f95c212c7f::t_53fe7048abef2d 137
+  s_0569f95c212c7f::t_43995c1b4d1ea8 403-405
+  s_0569f95c212c7f::t_eff4943b0a5b8c 1-98,100-111,115-136,138-402,406-409
+  s_0569f95c212c7f::t_af11ea2fb77394 99
+internal/web/handlers_compose.go
+  s_0569f95c212c7f::t_79fc1689994c80 1-121,123-182
+  s_0569f95c212c7f::t_ec39bedf526a78 122
+internal/docker/compose_meta_test.go
+  s_0569f95c212c7f::t_2b398d879be10f 1-16
+internal/web/handlers.go
+  s_0569f95c212c7f::t_540381e387f017 3895
+cmd/compose.go
+  s_0569f95c212c7f::t_11793ffe8002d8 225,233-237
+  s_0569f95c212c7f::t_837714ff286ffb 180
+  s_0569f95c212c7f::t_5e169a3babce7d 1-6,8-54,58-69,71-113,117-140,142-152,156-161,163-173,177-179,181-205,214-224
+  s_0569f95c212c7f::t_c87b78fe9726c1 141
+  s_0569f95c212c7f::t_8039815e5b9c4f 55-57,153-155,174-176
+  s_0569f95c212c7f::t_a47a420a87b5ae 70,162
+  s_0569f95c212c7f::t_3d196785fa3219 7
+  s_0569f95c212c7f::t_efe7e04eae1327 231-232
+  s_0569f95c212c7f::t_b9dc1a10570cbe 212
+  s_0569f95c212c7f::t_9d392ae13f2197 226-230
+  s_0569f95c212c7f::t_625fd2f6aefbcd 114-116
+internal/docker/compose_meta.go
+  s_0569f95c212c7f::t_7098dfe9eeb531 1-45
+internal/web/handlers_containers_sites.go
+  s_0569f95c212c7f::t_bd93ba5e6bc31f 54,56-64
+  s_0569f95c212c7f::t_2756722a2266ec 81-84
+  s_0569f95c212c7f::t_fa0d96ab615380 108-111
+  s_0569f95c212c7f::t_10430cdfaf6f68 55
+internal/sysinfo/apps.go
+  s_0569f95c212c7f::t_addcf69aaca528 88
+internal/web/server.go
+  s_0569f95c212c7f::t_cb36b81cd82675 82-87
+internal/compose/paths.go
+  s_0569f95c212c7f::t_26141a7ca24661 172-174,176-180,182-183
+  s_0569f95c212c7f::t_86550cb86185f9 23-29,31-34,36-41
+  s_0569f95c212c7f::t_ee94c724fdc82f 12-16
+  s_0569f95c212c7f::t_3293e0042032fd 9
+  s_0569f95c212c7f::t_fa33eb2f653fdb 167-168
+  s_0569f95c212c7f::t_6620105a2bf438 184
+  s_0569f95c212c7f::t_39b7f44ad17928 21,30,35
+  s_0569f95c212c7f::t_bbb82f92dbca66 1-8,10-11,17-20,22,42-166,169-171,175,181,185-197
+README.md
+  s_0569f95c212c7f::t_5749a881006bd9 169-190
+internal/compose/models.go
+  s_0569f95c212c7f::t_7949467a95bf7d 1-120
+internal/compose/exec.go
+  s_0569f95c212c7f::t_72a08188fb3cd9 108,112-119
+  s_0569f95c212c7f::t_51ec3e90ec8cd4 1-69,82-107,109-111,120-218
+  s_0569f95c212c7f::t_95e49a9f12b426 70-81
+internal/portalloc/batch_test.go
+  s_0569f95c212c7f::t_8c1d70678a83eb 1-42
+internal/compose/testdata/fixture/Dockerfile
+  s_0569f95c212c7f::t_a4d9ea787e6b2d 1-2
+internal/compose/policy.go
+  s_0569f95c212c7f::t_2dab6ef136fb7a 1-131
+go.mod
+  s_0569f95c212c7f::t_9bb5000a00906d 19
+internal/compose/clone.go
+  s_0569f95c212c7f::t_711c14b5d36edb 72
+  s_0569f95c212c7f::t_fbde916c2658d0 1-71,73-158,164-258
+  s_0569f95c212c7f::t_8c0e0c6e17dced 159-163
+.codex/skills/serverpilot-project/references/context.md
+  s_0569f95c212c7f::t_ccfd0fae38427c 23
+internal/compose/integration_test.go
+  s_0569f95c212c7f::t_cac91560005508 20
+  s_0569f95c212c7f::t_bb225df18c2b4d 1-17,19,21-27
+  s_0569f95c212c7f::t_8bb234a179885f 18
+go.sum
+  s_0569f95c212c7f::t_f29c7c7af8c2f4 24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "df4d1c5b98e7f709348abc5761f5889f9dd5f121",
+  "prompts": {},
+  "sessions": {
+    "s_0569f95c212c7f": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "346d7c18-3d98-4a76-9a8f-c836e3377910",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
