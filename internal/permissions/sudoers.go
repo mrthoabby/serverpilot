@@ -48,18 +48,18 @@ type SudoersGrant struct {
 // templates.go); rule slugs the dashboard does not know are rejected.
 //
 // Defences (in order applied):
-//   1. validateUsername — regex + managed-user check.
-//   2. sudoersRuleRegex — strict slug; refuses anything that could be a
-//      filename traversal vector.
-//   3. Lookup the rule in the static template map — refuses unknown rules.
-//   4. Compose the fragment with a hardcoded `Cmnd_Alias` style line that
-//      includes the EXACT command from the template, never user input.
-//   5. Write to a CreateTemp inside /etc/sudoers.d (so the rename is
-//      genuinely atomic on the same FS), chmod 0440, sync.
-//   6. visudo -c -f <tmp> — refuse to install if visudo rejects it. THIS
-//      IS NOT OPTIONAL. A bad sudoers can lock out every operator.
-//   7. Atomic rename to the final path.
-//   8. Audit log entry.
+//  1. validateUsername — regex + managed-user check.
+//  2. sudoersRuleRegex — strict slug; refuses anything that could be a
+//     filename traversal vector.
+//  3. Lookup the rule in the static template map — refuses unknown rules.
+//  4. Compose the fragment with a hardcoded `Cmnd_Alias` style line that
+//     includes the EXACT command from the template, never user input.
+//  5. Write to a CreateTemp inside /etc/sudoers.d (so the rename is
+//     genuinely atomic on the same FS), chmod 0440, sync.
+//  6. visudo -c -f <tmp> — refuse to install if visudo rejects it. THIS
+//     IS NOT OPTIONAL. A bad sudoers can lock out every operator.
+//  7. Atomic rename to the final path.
+//  8. Audit log entry.
 func (s *Service) GrantSudoers(actor, username, ruleSlug string) error {
 	if err := s.validateUsername(username); err != nil {
 		return err

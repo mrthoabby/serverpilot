@@ -85,7 +85,7 @@ INVARIANTE_6: Secretos de conexión (SSH) → GitHub Secrets. NO en prod.env.
 INVARIANTE_7: Registry login en servidor es TEMPORAL dentro de release.sh. NO persistir tokens.
 INVARIANTE_8: Publicar containers en 127.0.0.1. Nginx (ServerPilot) expone el dominio.
 INVARIANTE_9: (camino 2) Puertos host en compose usan ${SP_COMPOSE_PORT...}; ServerPilot asigna valores en bootstrap (sp compose deploy). release.sh NO reasigna puertos.
-INVARIANTE_10: release.sh NO invoca docker/docker compose directamente en Camino 2 — solo comandos sp (sp compose release).
+INVARIANTE_10: release.sh NO invoca docker/docker compose directamente en Camino 2 — solo `sp compose release` (igual que `sp port`: el usuario ejecuta `sp`, ServerPilot hace el resto).
 ```
 
 ---
@@ -647,7 +647,6 @@ TAG_NAME="${TAG_NAME:-}"
 HOST_PORT="${HOST_PORT:-8080}"
 
 # REGISTRY_USER y REGISTRY_TOKEN los exporta el workflow SSH (opcional).
-# sp compose release hace login efímero, pull y up --no-deps internamente.
 
 sp compose release --name "$APP_NAME" --service "$SERVICE"
 
@@ -835,8 +834,9 @@ FASE F — Releases siguientes
 
 | Síntoma | Diagnóstico | Acción |
 |---------|-------------|--------|
-| `docker: unknown command: docker compose` | Plugin Compose no instalado en servidor | Apps → Server Dependencies → Install Docker Compose; release.sh debe usar `sp compose release`, no docker compose |
+| `docker: unknown command: docker compose` | Plugin Compose no instalado en servidor | Apps → Server Dependencies → Install Docker Compose; release.sh debe usar `sp compose release` |
 | Install Docker Compose falla en panel | `docker-compose-plugin` no está en repos default con `docker.io` | Actualizar `sp`; el instalador hace fallback al binario oficial. Manual: ver §8 |
+| `sp compose release is unavailable` | ServerPilot no está corriendo en el servidor | Operador: `sp start -d` |
 | Misma versión después del deploy | Falta pull o no se usa sp compose release | Verificar release.sh llama `sp compose release` |
 | `pull access denied` | Registry privado sin login | Pasar REGISTRY_TOKEN al SSH step |
 | db reiniciada | up sin --no-deps en release.sh | Corregir release.sh; el levantamiento de db es bootstrap ServerPilot, no CI |

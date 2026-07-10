@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mrthoabby/serverpilot/internal/auth"
+	"github.com/mrthoabby/serverpilot/internal/compose"
 	"github.com/mrthoabby/serverpilot/internal/portalloc"
 	"github.com/mrthoabby/serverpilot/internal/sysinfo"
 )
@@ -225,16 +226,16 @@ func (s *Server) Start() error {
 	// (CWE-352); BodyLimit caps POST payloads at 1 MB to prevent memory exhaustion.
 	handler := RecoveryMiddleware(LoggingMiddleware(s.SecurityMiddleware(s.CSRFMiddleware(s.ClientHeaderMiddleware(BodyLimitMiddleware(mux))))))
 
-	// Provision /var/lib/serverpilot once, while we have root, so that
-	// later `sp port` invocations from non-root deploy users (CI/CD
-	// scripts) find the directory ready with the correct setgid + group
-	// ownership. Failure is non-fatal: dashboard can still come up; only
-	// non-root sp port would fail until the operator re-runs as root.
+	// Provision /var/lib/serverpilot while root so `sp port` works for any
+	// local user via the daemon socket (same model as `sp compose release`).
 	if err := portalloc.EnsureSetup(); err != nil {
 		log.Printf("portalloc: setup warning: %v (sp port may need root until /var/lib/serverpilot exists)", err)
 	}
 	if err := portalloc.StartPortSocket(log.Printf); err != nil {
-		log.Printf("portalloc: socket warning: %v (sp port falls back to direct registry access)", err)
+		log.Printf("portalloc: socket warning: %v", err)
+	}
+	if err := compose.StartComposeSocket(log.Printf); err != nil {
+		log.Printf("compose: socket warning: %v", err)
 	}
 	portalloc.StartDetectedPortSync(log.Printf)
 

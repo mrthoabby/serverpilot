@@ -17,10 +17,10 @@ package permissions
 
 // SystemAppDefinition is the public shape rendered to the UI for one app.
 type SystemAppDefinition struct {
-	App           string                `json:"app"`
-	Display       string                `json:"display"`
-	GroupCaps     []GroupCapabilityView `json:"group_capabilities,omitempty"`
-	SudoersRules  []SudoersRuleView     `json:"sudoers_rules,omitempty"`
+	App          string                `json:"app"`
+	Display      string                `json:"display"`
+	GroupCaps    []GroupCapabilityView `json:"group_capabilities,omitempty"`
+	SudoersRules []SudoersRuleView     `json:"sudoers_rules,omitempty"`
 }
 
 type GroupCapabilityView struct {

@@ -12,9 +12,11 @@ import (
 
 // ReleaseRequest updates one service image in an existing managed project.
 type ReleaseRequest struct {
-	Name     string
-	Service  string
-	ImageRef string
+	Name          string
+	Service       string
+	ImageRef      string
+	RegistryUser  string
+	RegistryToken string
 }
 
 // ReleaseService pulls IMAGE_REF and recreates only the target service.
@@ -59,7 +61,7 @@ func ReleaseService(req ReleaseRequest, progress Progress) error {
 	envPath := filepath.Join(genDir, "serverpilot.env")
 	overridePath := filepath.Join(genDir, "serverpilot.override.yml")
 
-	cleanupLogin, err := ephemeralRegistryLogin()
+	cleanupLogin, err := ephemeralRegistryLogin(req.RegistryUser, req.RegistryToken)
 	if err != nil {
 		return err
 	}
@@ -86,9 +88,15 @@ func ReleaseService(req ReleaseRequest, progress Progress) error {
 	return nil
 }
 
-func ephemeralRegistryLogin() (func(), error) {
-	user := strings.TrimSpace(os.Getenv("REGISTRY_USER"))
-	token := strings.TrimSpace(os.Getenv("REGISTRY_TOKEN"))
+func ephemeralRegistryLogin(user, token string) (func(), error) {
+	user = strings.TrimSpace(user)
+	if user == "" {
+		user = strings.TrimSpace(os.Getenv("REGISTRY_USER"))
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		token = strings.TrimSpace(os.Getenv("REGISTRY_TOKEN"))
+	}
 	if user == "" || token == "" {
 		return nil, nil
 	}

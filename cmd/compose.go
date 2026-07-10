@@ -173,6 +173,8 @@ var composeReleaseCmd = &cobra.Command{
 	Short: "Pull and recreate one service after CI (Camino 2)",
 	Long: `Updates a single service in a project already bootstrapped with sp compose deploy.
 
+Works like sp port: run the command as your SSH user; ServerPilot handles privileged work.
+
 Requires environment variables:
   IMAGE_REF (required)
   REGISTRY_USER / REGISTRY_TOKEN (optional, ephemeral ghcr.io login)
@@ -181,13 +183,10 @@ Example:
   export IMAGE_REF=ghcr.io/org/app:v1.2.3
   sp compose release --name myapp --service app`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := requireRootForComposeMutation(); err != nil {
-			return err
-		}
 		if composeProject == "" {
 			return fmt.Errorf("--name is required")
 		}
-		return compose.ReleaseService(compose.ReleaseRequest{
+		return compose.ReleaseCLI(compose.ReleaseRequest{
 			Name:     composeProject,
 			Service:  composeReleaseService,
 			ImageRef: os.Getenv("IMAGE_REF"),
