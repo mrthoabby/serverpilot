@@ -37,6 +37,7 @@ import (
 	"github.com/mrthoabby/serverpilot/internal/permissions"
 	"github.com/mrthoabby/serverpilot/internal/portalloc"
 	"github.com/mrthoabby/serverpilot/internal/replicas"
+	"github.com/mrthoabby/serverpilot/internal/sites"
 	"github.com/mrthoabby/serverpilot/internal/sysinfo"
 	"github.com/mrthoabby/serverpilot/internal/templates"
 	"github.com/mrthoabby/serverpilot/internal/users"
@@ -96,11 +97,17 @@ type domainRequest struct {
 }
 
 type siteCreateRequest struct {
-	Domain          string `json:"domain"`
-	TemplateType    string `json:"template_type"`
-	Port            int    `json:"port"`
-	IncludeWWW      bool   `json:"include_www"`
-	ReplaceExisting bool   `json:"replace_existing"`
+	Domain              string                    `json:"domain"`
+	TemplateType        string                    `json:"template_type"`
+	Port                int                       `json:"port"`
+	ContainerID         string                    `json:"container_id"`
+	ContainerName       string                    `json:"container_name"`
+	ContainerPort       int                       `json:"container_port"`
+	IncludeWWW          bool                      `json:"include_www"`
+	ReplaceExisting     bool                      `json:"replace_existing"`
+	AllowSharedHostPort bool                      `json:"allow_shared_host_port"`
+	EnableSSL           bool                      `json:"enable_ssl"`
+	Options             templates.TemplateOptions `json:"options"`
 }
 
 type siteRedirectRequest struct {
@@ -1041,6 +1048,12 @@ func (s *Server) handleSiteDelete(w http.ResponseWriter, r *http.Request) {
 		sseWriteLog(w, flusher, "No config file found. Skipping.")
 	}
 
+	if err := sites.DeleteByConfigName(configName); err != nil {
+		sseWriteLog(w, flusher, "WARNING: failed to update site registry: "+err.Error())
+	} else {
+		sseWriteLog(w, flusher, "Site registry updated.")
+	}
+
 	// Step 4: Reload nginx.
 	sseWriteLog(w, flusher, "[Step 4/4] Reloading nginx...")
 	if err := nginx.ReloadNginx(); err != nil {
@@ -1335,7 +1348,7 @@ func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req siteCreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := jsonDecode(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
 		return
 	}
@@ -1351,10 +1364,56 @@ func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tmplType := templates.TemplateType(strings.ToLower(req.TemplateType))
-	if tmplType != templates.NestJS && tmplType != templates.API &&
-		tmplType != templates.NextJS && tmplType != templates.Frontend &&
-		tmplType != templates.MinIO {
-		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid template type; use 'nestjs', 'api', 'nextjs', 'frontend', or 'minio'"})
+	if !templates.ValidTemplateType(tmplType) {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid template type"})
+		return
+	}
+
+	if req.ContainerID != "" {
+		rec, err := sites.Create(sites.CreateRequest{
+			ContainerID:         req.ContainerID,
+			ContainerName:       req.ContainerName,
+			HostPort:            req.Port,
+			ContainerPort:       req.ContainerPort,
+			Domain:              req.Domain,
+			Template:            tmplType,
+			Options:             req.Options,
+			IncludeWWW:          req.IncludeWWW,
+			AllowSharedHostPort: req.AllowSharedHostPort,
+			ReplaceExisting:     req.ReplaceExisting,
+		})
+		if err != nil {
+			log.Printf("Error creating site %s: %v", req.Domain, err)
+			status := http.StatusInternalServerError
+			clientErr := siteCreateErrorForClient(err)
+			if clientErr == "site already exists for this domain" {
+				status = http.StatusConflict
+			}
+			if strings.Contains(err.Error(), "host port already has") {
+				status = http.StatusConflict
+				clientErr = "host port already has a site — confirm to share port"
+			}
+			if strings.Contains(err.Error(), "does not belong") {
+				status = http.StatusBadRequest
+				clientErr = "selected port does not belong to this container"
+			}
+			writeJSON(w, status, apiResponse{Error: clientErr})
+			return
+		}
+		if req.EnableSSL {
+			writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]interface{}{
+				"message":     "Site created for " + req.Domain + " — enable SSL from site actions",
+				"port":        strconv.Itoa(req.Port),
+				"site_id":     rec.ID,
+				"ssl_pending": true,
+			}})
+			return
+		}
+		writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]interface{}{
+			"message": "Site created for " + req.Domain,
+			"port":    strconv.Itoa(req.Port),
+			"site_id": rec.ID,
+		}})
 		return
 	}
 
@@ -2591,6 +2650,8 @@ func extractProxyPassPort(content string) (int, error) {
 
 func inferSiteTemplateType(content string) templates.TemplateType {
 	switch {
+	case strings.Contains(content, "# serverpilot_template mcp"):
+		return templates.MCP
 	case strings.Contains(content, "/_next/static/") || strings.Contains(content, "/_next/image") || strings.Contains(content, "/_next/data/"):
 		return templates.NextJS
 	case strings.Contains(content, "client_max_body_size 0") || strings.Contains(content, "proxy_request_buffering  off") || strings.Contains(content, "proxy_request_buffering off"):

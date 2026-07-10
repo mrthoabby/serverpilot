@@ -14,24 +14,6 @@ import (
 	"github.com/mrthoabby/serverpilot/internal/nginx"
 )
 
-// TemplateType represents the type of nginx configuration template.
-type TemplateType string
-
-const (
-	// NestJS is a reverse proxy template with WebSocket support.
-	NestJS TemplateType = "nestjs"
-	// API is a standard reverse proxy template with rate limiting headers.
-	API TemplateType = "api"
-	// NextJS is an optimized reverse proxy for Next.js apps (SSR, ISR, static assets, image optimization).
-	NextJS TemplateType = "nextjs"
-	// Frontend is a static file / SPA template (React, Vue, Angular, etc.) served directly by Nginx.
-	Frontend TemplateType = "frontend"
-	// MinIO is an object-storage reverse proxy template.
-	// Disables body-size limits and nginx buffering — both are critical for
-	// large-file uploads and the MinIO SDK chunked-upload protocol.
-	MinIO TemplateType = "minio"
-)
-
 var domainRegex = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$`)
 
 // TemplateData holds the data used to render nginx config templates.
@@ -265,46 +247,12 @@ const delayedRedirectTemplate = `server {
 
 // GetTemplate returns the rendered nginx config string for the given template type.
 func GetTemplate(templateType TemplateType, domain string, port int) (string, error) {
-	if !isValidDomain(domain) {
-		return "", fmt.Errorf("invalid domain format: only alphanumeric characters, dots, and hyphens are allowed")
-	}
-
-	if port < 1 || port > 65535 {
-		return "", fmt.Errorf("invalid port number: %d", port)
-	}
-
-	var tmplStr string
-	switch templateType {
-	case NestJS:
-		tmplStr = nestjsTemplate
-	case API:
-		tmplStr = apiTemplate
-	case NextJS:
-		tmplStr = nextjsTemplate
-	case Frontend:
-		tmplStr = frontendTemplate
-	case MinIO:
-		tmplStr = minioTemplate
-	default:
-		return "", fmt.Errorf("unknown template type: %s", string(templateType))
-	}
-
-	tmpl, err := template.New("nginx").Parse(tmplStr)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse template: %w", err)
-	}
-
-	data := TemplateData{
-		Domain: domain,
-		Port:   port,
-	}
-
-	var buf strings.Builder
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("failed to execute template: %w", err)
-	}
-
-	return buf.String(), nil
+	return RenderProxyConfig(RenderSpec{
+		Domain:   domain,
+		Port:     port,
+		Template: templateType,
+		Options:  DefaultOptions(templateType),
+	})
 }
 
 // ApplyTemplate generates an nginx config from a template, writes it to sites-available,
