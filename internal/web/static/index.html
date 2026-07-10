@@ -1818,7 +1818,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
       <!-- Create App Modal -->
       <div id="createAppModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
-        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:480px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:560px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
           <h3 style="margin:0 0 1rem 0;">Create Application</h3>
           <p style="color:var(--text-secondary);font-size:0.8125rem;margin-bottom:1rem;line-height:1.5;">
             Enter the application name. A directory will be created at <code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;">/opt/&lt;name&gt;</code> with a default <code>.env</code> file.
@@ -1827,6 +1827,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
             <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.25rem;font-weight:600;">APP NAME</label>
             <input type="text" id="createAppName" placeholder="e.g. srp-api" style="width:100%;padding:0.5rem 0.75rem;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:0.875rem;box-sizing:border-box;" pattern="[a-z][a-z0-9_-]*" maxlength="64">
             <div style="font-size:0.6875rem;color:var(--text-muted);margin-top:0.25rem;">Lowercase letters, numbers, hyphens, underscores. Must start with a letter.</div>
+          </div>
+          <div style="margin-bottom:1rem;">
+            <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.5rem;font-weight:600;">VARIABLES DE ENTORNO INICIALES (opcional)</label>
+            <div id="createAppEnvEditorRoot"></div>
           </div>
           <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
             <button class="btn btn-sm btn-outline" onclick="closeCreateAppModal()">Cancel</button>
@@ -1837,7 +1841,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
       <!-- Create Env File Modal -->
       <div id="createEnvModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
-        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:480px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:560px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
           <h3 style="margin:0 0 1rem 0;">Add .env File</h3>
           <p style="color:var(--text-secondary);font-size:0.8125rem;margin-bottom:1rem;line-height:1.5;">
             Enter a prefix for the .env file name, or leave empty for the default <code>.env</code>.
@@ -1850,6 +1854,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
               <span style="color:var(--text-secondary);font-family:monospace;font-size:0.875rem;">.env</span>
             </div>
             <div style="font-size:0.6875rem;color:var(--text-muted);margin-top:0.25rem;">Empty = <code>.env</code> &nbsp;|&nbsp; "procs" = <code>procs.env</code> &nbsp;|&nbsp; "staging" = <code>staging.env</code></div>
+          </div>
+          <div style="margin-bottom:1rem;">
+            <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.5rem;font-weight:600;">CONTENIDO INICIAL (opcional)</label>
+            <div id="createEnvFileEditorRoot"></div>
           </div>
           <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
             <button class="btn btn-sm btn-outline" onclick="closeCreateEnvModal()">Cancel</button>
@@ -1873,7 +1881,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
           </p>
           <input type="hidden" id="editEnvApp">
           <input type="hidden" id="editEnvFile">
-          <textarea id="editEnvContent" style="width:100%;height:320px;padding:0.75rem;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-family:monospace;font-size:0.8125rem;resize:vertical;box-sizing:border-box;line-height:1.6;" spellcheck="false"></textarea>
+          <div id="editEnvEditorRoot"></div>
           <div style="display:flex;gap:0.75rem;justify-content:flex-end;margin-top:1rem;">
             <button class="btn btn-sm btn-outline" onclick="closeEditEnvModal()">Cancel</button>
             <button class="btn btn-sm" id="saveEnvBtn" style="background:var(--green);color:#fff;border:none;" onclick="submitSaveEnvFile()">Save Changes</button>
@@ -2881,8 +2889,8 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       </div>
       <div class="form-group">
         <label>Environment variables</label>
-        <div id="replicaEnvList" style="max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg-input);"></div>
-        <button type="button" class="btn btn-sm btn-outline" id="replicaAddEnvBtn" style="margin-top:8px;">Add env</button>
+        <div id="replicaEnvSyncPanel" style="display:none;margin-bottom:10px;"></div>
+        <div id="replicaEnvEditorRoot"></div>
       </div>
       <div class="form-group">
         <label>Independent data copies</label>
@@ -3050,6 +3058,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 <!-- Toast Container -->
 <div class="toast-container" id="toastContainer"></div>
 
+<script src="/static/env-editor.js"></script>
 <script data-cfasync="false">
 (function() {
   "use strict";
@@ -3238,6 +3247,36 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   var _replicaPreview = null;
   var _replicaMode = "create";
   var _replicaSyncName = "";
+  var editEnvEditor = null;
+  var createAppEnvEditor = null;
+  var createEnvFileEditor = null;
+  var replicaEnvEditor = null;
+
+  function initEnvEditors() {
+    if (!editEnvEditor && document.getElementById("editEnvEditorRoot")) {
+      editEnvEditor = EnvEditor.mount(document.getElementById("editEnvEditorRoot"), {
+        defaultFriendly: false,
+        textareaStyle: "width:100%;height:320px;padding:0.75rem;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-family:monospace;font-size:0.8125rem;resize:vertical;box-sizing:border-box;line-height:1.6;"
+      });
+    }
+    if (!createAppEnvEditor && document.getElementById("createAppEnvEditorRoot")) {
+      createAppEnvEditor = EnvEditor.mount(document.getElementById("createAppEnvEditorRoot"), {
+        defaultFriendly: false
+      });
+    }
+    if (!createEnvFileEditor && document.getElementById("createEnvFileEditorRoot")) {
+      createEnvFileEditor = EnvEditor.mount(document.getElementById("createEnvFileEditorRoot"), {
+        defaultFriendly: false
+      });
+    }
+    if (!replicaEnvEditor && document.getElementById("replicaEnvEditorRoot")) {
+      replicaEnvEditor = EnvEditor.mount(document.getElementById("replicaEnvEditorRoot"), {
+        defaultFriendly: true
+      });
+    }
+  }
+
+  initEnvEditors();
   var images = [];
   var selectedImageIDs = {};
   var activeTab = "containers";
@@ -4151,65 +4190,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     }
   }
 
-  function envRow(key, value, sensitive) {
-    var row = document.createElement("div");
-    row.className = "replica-env-row";
-    row.style.display = "grid";
-    row.style.gridTemplateColumns = "160px 1fr 64px";
-    row.style.gap = "6px";
-    row.style.marginBottom = "6px";
-    var k = document.createElement("input");
-    k.type = "text";
-    k.value = key || "";
-    k.placeholder = "KEY";
-    k.className = "replica-env-key";
-    var v = document.createElement("input");
-    v.type = sensitive ? "password" : "text";
-    v.value = value || "";
-    v.placeholder = "value";
-    v.className = "replica-env-value";
-    var toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.className = "btn btn-sm btn-outline";
-    setText(toggle, sensitive ? "Show" : "Hide");
-    toggle.addEventListener("click", function() {
-      v.type = v.type === "password" ? "text" : "password";
-      setText(toggle, v.type === "password" ? "Show" : "Hide");
-    });
-    row.appendChild(k);
-    row.appendChild(v);
-    row.appendChild(toggle);
-    return row;
-  }
-
-  function renderReplicaEnv(env) {
-    var list = document.getElementById("replicaEnvList");
-    list.innerHTML = "";
-    renderReplicaEnvRows(list, env);
-  }
-
-  function renderReplicaEnvRows(container, env) {
-    container.innerHTML = "";
-    (env || []).forEach(function(e) {
-      container.appendChild(envRow(e.key || "", e.value || "", !!e.sensitive));
-    });
-    if (!container.children.length) {
-      container.appendChild(envRow("", "", false));
-    }
-  }
-
-  function collectReplicaEnv() {
-    var rows = document.querySelectorAll("#replicaEnvList .replica-env-row");
-    var env = [];
-    rows.forEach(function(row) {
-      var k = row.querySelector(".replica-env-key");
-      var v = row.querySelector(".replica-env-value");
-      var key = k ? k.value.trim() : "";
-      if (key) env.push(key + "=" + (v ? v.value : ""));
-    });
-    return env;
-  }
-
   function envArrayToMap(env) {
     var out = {};
     (env || []).forEach(function(e) {
@@ -4236,8 +4216,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   }
 
   function renderReplicaSyncEnv(parentEnv, replicaEnv) {
-    var list = document.getElementById("replicaEnvList");
-    list.innerHTML = "";
+    var panel = document.getElementById("replicaEnvSyncPanel");
+    panel.innerHTML = "";
+    panel.style.display = "block";
 
     parentEnv = parentEnv || [];
     replicaEnv = replicaEnv || [];
@@ -4266,7 +4247,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     parentBtn.className = "btn btn-sm btn-primary";
     setText(parentBtn, "Tomar del padre");
     toolbar.appendChild(parentBtn);
-    list.appendChild(toolbar);
+    panel.appendChild(toolbar);
 
     var compare = document.createElement("div");
     compare.style.border = "1px solid var(--border)";
@@ -4327,28 +4308,52 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       setText(empty, "No environment variables found on replica or parent.");
       compare.appendChild(empty);
     }
-    list.appendChild(compare);
+    panel.appendChild(compare);
 
     var selectedLabel = document.createElement("div");
     selectedLabel.style.fontSize = "0.72rem";
     selectedLabel.style.color = "var(--text-muted)";
     selectedLabel.style.margin = "8px 0 6px";
-    list.appendChild(selectedLabel);
-
-    var editable = document.createElement("div");
-    list.appendChild(editable);
+    panel.appendChild(selectedLabel);
 
     function choose(which) {
       var chosen = which === "parent" ? parentEnv : replicaEnv;
       keepBtn.className = which === "current" ? "btn btn-sm btn-primary" : "btn btn-sm btn-outline";
       parentBtn.className = which === "parent" ? "btn btn-sm btn-primary" : "btn btn-sm btn-outline";
       setText(selectedLabel, which === "parent" ? "Environment selected: parent" : "Environment selected: current replica");
-      renderReplicaEnvRows(editable, chosen);
+      if (replicaEnvEditor) {
+        replicaEnvEditor.setFromEntries(chosen);
+      }
     }
 
     keepBtn.addEventListener("click", function() { choose("current"); });
     parentBtn.addEventListener("click", function() { choose("parent"); });
     choose(identical ? "parent" : "current");
+  }
+
+  function clearReplicaSyncPanel() {
+    var panel = document.getElementById("replicaEnvSyncPanel");
+    if (panel) {
+      panel.innerHTML = "";
+      panel.style.display = "none";
+    }
+  }
+
+  function renderReplicaEnv(env) {
+    clearReplicaSyncPanel();
+    if (replicaEnvEditor) {
+      replicaEnvEditor.setFromEntries(env || []);
+    }
+  }
+
+  function collectReplicaEnv() {
+    if (!replicaEnvEditor) return [];
+    var errors = replicaEnvEditor.validate();
+    if (errors.length) {
+      showToast(errors[0], "error");
+      return null;
+    }
+    return replicaEnvEditor.getEnvArray();
   }
 
   function renderReplicaMounts(mounts) {
@@ -4430,10 +4435,6 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     });
   }
 
-  onEl("replicaAddEnvBtn", "click", function() {
-    document.getElementById("replicaEnvList").appendChild(envRow("", "", false));
-  });
-
   onEl("replicaCancelBtn", "click", function() {
     document.getElementById("replicaModal").classList.remove("show");
   });
@@ -4447,6 +4448,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   onEl("replicaForm", "submit", function(e) {
     e.preventDefault();
     var env = collectReplicaEnv();
+    if (env === null) return;
     document.getElementById("replicaModal").classList.remove("show");
     if (_replicaMode === "sync") {
       runStreamedOperation("/api/container-replicas/sync", {
@@ -6332,21 +6334,40 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   // ── Create App Modal ──
   function openCreateAppModal() {
     document.getElementById("createAppName").value = "";
+    if (createAppEnvEditor) {
+      createAppEnvEditor.setFromText("");
+    }
     document.getElementById("createAppModal").style.display = "flex";
     setTimeout(function() { document.getElementById("createAppName").focus(); }, 100);
   }
 
   function closeCreateAppModal() {
     document.getElementById("createAppModal").style.display = "none";
+    if (createAppEnvEditor) {
+      createAppEnvEditor.setFromText("");
+    }
   }
 
   async function submitCreateApp() {
     var name = document.getElementById("createAppName").value.trim().toLowerCase();
     if (!name) { showToast("App name is required", "error"); return; }
+    if (createAppEnvEditor) {
+      var envErrors = createAppEnvEditor.validate();
+      if (envErrors.length) {
+        showToast(envErrors[0], "error");
+        return;
+      }
+    }
     var btn = document.getElementById("createAppBtn");
     btn.disabled = true; btn.textContent = "Creating...";
     try {
       await apiFetch("/api/managed-apps/create", { method: "POST", body: { name: name } });
+      if (createAppEnvEditor && !createAppEnvEditor.isEmpty()) {
+        await apiFetch("/api/managed-apps/env/save", {
+          method: "POST",
+          body: { app: name, file_name: ".env", content: createAppEnvEditor.getText() }
+        });
+      }
       closeCreateAppModal();
       showToast("Application '" + name + "' created at /opt/" + name, "success");
       loadManagedApps();
@@ -6361,24 +6382,44 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   function openCreateEnvFileModal(appName) {
     document.getElementById("createEnvAppName").value = appName;
     document.getElementById("createEnvPrefix").value = "";
+    if (createEnvFileEditor) {
+      createEnvFileEditor.setFromText("");
+    }
     document.getElementById("createEnvModal").style.display = "flex";
     setTimeout(function() { document.getElementById("createEnvPrefix").focus(); }, 100);
   }
 
   function closeCreateEnvModal() {
     document.getElementById("createEnvModal").style.display = "none";
+    if (createEnvFileEditor) {
+      createEnvFileEditor.setFromText("");
+    }
   }
 
   async function submitCreateEnvFile() {
     var appName = document.getElementById("createEnvAppName").value;
     var prefix = document.getElementById("createEnvPrefix").value.trim().toLowerCase();
+    if (createEnvFileEditor) {
+      var envErrors = createEnvFileEditor.validate();
+      if (envErrors.length) {
+        showToast(envErrors[0], "error");
+        return;
+      }
+    }
     var btn = document.getElementById("createEnvBtn");
     btn.disabled = true; btn.textContent = "Creating...";
     try {
       var resp = await apiFetch("/api/managed-apps/env/create", { method: "POST", body: { app: appName, prefix: prefix } });
       var data = (resp && resp.data) ? resp.data : resp;
+      var fileName = data.file_name || (prefix ? prefix + ".env" : ".env");
+      if (createEnvFileEditor && !createEnvFileEditor.isEmpty()) {
+        await apiFetch("/api/managed-apps/env/save", {
+          method: "POST",
+          body: { app: appName, file_name: fileName, content: createEnvFileEditor.getText() }
+        });
+      }
       closeCreateEnvModal();
-      showToast("File '" + (data.file_name || prefix + ".env") + "' created in " + appName, "success");
+      showToast("File '" + fileName + "' created in " + appName, "success");
       loadManagedApps();
     } catch(err) {
       showToast("Failed: " + err.message, "error");
@@ -6393,8 +6434,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     modal.style.display = "flex";
     document.getElementById("editEnvTitle").textContent = "Edit " + fileName;
     document.getElementById("editEnvMeta").textContent = "Loading...";
-    document.getElementById("editEnvContent").value = "";
-    document.getElementById("editEnvContent").disabled = true;
+    if (editEnvEditor) {
+      editEnvEditor.setFromText("");
+      editEnvEditor.setDisabled(true);
+    }
     document.getElementById("editEnvApp").value = appName;
     document.getElementById("editEnvFile").value = fileName;
 
@@ -6406,24 +6449,39 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       document.getElementById("editEnvMeta").textContent =
         appName + " / " + fileName + " — " + data.size_bytes + " bytes" +
         (data.last_modified ? " — modified " + new Date(data.last_modified).toLocaleString() : "");
-      document.getElementById("editEnvContent").value = data.content || "";
-      document.getElementById("editEnvContent").disabled = false;
+      if (editEnvEditor) {
+        editEnvEditor.setFromText(data.content || "");
+        editEnvEditor.setDisabled(false);
+      }
 
     } catch(err) {
       document.getElementById("editEnvMeta").textContent = "Error: " + err.message;
-      document.getElementById("editEnvContent").value = "";
+      if (editEnvEditor) {
+        editEnvEditor.setFromText("");
+      }
     }
   }
 
   function closeEditEnvModal() {
     document.getElementById("editEnvModal").style.display = "none";
-    document.getElementById("editEnvContent").value = ""; // clear sensitive data from DOM
+    if (editEnvEditor) {
+      editEnvEditor.setFromText(""); // clear sensitive data from DOM
+    }
   }
 
   async function submitSaveEnvFile() {
     var appName = document.getElementById("editEnvApp").value;
     var fileName = document.getElementById("editEnvFile").value;
-    var content = document.getElementById("editEnvContent").value;
+    if (!editEnvEditor) {
+      showToast("Editor not ready", "error");
+      return;
+    }
+    var envErrors = editEnvEditor.validate();
+    if (envErrors.length) {
+      showToast(envErrors[0], "error");
+      return;
+    }
+    var content = editEnvEditor.getText();
     var btn = document.getElementById("saveEnvBtn");
     btn.disabled = true; btn.textContent = "Encrypting & Saving...";
     try {

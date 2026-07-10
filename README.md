@@ -188,6 +188,8 @@ sudo sp compose delete --name shop-blue
 
 Los servicios internos (`expose:` sin `ports:`) no reciben sitio Nginx. Solo los servicios con puerto publicado por ServerPilot pueden asociar dominio.
 
+**Guía completa para equipos de deploy:** [docs/DEPLOY.md](docs/DEPLOY.md) (container individual con `sp port` y stacks con `sp compose`).
+
 ---
 
 ## Funcionalidades del dashboard
