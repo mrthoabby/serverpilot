@@ -1,0 +1,19 @@
+version.go
+  s_ffa45bffb369d6::t_3c9590505e1ea9 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "d5b67782608a2ae97552930de86fb5ea7991d84e",
+  "prompts": {},
+  "sessions": {
+    "s_ffa45bffb369d6": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "606b6df3-9ef0-4710-8e57-746172ad4e81",
+        "model": "unknown"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
