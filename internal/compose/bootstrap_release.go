@@ -49,19 +49,21 @@ func managedComposeReady(name, composeFile string) bool {
 
 // managedProdEnvExists reports whether prod.env or .env exists in the project root.
 func managedProdEnvExists(name string) bool {
-	root := filepath.Join(ManagedAppsRoot, name)
+	return managedEnvFile(filepath.Join(ManagedAppsRoot, name)) != ""
+}
+
+// managedEnvFile returns prod.env or .env under a project root when present.
+func managedEnvFile(root string) string {
 	for _, file := range []string{"prod.env", ".env"} {
 		path := filepath.Join(root, file)
 		info, err := os.Lstat(path)
 		if err != nil {
 			continue
 		}
-		if info.Mode()&os.ModeSymlink != 0 {
+		if info.Mode()&os.ModeSymlink != 0 || info.IsDir() {
 			continue
 		}
-		if !info.IsDir() {
-			return true
-		}
+		return path
 	}
-	return false
+	return ""
 }

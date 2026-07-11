@@ -80,6 +80,7 @@ func Deploy(req DeployRequest, progress Progress) (*ProjectRecord, error) {
 		ProjectRoot:    analysis.ProjectRoot,
 		ComposeFile:    analysis.ComposeFile,
 		ComposeProject: composeProject,
+		ProjectEnvFile: managedEnvFile(analysis.ProjectRoot),
 		EnvFile:        envPath,
 		OverrideFile:   overridePath,
 	}

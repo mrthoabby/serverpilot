@@ -195,10 +195,12 @@ Example:
 			file = os.Getenv("COMPOSE_FILE")
 		}
 		return compose.ReleaseCLI(compose.ReleaseRequest{
-			Name:        composeProject,
-			Service:     composeReleaseService,
-			ComposeFile: file,
-			ImageRef:    os.Getenv("IMAGE_REF"),
+			Name:          composeProject,
+			Service:       composeReleaseService,
+			ComposeFile:   file,
+			ImageRef:      os.Getenv("IMAGE_REF"),
+			RegistryUser:  os.Getenv("REGISTRY_USER"),
+			RegistryToken: os.Getenv("REGISTRY_TOKEN"),
 		}, composeProgress())
 	},
 }

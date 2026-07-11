@@ -90,6 +90,7 @@ func ReleaseService(req ReleaseRequest, progress Progress) error {
 		ProjectRoot:    rec.RootDir,
 		ComposeFile:    rec.ComposeFile,
 		ComposeProject: gen.ComposeProject,
+		ProjectEnvFile: managedEnvFile(rec.RootDir),
 		EnvFile:        envPath,
 		OverrideFile:   overridePath,
 	}

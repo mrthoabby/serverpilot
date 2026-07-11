@@ -1,8 +1,10 @@
 package compose
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +21,7 @@ type Runner struct {
 	ProjectRoot    string
 	ComposeFile    string
 	ComposeProject string
+	ProjectEnvFile string // prod.env or .env under project root
 	EnvFile        string
 	OverrideFile   string
 	Timeout        time.Duration
@@ -59,12 +62,23 @@ func (r *Runner) command(subcmd ...string) (*exec.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
-	args := append(base, subcmd...)
+	args := append(append(append([]string{}, base...), r.envFileArgs()...), subcmd...)
 	ctx, _ := r.withContext()
 	cmd := exec.CommandContext(ctx, dockerBin, args...)
 	cmd.Dir = r.ProjectRoot
 	cmd.Env = minimalComposeEnv(r.EnvFile)
 	return cmd, nil
+}
+
+func (r *Runner) envFileArgs() []string {
+	var args []string
+	if r.ProjectEnvFile != "" {
+		args = append(args, "--env-file", r.ProjectEnvFile)
+	}
+	if r.EnvFile != "" {
+		args = append(args, "--env-file", r.EnvFile)
+	}
+	return args
 }
 
 func (r *Runner) upArgs() ([]string, error) {
@@ -73,9 +87,7 @@ func (r *Runner) upArgs() ([]string, error) {
 		return nil, err
 	}
 	args := append(base, "up", "-d", "--remove-orphans")
-	if r.EnvFile != "" {
-		args = append(args, "--env-file", r.EnvFile)
-	}
+	args = append(args, r.envFileArgs()...)
 	return args, nil
 }
 
@@ -118,10 +130,8 @@ func (r *Runner) Up(imageRef string) error {
 	cmd := exec.CommandContext(ctx, dockerBin, args...)
 	cmd.Dir = r.ProjectRoot
 	cmd.Env = r.runtimeEnv(imageRef)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("compose up failed")
+	if err := runComposeCmd(cmd); err != nil {
+		return fmt.Errorf("compose up failed: %w", err)
 	}
 	return nil
 }
@@ -159,10 +169,9 @@ func (r *Runner) PullService(service, imageRef string) error {
 		return err
 	}
 	cmd.Env = r.runtimeEnv(imageRef)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("compose pull failed")
+	cmd.Env = r.runtimeEnv(imageRef)
+	if err := runComposeCmd(cmd); err != nil {
+		return fmt.Errorf("compose pull failed: %w", err)
 	}
 	return nil
 }
@@ -174,12 +183,51 @@ func (r *Runner) UpServiceNoDeps(service, imageRef string) error {
 		return err
 	}
 	cmd.Env = r.runtimeEnv(imageRef)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("compose up failed")
+	if err := runComposeCmd(cmd); err != nil {
+		return fmt.Errorf("compose up failed: %w", err)
 	}
 	return nil
+}
+
+func runComposeCmd(cmd *exec.Cmd) error {
+	var stderr bytes.Buffer
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
+	if err := cmd.Run(); err != nil {
+		if detail := composeErrorDetail(stderr.String()); detail != "" {
+			return fmt.Errorf("%s", detail)
+		}
+		return err
+	}
+	return nil
+}
+
+func composeErrorDetail(stderr string) string {
+	stderr = strings.TrimSpace(stderr)
+	if stderr == "" {
+		return ""
+	}
+	lines := strings.Split(stderr, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "error") || strings.Contains(lower, "denied") ||
+			strings.Contains(lower, "required") || strings.Contains(lower, "not found") ||
+			strings.Contains(lower, "invalid") || strings.Contains(lower, "failed") {
+			if len(line) > 500 {
+				line = line[len(line)-500:]
+			}
+			return line
+		}
+	}
+	last := strings.TrimSpace(lines[len(lines)-1])
+	if len(last) > 500 {
+		last = last[len(last)-500:]
+	}
+	return last
 }
 
 // PsJSON returns compose ps output as JSON lines.
