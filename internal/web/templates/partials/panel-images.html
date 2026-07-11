@@ -1,0 +1,21 @@
+{{define "panel_images"}}
+    <div class="tab-panel" id="panel-images">
+      <div class="refresh-bar">
+        <span class="refresh-bar-ts" id="ts-images">--</span>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <h2>Docker Images</h2>
+          <div style="display:flex;gap:0.5rem;align-items:center;">
+            <button class="btn btn-sm btn-danger" id="deleteSelectedImagesBtn" style="display:none;">Delete Selected</button>
+            <button class="btn btn-sm btn-outline" id="deleteSelectedForceBtn" style="display:none;" title="Force remove even if in use">Force Delete</button>
+          </div>
+        </div>
+        <div id="imagesContent">
+          <div class="spinner"><div class="spinner-ring"></div>Loading images...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mappings Tab -->
+{{end}}

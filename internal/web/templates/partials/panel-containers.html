@@ -1,0 +1,18 @@
+{{define "panel_containers"}}
+    <div class="tab-panel active" id="panel-containers">
+      <div class="refresh-bar">
+        <span class="refresh-bar-ts" id="ts-containers">--</span>
+      </div>
+      <div class="card">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;">
+          <h2>Docker Containers</h2>
+          <button class="btn btn-sm btn-primary" id="createRedirectBtn">Create Redirect</button>
+        </div>
+        <div id="containersContent">
+          <div class="spinner"><div class="spinner-ring"></div>Loading containers...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sites Tab (migrated into Containers expandables) -->
+{{end}}

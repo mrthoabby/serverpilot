@@ -1,0 +1,270 @@
+{{define "panel_resources"}}
+    <div class="tab-panel" id="panel-resources">
+      <div class="refresh-bar">
+        <span class="refresh-bar-ts" id="ts-resources">--</span>
+      </div>
+      <!-- System Overview Cards -->
+      <div class="res-cards" id="resCards">
+        <div class="res-card">
+          <div class="res-card-label">CPU Load</div>
+          <div class="res-card-value" id="resCpuLoad">--</div>
+          <div class="res-card-sub" id="resCpuSub">-- cores</div>
+        </div>
+        <div class="res-card">
+          <div class="res-card-label">Memory</div>
+          <div class="res-card-value" id="resMemValue">--</div>
+          <div class="res-card-sub" id="resMemSub">-- / -- MB</div>
+        </div>
+        <div class="res-card">
+          <div class="res-card-label">Disk</div>
+          <div class="res-card-value" id="resDiskValue">--</div>
+          <div class="res-card-sub" id="resDiskSub">-- / -- GB</div>
+          <div class="res-card-sub" id="resDiskSubMB" style="font-size:0.7rem;color:var(--text-muted);margin-top:2px;">-- / -- MB</div>
+          <div class="res-card-sub" id="resDiskAvail" style="font-size:0.75rem;color:var(--green);margin-top:2px;">Available: --</div>
+        </div>
+        <div class="res-card">
+          <div class="res-card-label">Uptime</div>
+          <div class="res-card-value" id="resUptime">--</div>
+          <div class="res-card-sub" id="resHostname">--</div>
+          <div class="res-card-sub" id="resPublicIP" style="font-size:0.75rem;color:var(--accent);margin-top:2px;">Public IP: --</div>
+        </div>
+      </div>
+
+      <!-- Charts Row -->
+      <div class="res-charts-row">
+        <!-- Memory Pie Chart -->
+        <div class="card res-chart-card">
+          <div class="card-header"><h2 id="memPieTitle">Memory Distribution</h2></div>
+          <div class="res-chart-body">
+            <svg id="memPieChart" viewBox="0 0 320 280" class="pie-svg"></svg>
+          </div>
+        </div>
+        <!-- CPU Bar Chart -->
+        <div class="card res-chart-card">
+          <div class="card-header"><h2>CPU Usage by Container</h2></div>
+          <div class="res-chart-body">
+            <svg id="cpuBarChart" viewBox="0 0 400 280" class="bar-svg"></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Memory Detail Panel (shown when System / Other is clicked) -->
+      <div id="memDetailPanel" style="display:none;margin-top:1rem;">
+        <div class="card">
+          <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
+            <h2>Memory breakdown — System / Other</h2>
+            <button onclick="closeMemDetail()" style="background:none;border:none;color:var(--text-muted);font-size:1.2rem;cursor:pointer;line-height:1;" title="Close">&#x2715;</button>
+          </div>
+          <div style="padding:1rem;">
+            <!-- Cache sub-section -->
+            <div style="margin-bottom:1rem;">
+              <h3 style="font-size:0.85rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin-bottom:0.5rem;">Linux Kernel Cache (liberatable)</h3>
+              <div id="memCacheRows" style="display:flex;gap:1rem;flex-wrap:wrap;"></div>
+              <p style="font-size:0.78rem;color:var(--text-muted);margin-top:0.5rem;">Linux reusa la RAM libre como caché de disco. Esta memoria se libera automáticamente cuando cualquier proceso la necesita. <strong>MemAvailable</strong> es el número real de memoria disponible.</p>
+            </div>
+            <hr style="border-color:var(--border);margin:0.75rem 0;">
+            <!-- Top processes sub-section -->
+            <div>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;flex-wrap:wrap;gap:0.5rem;">
+                <h3 style="font-size:0.85rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Top procesos por RAM (RSS)</h3>
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <label style="font-size:0.7rem;color:var(--text-muted);">Filtrar:</label>
+                  <select id="memProcFilter" onchange="rerenderMemProcRows()"
+                    style="padding:3px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-size:0.74rem;">
+                    <option value="all" selected>Todos</option>
+                    <option value="monitored">Monitorizados (cualquier container)</option>
+                    <option value="unmonitored">No monitorizados</option>
+                    <!-- Per-container options are appended dynamically
+                         when the API response reports container PIDs.
+                         Each gets value="container:<name>". -->
+                  </select>
+                  <span id="memProcLoadingMsg" style="font-size:0.72rem;color:var(--text-muted);"></span>
+                </div>
+              </div>
+              <div style="overflow-x:auto;">
+                <table id="memProcTable" style="width:100%;border-collapse:collapse;font-size:0.82rem;">
+                  <thead>
+                    <tr style="color:var(--text-muted);text-align:left;border-bottom:1px solid var(--border);">
+                      <th style="padding:5px 8px;">PID</th>
+                      <th style="padding:5px 8px;">Nombre</th>
+                      <th style="padding:5px 8px;">RSS (MB)</th>
+                      <th style="padding:5px 8px;">Estado</th>
+                      <th style="padding:5px 8px;">Tipo</th>
+                      <th style="padding:5px 8px;width:60px;"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="memProcBody"></tbody>
+                </table>
+              </div>
+              <p style="font-size:0.78rem;color:var(--text-muted);margin-top:0.5rem;">RSS = Resident Set Size, la RAM física real que ocupa cada proceso en este momento.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Disk Usage Explorer -->
+      <div class="card" style="margin-top:1rem;">
+        <div id="diskDiscrepancy" style="display:none;background:#3b2800;border-left:3px solid #d29922;padding:8px 14px;font-size:0.78rem;color:#d29922;border-radius:0 6px 6px 0;margin:0.75rem 1rem 0;"></div>
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+          <h2 id="diskBreakdownTitle">Disk Usage Explorer <span style="font-size:0.75rem;color:var(--text-muted);font-weight:400;" id="diskBreakdownLoading">(scanning...)</span></h2>
+          <div class="toolbar" style="gap:0.35rem;">
+            <button class="btn btn-sm" id="diskFilterAll" onclick="diskFilterBy('all')" style="background:var(--accent);color:#fff;padding:3px 10px;border-radius:4px;font-size:0.75rem;border:none;cursor:pointer;">All</button>
+            <button class="btn btn-sm" id="diskFilterDir" onclick="diskFilterBy('dir')" style="background:var(--bg-input);color:var(--text-secondary);padding:3px 10px;border-radius:4px;font-size:0.75rem;border:1px solid var(--border);cursor:pointer;">Dirs</button>
+            <button class="btn btn-sm" id="diskFilterFile" onclick="diskFilterBy('file')" style="background:var(--bg-input);color:var(--text-secondary);padding:3px 10px;border-radius:4px;font-size:0.75rem;border:1px solid var(--border);cursor:pointer;">Files</button>
+            <button class="btn btn-sm" id="diskFilterImage" onclick="diskFilterBy('image')" style="background:var(--bg-input);color:var(--text-secondary);padding:3px 10px;border-radius:4px;font-size:0.75rem;border:1px solid var(--border);cursor:pointer;">Images</button>
+            <button class="btn btn-sm" id="diskFilterLog" onclick="diskFilterBy('log')" style="background:var(--bg-input);color:var(--text-secondary);padding:3px 10px;border-radius:4px;font-size:0.75rem;border:1px solid var(--border);cursor:pointer;">Logs</button>
+            <button class="btn btn-sm" id="diskFilterArchive" onclick="diskFilterBy('archive')" style="background:var(--bg-input);color:var(--text-secondary);padding:3px 10px;border-radius:4px;font-size:0.75rem;border:1px solid var(--border);cursor:pointer;">Archives</button>
+          </div>
+        </div>
+        <div class="split-layout resources-disk-layout" style="padding:1rem;">
+          <!-- Pie chart -->
+          <div>
+            <svg id="diskPieChart" viewBox="0 0 340 340" class="pie-svg"></svg>
+          </div>
+          <!-- Explorer table -->
+          <div class="table-wrap">
+            <!-- Breadcrumb navigation -->
+            <div id="diskBreadcrumb" style="margin-bottom:0.75rem;font-size:0.8rem;color:var(--text-secondary);display:flex;align-items:center;gap:4px;flex-wrap:wrap;"></div>
+            <!-- Action bar -->
+            <div id="diskActionBar" style="display:none;margin-bottom:0.5rem;padding:8px;background:var(--bg-input);border-radius:6px;display:none;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+              <span id="diskSelectedCount" style="font-size:0.8rem;color:var(--text-secondary);">0 selected</span>
+              <button id="diskDeleteSelectedBtn" onclick="diskDeleteSelected()" style="background:var(--red);color:#fff;border:none;padding:4px 12px;border-radius:4px;font-size:0.75rem;cursor:pointer;">Delete Selected</button>
+              <button onclick="diskSelectAll()" style="background:var(--bg-secondary);color:var(--text-secondary);border:1px solid var(--border);padding:4px 10px;border-radius:4px;font-size:0.75rem;cursor:pointer;">Select All</button>
+              <button onclick="diskDeselectAll()" style="background:var(--bg-secondary);color:var(--text-secondary);border:1px solid var(--border);padding:4px 10px;border-radius:4px;font-size:0.75rem;cursor:pointer;">Deselect All</button>
+            </div>
+            <table style="width:100%;font-size:0.82rem;border-collapse:collapse;">
+              <thead>
+                <tr>
+                  <th style="width:30px;padding:6px 4px;border-bottom:1px solid var(--border);"></th>
+                  <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">Name</th>
+                  <th style="text-align:center;padding:6px 4px;border-bottom:1px solid var(--border);color:var(--text-secondary);width:30px;"></th>
+                  <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">GB</th>
+                  <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">MB</th>
+                  <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">%</th>
+                  <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);min-width:100px;">Bar</th>
+                </tr>
+              </thead>
+              <tbody id="diskDetailBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="diskUnaccountedPanel" style="display:none;margin-top:1rem;">
+        <div class="card">
+          <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;">
+            <h2>Desglose del espacio no escaneado</h2>
+            <button onclick="closeDiskUnaccounted()" style="background:none;border:none;color:var(--text-muted);font-size:1.2rem;cursor:pointer;line-height:1;" title="Close">&#x2715;</button>
+          </div>
+          <div id="diskUnaccountedContent" style="padding:1rem;color:var(--text-secondary);font-size:0.82rem;"></div>
+        </div>
+      </div>
+
+      <div class="card" id="dockerContainerDiskCard" style="margin-top:1rem;">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;">
+          <h2>Docker disk by container</h2>
+          <span id="dockerContainerDiskLoading" style="font-size:0.75rem;color:var(--text-muted);">(scanning...)</span>
+        </div>
+        <div id="dockerContainerDiskContent" style="padding:0.75rem;overflow-x:auto;font-size:0.82rem;color:var(--text-muted);">
+          Scanning container disk usage...
+        </div>
+      </div>
+
+      <div class="card" id="dockerPruneCard" style="margin-top:1rem;">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;">
+          <h2>Limpieza Docker (prune)</h2>
+          <span id="dockerPruneLoading" style="font-size:0.75rem;color:var(--text-muted);"></span>
+        </div>
+        <div id="dockerPruneContent" style="padding:0.75rem;font-size:0.82rem;color:var(--text-secondary);">
+          <div id="dockerPruneActiveBanner" style="display:none;margin-bottom:0.75rem;padding:0.65rem 0.75rem;border:1px solid var(--accent);border-radius:8px;background:rgba(0,180,216,0.08);font-size:0.78rem;line-height:1.45;">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">
+              <div style="flex:1;min-width:0;">
+                <strong id="dockerPruneActiveTitle" style="color:var(--text-primary);">Prune Docker en curso</strong>
+                <div id="dockerPruneActiveDetail" style="color:var(--text-secondary);margin-top:0.25rem;"></div>
+                <div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;border:1px solid var(--border);margin-top:0.45rem;">
+                  <div id="dockerPruneActiveBar" style="height:100%;width:0%;background:var(--green);transition:width 0.45s ease;"></div>
+                </div>
+              </div>
+              <button type="button" class="btn btn-sm btn-outline" id="dockerPruneWatchBtn">Ver progreso</button>
+            </div>
+          </div>
+          <div style="color:var(--text-muted);margin-bottom:0.75rem;line-height:1.45;">
+            Libera espacio en disco eliminando recursos Docker que ya no se usan.
+            Los contenedores <strong>corriendo</strong> y sus imágenes/volúmenes no se tocan en la limpieza básica.
+          </div>
+          <div id="dockerPruneModesList">Cargando opciones…</div>
+        </div>
+      </div>
+
+      <!-- Top Largest Files (with Hidden tab) -->
+      <div class="card" style="margin-top:1rem;">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:0;">
+            <button id="topFilesTabMain" onclick="topFilesSwitchTab('main')" style="padding:6px 14px;font-size:0.85rem;font-weight:600;border:none;cursor:pointer;border-bottom:2px solid var(--accent);color:var(--accent);background:transparent;">Top 10 Largest Files</button>
+            <button id="topFilesTabHidden" onclick="topFilesSwitchTab('hidden')" style="padding:6px 14px;font-size:0.85rem;font-weight:500;border:none;cursor:pointer;border-bottom:2px solid transparent;color:var(--text-muted);background:transparent;">Hidden <span id="hiddenFilesCount" style="font-size:0.7rem;background:var(--bg-input);padding:1px 6px;border-radius:8px;margin-left:4px;">0</span></button>
+          </div>
+          <span id="topFilesLoading" style="font-size:0.75rem;color:var(--text-muted);">(scanning...)</span>
+        </div>
+        <!-- Action bar for top files (hide/unhide) -->
+        <div id="topFilesActionBar" style="display:none;padding:8px 12px;background:var(--bg-input);border-bottom:1px solid var(--border);align-items:center;gap:0.5rem;flex-wrap:wrap;">
+          <span id="topFilesSelectedCount" style="font-size:0.8rem;color:var(--text-secondary);">0 selected</span>
+          <button id="topFilesHideBtn" onclick="topFilesHideSelected()" style="background:var(--accent);color:#fff;border:none;padding:4px 12px;border-radius:4px;font-size:0.75rem;cursor:pointer;">Hide Selected</button>
+          <button id="topFilesUnhideBtn" onclick="topFilesUnhideSelected()" style="display:none;background:var(--green);color:#fff;border:none;padding:4px 12px;border-radius:4px;font-size:0.75rem;cursor:pointer;">Unhide Selected</button>
+          <button onclick="topFilesSelectAll()" style="background:var(--bg-secondary);color:var(--text-secondary);border:1px solid var(--border);padding:4px 10px;border-radius:4px;font-size:0.75rem;cursor:pointer;">Select All</button>
+          <button onclick="topFilesDeselectAll()" style="background:var(--bg-secondary);color:var(--text-secondary);border:1px solid var(--border);padding:4px 10px;border-radius:4px;font-size:0.75rem;cursor:pointer;">Deselect All</button>
+        </div>
+        <!-- Main top files panel -->
+        <div id="topFilesPanelMain" style="padding:0.75rem;overflow-x:auto;">
+          <table style="width:100%;font-size:0.82rem;border-collapse:collapse;">
+            <thead>
+              <tr>
+                <th style="width:30px;padding:6px 4px;border-bottom:1px solid var(--border);"></th>
+                <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">File</th>
+                <th style="text-align:left;padding:6px 4px;border-bottom:1px solid var(--border);color:var(--text-secondary);width:50px;">Type</th>
+                <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">GB</th>
+                <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">MB</th>
+                <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">%</th>
+                <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);min-width:100px;">Bar</th>
+              </tr>
+            </thead>
+            <tbody id="topFilesBody"></tbody>
+          </table>
+        </div>
+        <!-- Hidden files panel -->
+        <div id="topFilesPanelHidden" style="display:none;padding:0.75rem;overflow-x:auto;">
+          <table style="width:100%;font-size:0.82rem;border-collapse:collapse;">
+            <thead>
+              <tr>
+                <th style="width:30px;padding:6px 4px;border-bottom:1px solid var(--border);"></th>
+                <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">File</th>
+                <th style="text-align:left;padding:6px 4px;border-bottom:1px solid var(--border);color:var(--text-secondary);width:50px;">Type</th>
+                <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">GB</th>
+                <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">MB</th>
+                <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);">%</th>
+                <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-secondary);min-width:100px;">Bar</th>
+              </tr>
+            </thead>
+            <tbody id="hiddenFilesBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Services Table -->
+      <div class="card" style="margin-top:1rem;">
+        <div class="card-header"><h2>Services</h2></div>
+        <div id="servicesContent">
+          <div class="spinner"><div class="spinner-ring"></div>Loading services...</div>
+        </div>
+      </div>
+
+      <!-- Container Resources Table -->
+      <div class="card" style="margin-top:1rem;">
+        <div class="card-header"><h2>Container Resource Usage</h2></div>
+        <div id="containerStatsContent">
+          <div class="spinner"><div class="spinner-ring"></div>Loading stats...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Apps Tab -->
+{{end}}

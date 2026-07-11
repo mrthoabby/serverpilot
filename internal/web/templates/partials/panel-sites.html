@@ -1,0 +1,18 @@
+{{define "panel_sites"}}
+    <div class="tab-panel" id="panel-sites" style="display:none !important;">
+      <div class="refresh-bar">
+        <span class="refresh-bar-ts" id="ts-sites">--</span>
+      </div>
+      <div class="card">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;">
+          <h2>Nginx Sites</h2>
+          <button class="btn btn-sm btn-primary" id="createRedirectBtnLegacy" style="display:none;">Create Redirect</button>
+        </div>
+        <div id="sitesContent">
+          <div class="spinner"><div class="spinner-ring"></div>Loading sites...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Images Tab -->
+{{end}}

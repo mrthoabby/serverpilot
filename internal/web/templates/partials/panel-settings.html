@@ -1,0 +1,160 @@
+{{define "panel_settings"}}
+    <div class="tab-panel" id="panel-settings">
+      <div class="card">
+        <div class="card-header"><h2>ServerPilot Settings</h2></div>
+        <div style="padding: 1.25rem;">
+          <p style="color:var(--text-secondary); font-size:0.875rem; margin-bottom: 1.25rem;">
+            Configure the domain, SSL certificate, and security for your ServerPilot dashboard.
+          </p>
+          <div class="settings-grid">
+          <div>
+
+          <!-- Step 1: Domain & Email -->
+          <div class="settings-step" id="settingsStep1">
+            <div class="settings-step-header">
+              <span class="settings-step-num">1</span>
+              <span class="settings-step-title">Set Domain</span>
+              <span class="settings-step-status" id="settingsDomainStatus"></span>
+            </div>
+            <p class="settings-step-desc">Enter the domain where ServerPilot will be accessible.</p>
+            <div class="settings-input-row">
+              <input type="text" id="settingsDomainInput" placeholder="pilot.example.com" style="flex:1; background:var(--bg-input); color:var(--text-primary); border:1px solid var(--border); border-radius:6px; padding:0.5rem 0.75rem; font-size:0.875rem; outline:none;">
+              <button class="btn btn-sm btn-primary" id="settingsDomainBtn">Save Domain</button>
+            </div>
+            <p class="settings-step-desc" style="margin-top:0.75rem;">Email for Let's Encrypt SSL registration (required for certificate issuance).</p>
+            <div class="settings-input-row">
+              <input type="email" id="settingsEmailInput" placeholder="admin@example.com" style="flex:1; background:var(--bg-input); color:var(--text-primary); border:1px solid var(--border); border-radius:6px; padding:0.5rem 0.75rem; font-size:0.875rem; outline:none;">
+              <button class="btn btn-sm btn-primary" id="settingsEmailBtn">Save Email</button>
+            </div>
+          </div>
+
+          <!-- Step 2: SSL -->
+          <div class="settings-step" id="settingsStep2" style="margin-top:1.25rem;">
+            <div class="settings-step-header">
+              <span class="settings-step-num">2</span>
+              <span class="settings-step-title">Enable SSL</span>
+              <span class="settings-step-status" id="settingsSSLStatus"></span>
+            </div>
+            <p class="settings-step-desc">Obtain an SSL certificate via Let's Encrypt for your dashboard domain.</p>
+            <div style="margin-top:0.5rem;">
+              <button class="btn btn-sm btn-success" id="settingsSSLBtn" disabled>Enable SSL</button>
+            </div>
+          </div>
+
+          <!-- Step 3: Block Insecure -->
+          <div class="settings-step" id="settingsStep3" style="margin-top:1.25rem;">
+            <div class="settings-step-header">
+              <span class="settings-step-num">3</span>
+              <span class="settings-step-title">Block Insecure Traffic</span>
+              <span class="settings-step-status" id="settingsBlockStatus"></span>
+            </div>
+            <p class="settings-step-desc">Redirect HTTP to HTTPS for ServerPilot's domain only. Other sites on port 80 are not affected. You can toggle this on/off.</p>
+            <div style="margin-top:0.5rem;">
+              <button class="btn btn-sm btn-warning" id="settingsBlockBtn" disabled>Block Insecure Traffic</button>
+            </div>
+          </div>
+
+          <div class="settings-step" id="settingsStepHostGuard" style="margin-top:1.25rem;">
+            <div class="settings-step-header">
+              <span class="settings-step-num" id="settingsHostGuardNum">4</span>
+              <span class="settings-step-title">Unknown Host Guard</span>
+              <span class="settings-step-status" id="settingsHostGuardStatus"></span>
+            </div>
+            <p class="settings-step-desc">Return a plain 404 for domains that do not match an enabled site, instead of exposing the dashboard login.</p>
+            <div style="margin-top:0.5rem;">
+              <button class="btn btn-sm btn-warning" id="settingsHostGuardBtn">Install Host Guard</button>
+            </div>
+          </div>
+
+          <div class="settings-step" id="settingsStep4" style="margin-top:1.25rem;">
+            <div class="settings-step-header">
+              <span class="settings-step-num" id="settingsMFANum">5</span>
+              <span class="settings-step-title">Multi-Factor Authentication</span>
+              <span class="settings-step-status" id="settingsMFAStatus"></span>
+            </div>
+            <p class="settings-step-desc">Require a 6-digit authenticator code during dashboard login.</p>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;">
+              <button class="btn btn-sm btn-primary" id="settingsMFASetupBtn">Set Up MFA</button>
+              <button class="btn btn-sm btn-danger" id="settingsMFADisableBtn" style="display:none;">Disable MFA</button>
+            </div>
+            <div id="settingsMFASetupBox" style="display:none;margin-top:0.75rem;padding:0.75rem;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);">
+              <p class="settings-step-desc">Add this secret or otpauth URI to your authenticator app, then enter a current code.</p>
+              <div class="form-group" style="margin-top:0.5rem;">
+                <label>Secret</label>
+                <input type="text" id="settingsMFASecret" readonly style="font-family:monospace;">
+              </div>
+              <div class="form-group">
+                <label>otpauth URI</label>
+                <input type="text" id="settingsMFAURI" readonly style="font-family:monospace;">
+              </div>
+              <div style="display:flex;gap:0.5rem;">
+                <input type="text" id="settingsMFACode" inputmode="numeric" maxlength="6" placeholder="123456" style="width:120px;background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;padding:0.5rem 0.75rem;">
+                <button class="btn btn-sm btn-success" id="settingsMFAEnableBtn">Enable MFA</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-step" id="settingsStep5" style="margin-top:1.25rem;">
+            <div class="settings-step-header">
+              <span class="settings-step-num done">5</span>
+              <span class="settings-step-title">Active Sessions</span>
+              <span class="settings-step-status configured" id="settingsSessionPolicy"></span>
+            </div>
+            <p class="settings-step-desc">Review current dashboard sessions and revoke stale devices.</p>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;">
+              <button class="btn btn-sm btn-outline" id="settingsSessionsRefreshBtn">Refresh Sessions</button>
+              <button class="btn btn-sm btn-warning" id="settingsSessionsRevokeOthersBtn">Revoke Other Sessions</button>
+            </div>
+            <div id="settingsSessionsContent" style="margin-top:0.75rem;font-size:0.8125rem;color:var(--text-secondary);"></div>
+          </div>
+
+          </div>
+          <div class="settings-step" id="settingsEmailLoginStep">
+            <div class="settings-step-header">
+              <span class="settings-step-num" id="settingsEmailLoginNum">6</span>
+              <span class="settings-step-title">Email Login</span>
+              <span class="settings-step-status" id="settingsEmailLoginStatus"></span>
+            </div>
+            <p class="settings-step-desc">Allow dashboard login with a one-time code delivered by Email Sender.</p>
+            <label style="display:flex;align-items:center;gap:0.45rem;margin-top:0.65rem;font-size:0.8125rem;color:var(--text-secondary);">
+              <input type="checkbox" id="settingsEmailLoginEnabled">
+              Enable email login
+            </label>
+            <div class="form-group" style="margin-top:0.75rem;">
+              <label for="settingsEmailLoginAddress">Login email</label>
+              <input type="email" id="settingsEmailLoginAddress" placeholder="admin@example.com">
+            </div>
+            <div class="form-group">
+              <label for="settingsEmailDeliveryURL">Email Sender delivery URL</label>
+              <input type="url" id="settingsEmailDeliveryURL" placeholder="https://email.example.com/api/internal/deliveries">
+            </div>
+            <div class="form-group">
+              <label for="settingsEmailDeliveryToken">Machine token</label>
+              <input type="password" id="settingsEmailDeliveryToken" autocomplete="new-password" placeholder="Leave blank to keep existing token">
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:0.5rem;">
+              <div class="form-group">
+                <label for="settingsEmailDeliveryScope">Scope</label>
+                <input type="text" id="settingsEmailDeliveryScope" placeholder="auth">
+              </div>
+              <div class="form-group">
+                <label for="settingsEmailDeliveryTemplate">Template</label>
+                <input type="text" id="settingsEmailDeliveryTemplate" placeholder="serverpilot_login_code">
+              </div>
+              <div class="form-group">
+                <label for="settingsEmailDeliveryTimeout">Timeout</label>
+                <input type="number" id="settingsEmailDeliveryTimeout" min="1" max="30" value="5">
+              </div>
+            </div>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;">
+              <button class="btn btn-sm btn-primary" id="settingsEmailLoginSaveBtn">Save Email Login</button>
+              <button class="btn btn-sm btn-outline" id="settingsEmailLoginTestBtn">Send Test Code</button>
+            </div>
+          </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Terminal Tab -->
+{{end}}

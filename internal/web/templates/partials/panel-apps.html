@@ -1,0 +1,247 @@
+{{define "panel_apps"}}
+    <div class="tab-panel" id="panel-apps">
+
+      <!-- ── Managed Applications ── -->
+      <div class="card" style="margin-bottom:1.5rem;">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+          <h2>Managed Applications</h2>
+          <div style="display:flex;gap:0.5rem;">
+            <button class="btn btn-sm btn-outline" onclick="loadManagedApps()">&#x21bb; Refresh</button>
+            <button class="btn btn-sm" style="background:var(--accent);color:#fff;border:none;" onclick="openCreateAppModal()">+ Create Application</button>
+          </div>
+        </div>
+        <p style="padding:0 1.25rem;color:var(--text-secondary);font-size:0.8125rem;margin-bottom:0.75rem;">
+          Application directories in <code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;font-size:0.75rem;">/opt/</code>. Each app can contain <code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;font-size:0.75rem;">.env</code> files with environment variables.
+          <strong style="color:var(--yellow);">Content is encrypted in transit</strong> (AES-256-GCM).
+        </p>
+        <div id="managedAppsContent">
+          <div class="spinner"><div class="spinner-ring"></div>Loading managed applications...</div>
+        </div>
+      </div>
+
+      <!-- Create App Modal -->
+      <div id="createAppModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:560px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <h3 style="margin:0 0 1rem 0;">Create Application</h3>
+          <p style="color:var(--text-secondary);font-size:0.8125rem;margin-bottom:1rem;line-height:1.5;">
+            Enter the application name. A directory will be created at <code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;">/opt/&lt;name&gt;</code> with a default <code>.env</code> file.
+          </p>
+          <div style="margin-bottom:1rem;">
+            <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.25rem;font-weight:600;">APP NAME</label>
+            <input type="text" id="createAppName" placeholder="e.g. srp-api" style="width:100%;padding:0.5rem 0.75rem;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:0.875rem;box-sizing:border-box;" pattern="[a-z][a-z0-9_-]*" maxlength="64">
+            <div style="font-size:0.6875rem;color:var(--text-muted);margin-top:0.25rem;">Lowercase letters, numbers, hyphens, underscores. Must start with a letter.</div>
+          </div>
+          <div style="margin-bottom:1rem;">
+            <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.5rem;font-weight:600;">VARIABLES DE ENTORNO INICIALES (opcional)</label>
+            <div id="createAppEnvEditorRoot"></div>
+          </div>
+          <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
+            <button class="btn btn-sm btn-outline" onclick="closeCreateAppModal()">Cancel</button>
+            <button class="btn btn-sm" id="createAppBtn" style="background:var(--accent);color:#fff;border:none;" onclick="submitCreateApp()">Create</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Create Env File Modal -->
+      <div id="createEnvModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:560px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <h3 style="margin:0 0 1rem 0;">Add .env File</h3>
+          <p style="color:var(--text-secondary);font-size:0.8125rem;margin-bottom:1rem;line-height:1.5;">
+            Enter a prefix for the .env file name, or leave empty for the default <code>.env</code>.
+          </p>
+          <input type="hidden" id="createEnvAppName">
+          <div style="margin-bottom:1rem;">
+            <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.25rem;font-weight:600;">FILE PREFIX (optional)</label>
+            <div style="display:flex;align-items:center;gap:0.5rem;">
+              <input type="text" id="createEnvPrefix" placeholder="e.g. procs" style="flex:1;padding:0.5rem 0.75rem;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:0.875rem;" pattern="[a-z0-9_-]*" maxlength="32">
+              <span style="color:var(--text-secondary);font-family:monospace;font-size:0.875rem;">.env</span>
+            </div>
+            <div style="font-size:0.6875rem;color:var(--text-muted);margin-top:0.25rem;">Empty = <code>.env</code> &nbsp;|&nbsp; "procs" = <code>procs.env</code> &nbsp;|&nbsp; "staging" = <code>staging.env</code></div>
+          </div>
+          <div style="margin-bottom:1rem;">
+            <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.5rem;font-weight:600;">CONTENIDO INICIAL (opcional)</label>
+            <div id="createEnvFileEditorRoot"></div>
+          </div>
+          <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
+            <button class="btn btn-sm btn-outline" onclick="closeCreateEnvModal()">Cancel</button>
+            <button class="btn btn-sm" id="createEnvBtn" style="background:var(--accent);color:#fff;border:none;" onclick="submitCreateEnvFile()">Create File</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Edit Env File Modal -->
+      <div id="editEnvModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:640px;width:95%;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
+            <h3 style="margin:0;" id="editEnvTitle">Edit .env</h3>
+            <div style="display:flex;align-items:center;gap:0.5rem;">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="var(--green)"><path d="M8 16A8 8 0 108 0a8 8 0 000 16zm3.78-9.72a.75.75 0 00-1.06-1.06L7.25 8.69 5.28 6.72a.75.75 0 00-1.06 1.06l2.5 2.5a.75.75 0 001.06 0l4-4z"/></svg>
+              <span style="font-size:0.6875rem;color:var(--green);font-weight:600;">AES-256-GCM ENCRYPTED</span>
+            </div>
+          </div>
+          <p style="color:var(--text-secondary);font-size:0.75rem;margin-bottom:0.75rem;">
+            <span id="editEnvMeta"></span>
+          </p>
+          <input type="hidden" id="editEnvApp">
+          <input type="hidden" id="editEnvFile">
+          <div id="editEnvEditorRoot"></div>
+          <div style="display:flex;gap:0.75rem;justify-content:flex-end;margin-top:1rem;">
+            <button class="btn btn-sm btn-outline" onclick="closeEditEnvModal()">Cancel</button>
+            <button class="btn btn-sm" id="saveEnvBtn" style="background:var(--green);color:#fff;border:none;" onclick="submitSaveEnvFile()">Save Changes</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Delete App Confirmation Modal -->
+      <div id="deleteAppModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:480px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;">
+            <svg width="24" height="24" viewBox="0 0 16 16" fill="var(--red)"><path d="M8.982 1.566a1.13 1.13 0 00-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 01-1.1 0L7.1 5.995A.905.905 0 018 5zm.002 6a1 1 0 110 2 1 1 0 010-2z"/></svg>
+            <h3 style="margin:0;color:var(--red);">Delete Application</h3>
+          </div>
+          <p id="deleteAppDesc" style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1.5rem;line-height:1.5;"></p>
+          <input type="hidden" id="deleteAppName">
+          <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
+            <button class="btn btn-sm btn-outline" onclick="closeDeleteAppModal()">Cancel</button>
+            <button class="btn btn-sm" id="deleteAppConfirmBtn" style="background:var(--red);color:#fff;border:none;" onclick="submitDeleteApp()">Yes, delete everything</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="serverDependenciesCard">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+          <h2>Server Dependencies</h2>
+          <button class="btn btn-sm btn-outline" onclick="loadDependencies()">&#x21bb; Refresh</button>
+        </div>
+        <p style="padding:0 1.25rem;color:var(--text-secondary);font-size:0.8125rem;margin-bottom:0.75rem;">
+          Packages required or recommended by ServerPilot. Missing items can be installed here (same flow as <code>sp setup</code>).
+        </p>
+        <div id="dependenciesContent">
+          <div class="spinner"><div class="spinner-ring"></div>Checking dependencies...</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+          <h2>Installed Applications</h2>
+          <button class="btn btn-sm btn-outline" onclick="loadApps()">&#x21bb; Refresh</button>
+        </div>
+        <p style="padding:0 1.25rem;color:var(--text-secondary);font-size:0.8125rem;margin-bottom:0.75rem;">
+          Applications detected on this server. <strong style="color:var(--yellow);">Uninstall is permanent and irreversible</strong> — it removes the binary, configuration, cache, and all associated data.
+        </p>
+        <div id="appsContent">
+          <div class="spinner"><div class="spinner-ring"></div>Detecting installed applications...</div>
+        </div>
+      </div>
+
+      <!-- Uninstall confirmation modal -->
+      <div id="appUninstallModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:480px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;">
+            <svg width="24" height="24" viewBox="0 0 16 16" fill="var(--red)"><path d="M8.982 1.566a1.13 1.13 0 00-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 01-1.1 0L7.1 5.995A.905.905 0 018 5zm.002 6a1 1 0 110 2 1 1 0 010-2z"/></svg>
+            <h3 style="margin:0;color:var(--red);">Confirm Uninstall</h3>
+          </div>
+          <p id="appUninstallDesc" style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1.5rem;line-height:1.5;"></p>
+          <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
+            <button type="button" class="btn btn-sm btn-outline" onclick="closeAppUninstallModal()">Cancel</button>
+            <button type="button" class="btn btn-sm" id="appUninstallConfirmBtn"
+              style="background:var(--red);color:#fff;border:none;"
+              onclick="executeUninstall()">Yes, uninstall completely</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Managed App Permissions Modal (filesystem ACLs) -->
+      <div id="managedAppPermsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:1.5rem;max-width:640px;width:90%;max-height:85vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">
+            <span style="font-size:1.25rem;">🔒</span>
+            <h3 style="margin:0;color:var(--text-primary);">Folder permissions: <span id="permsAppLabel" style="font-family:monospace;color:var(--accent);"></span></h3>
+          </div>
+          <p style="color:var(--text-muted);font-size:0.78rem;margin:0 0 1rem;">
+            Per-user POSIX ACLs on <code id="permsAppPath"></code>. Read-only grants traversal + read; Read+Write also lets the user create and modify files. Live state from <code>getfacl</code>.
+          </p>
+          <div id="permsAppCaps" style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.75rem;"></div>
+          <div id="permsAppContent" style="font-size:0.85rem;">
+            <div class="spinner"><div class="spinner-ring"></div>Loading…</div>
+          </div>
+          <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
+            <button type="button" class="btn btn-sm btn-outline" onclick="closeManagedAppPermsModal()">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- System App Permissions Modal (group + sudoers) -->
+      <div id="systemAppPermsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:1.5rem;max-width:720px;width:90%;max-height:85vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">
+            <span style="font-size:1.25rem;">🔒</span>
+            <h3 style="margin:0;color:var(--text-primary);">Capabilities: <span id="sysPermsAppLabel" style="font-family:monospace;color:var(--accent);"></span></h3>
+          </div>
+          <p style="color:var(--text-muted);font-size:0.78rem;margin:0 0 1rem;">
+            Group memberships and <code>/etc/sudoers.d/</code> fragments. Live state read at open time. Dangerous toggles require an explicit confirmation.
+          </p>
+          <div id="sysPermsContent" style="font-size:0.85rem;">
+            <div class="spinner"><div class="spinner-ring"></div>Loading…</div>
+          </div>
+          <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
+            <button type="button" class="btn btn-sm btn-outline" onclick="closeSystemAppPermsModal()">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- SSH keys (public + private vault) modal -->
+      <div id="sshKeysModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:1.5rem;max-width:760px;width:92%;max-height:90vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">
+            <span style="font-size:1.25rem;">🔑</span>
+            <h3 style="margin:0;color:var(--text-primary);">SSH keys: <span id="sshKeysUserLabel" style="font-family:monospace;color:var(--accent);"></span></h3>
+          </div>
+          <p style="color:var(--text-muted);font-size:0.78rem;margin:0 0 1rem;">
+            The public key is read live from <code>~/.ssh/authorized_keys</code>. The private key is shown only if it was generated server-side and stored in the encrypted vault. Each reveal is recorded in the journal log.
+          </p>
+
+          <div style="margin-bottom:1rem;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <label style="font-size:0.78rem;color:var(--text-muted);">Public key(s)</label>
+              <button type="button" id="sshKeysCopyPubBtn" onclick="copyToClipboardField('sshKeysPubArea')" class="btn btn-sm btn-outline" style="font-size:0.7rem;">Copy</button>
+            </div>
+            <textarea id="sshKeysPubArea" readonly rows="3"
+              style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:monospace;font-size:0.74rem;resize:vertical;"></textarea>
+          </div>
+
+          <div id="sshKeysGenSection" style="display:none;margin-bottom:1rem;padding:0.75rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);">
+            <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:6px;">Generate a new keypair (replaces nothing — just appends a new key)</div>
+            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+              <select id="sshKeysGenType" style="padding:6px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:0.78rem;">
+                <option value="ed25519" selected>Ed25519</option>
+                <option value="rsa">RSA-4096</option>
+              </select>
+              <input type="text" id="sshKeysGenComment" placeholder="comment (optional)" maxlength="64"
+                style="flex:1;min-width:140px;padding:6px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:0.78rem;">
+              <label style="display:flex;align-items:center;gap:4px;font-size:0.72rem;color:var(--text-muted);">
+                <input type="checkbox" id="sshKeysGenStore" checked> store
+              </label>
+              <button type="button" onclick="generateNewKeyForCurrentUser()" class="btn btn-sm" style="background:var(--accent);color:#fff;">Generate</button>
+            </div>
+          </div>
+
+          <div id="sshKeysPrivSection">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <label style="font-size:0.78rem;color:var(--text-muted);">Private key</label>
+              <div id="sshKeysPrivControls" style="display:flex;gap:6px;"></div>
+            </div>
+            <textarea id="sshKeysPrivArea" readonly rows="6" placeholder="—"
+              style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:monospace;font-size:0.74rem;resize:vertical;"></textarea>
+            <div id="sshKeysPrivStatus" style="font-size:0.7rem;color:var(--text-muted);margin-top:4px;"></div>
+          </div>
+
+          <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
+            <button type="button" class="btn btn-sm btn-outline" onclick="closeKeysModal()">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Users Tab -->
+{{end}}

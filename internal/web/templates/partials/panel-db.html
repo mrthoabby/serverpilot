@@ -1,0 +1,123 @@
+{{define "panel_db"}}
+    <div class="tab-panel" id="panel-db">
+      <div class="refresh-bar"><span class="refresh-bar-ts" id="ts-db">--</span></div>
+
+      <div class="split-layout db-layout">
+
+        <!-- Connections sidebar -->
+        <div class="card" style="height:fit-content;">
+          <div class="card-header">
+            <h2>Connections</h2>
+            <button type="button" onclick="openDBNewConnModal()" class="btn btn-sm btn-primary" style="font-size:0.74rem;">+ New</button>
+          </div>
+          <div id="dbConnections" style="padding:0.5rem;">
+            <div class="spinner"><div class="spinner-ring"></div>Loading…</div>
+          </div>
+        </div>
+
+        <!-- Query editor + results -->
+        <div class="card">
+          <div class="card-header">
+            <h2 id="dbQueryTitle">Query</h2>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <span id="dbActiveConn" style="font-size:0.72rem;color:var(--text-muted);font-family:monospace;"></span>
+              <button type="button" id="dbRunBtn" onclick="runDBQuery()" class="btn btn-sm btn-primary" style="font-size:0.74rem;" disabled>Run (Ctrl+Enter)</button>
+            </div>
+          </div>
+          <div style="padding:0.75rem 1rem 0.5rem;font-size:0.72rem;color:var(--text-muted);line-height:1.4;">
+            Query timeout 30s · max 1000 rows · max 10 MB · every query is audit-logged (actor + sha256, NOT the SQL text).
+          </div>
+          <textarea id="dbQuery" placeholder="SELECT 1;"
+            style="width:calc(100% - 2rem);margin:0 1rem;padding:10px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:monospace;font-size:0.82rem;min-height:160px;resize:vertical;"></textarea>
+          <div id="dbQueryStatus" style="padding:0.5rem 1rem;font-size:0.74rem;color:var(--text-muted);min-height:1.2rem;"></div>
+          <div id="dbResultWrap" style="overflow-x:auto;max-height:50vh;border-top:1px solid var(--border);"></div>
+
+          <!-- Persistent log panel. Every query / cell-edit / error
+               appends a line. Capped at 200 lines client-side. The SQL
+               pattern shown here always has identifiers quoted and
+               value placeholders ($1, $2…) — the actual values never
+               appear in the log so this panel can be screenshot-shared
+               without leaking literals. -->
+          <div style="border-top:1px solid var(--border);">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 12px;background:var(--bg-input);">
+              <strong style="font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;">DB Logs</strong>
+              <button type="button" onclick="clearDBLogs()" class="btn btn-sm btn-outline" style="font-size:0.66rem;padding:1px 8px;">Clear</button>
+            </div>
+            <div id="dbLogs" style="max-height:180px;overflow-y:auto;padding:6px 12px;font-family:monospace;font-size:0.72rem;line-height:1.5;background:var(--bg-primary);">
+              <div style="color:var(--text-muted);">No activity yet.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Schema browser modal — postgres only. Lazy-loads the tree on
+           open. Click a table to expand its columns. Click any of the
+           three template buttons to drop a starter query (SELECT /
+           UPDATE / INSERT) into the editor. The dashboard never
+           auto-runs the generated query — the operator reviews and
+           runs it explicitly, with the same audit-log path as any
+           other query. -->
+      <div id="dbSchemaModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:1.25rem;max-width:760px;width:94%;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;">
+            <h3 style="margin:0;color:var(--text-primary);">📂 Schema browser</h3>
+            <button type="button" class="btn btn-sm btn-outline" onclick="closeDBSchemaBrowser()">Close</button>
+          </div>
+          <p style="font-size:0.72rem;color:var(--text-muted);margin:0 0 0.75rem;line-height:1.4;">
+            Click a table to see its columns. Use the action buttons next to each table to drop a starter SELECT / UPDATE / INSERT into the editor. PK columns are marked.
+          </p>
+          <input type="text" id="dbSchemaFilter" placeholder="Filter tables…" oninput="filterDBSchemaTree()"
+            style="padding:6px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:0.78rem;margin-bottom:0.5rem;">
+          <div id="dbSchemaContent" style="overflow-y:auto;flex:1;font-family:monospace;font-size:0.78rem;">
+            <div class="spinner"><div class="spinner-ring"></div>Loading…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- New / Edit Connection modal -->
+      <div id="dbConnModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:1.5rem;max-width:560px;width:92%;max-height:90vh;overflow-y:auto;">
+          <h3 style="margin:0 0 0.75rem;color:var(--text-primary);">Database Connection</h3>
+          <p style="font-size:0.72rem;color:var(--text-muted);margin:0 0 1rem;line-height:1.5;">
+            The DSN is encrypted at rest with AES-256-GCM. The dashboard never reveals it again once saved — to change the password you delete and re-create the connection.
+          </p>
+          <input type="hidden" id="dbConnID">
+          <div style="display:flex;flex-direction:column;gap:0.6rem;font-size:0.82rem;">
+            <div>
+              <label style="font-size:0.72rem;color:var(--text-muted);display:block;margin-bottom:3px;">Name</label>
+              <input type="text" id="dbConnName" placeholder="prod-postgres" maxlength="64"
+                style="width:100%;padding:7px 11px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:0.82rem;">
+            </div>
+            <div>
+              <label style="font-size:0.72rem;color:var(--text-muted);display:block;margin-bottom:3px;">Engine</label>
+              <select id="dbConnEngine" style="width:100%;padding:7px 11px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:0.82rem;">
+                <option value="postgres" selected>PostgreSQL</option>
+                <option value="mysql">MySQL / MariaDB</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:0.72rem;color:var(--text-muted);display:block;margin-bottom:3px;">DSN</label>
+              <textarea id="dbConnDSN" rows="3" placeholder="postgres://user:pass@127.0.0.1:5432/dbname?sslmode=require"
+                style="width:100%;padding:7px 11px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:monospace;font-size:0.78rem;resize:vertical;"></textarea>
+              <div style="font-size:0.66rem;color:var(--text-muted);margin-top:3px;line-height:1.4;">
+                Postgres: <code>postgres://user:pass@host:port/db?sslmode=require</code> (or libpq <code>key=value</code> form).<br>
+                MySQL: <code>user:pass@tcp(host:port)/dbname</code>. TLS enabled by default; opt out with <code>?tls=false</code>.
+              </div>
+            </div>
+            <div>
+              <label style="font-size:0.72rem;color:var(--text-muted);display:block;margin-bottom:3px;">Description (optional)</label>
+              <input type="text" id="dbConnDesc" maxlength="200" placeholder="Production database, read-only mirror, etc."
+                style="width:100%;padding:7px 11px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:0.82rem;">
+            </div>
+          </div>
+          <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
+            <button type="button" class="btn btn-sm btn-outline" onclick="closeDBNewConnModal()">Cancel</button>
+            <button type="button" id="dbConnSaveBtn" class="btn btn-sm btn-primary" onclick="submitDBConn()">Save</button>
+          </div>
+          <div id="dbConnMsg" style="font-size:0.72rem;color:var(--text-muted);margin-top:6px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Tab -->
+{{end}}

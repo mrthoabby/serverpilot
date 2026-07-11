@@ -1,0 +1,332 @@
+{{define "modals"}}
+<!-- Redirect Site Modal -->
+<div class="modal-overlay" id="redirectModal">
+  <div class="modal">
+    <h3>Create Redirect</h3>
+    <p class="modal-sub">Redirect all requests from one domain to another domain</p>
+    <form id="redirectForm">
+      <div class="form-group">
+        <label for="redirectDomain">Source domain</label>
+        <input type="text" id="redirectDomain" required placeholder="old.example.com">
+      </div>
+      <div class="form-group">
+        <label for="redirectTarget">Target domain</label>
+        <input type="text" id="redirectTarget" required placeholder="new.example.com">
+        <div style="font-size:0.7rem;color:var(--text-muted);margin-top:4px;line-height:1.4;">
+          Paths and query strings are preserved automatically.
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="redirectCode">Redirect type</label>
+        <select id="redirectCode">
+          <option value="301">301 Permanent</option>
+          <option value="302">302 Temporary</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:0.5rem;font-weight:500;">
+          <input type="checkbox" id="redirectIncludeWWW" style="width:auto;">
+          Include www alias
+        </label>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:0.5rem;font-weight:500;">
+          <input type="checkbox" id="redirectDelayed" style="width:auto;">
+          Show message before redirect
+        </label>
+      </div>
+      <div id="redirectDelayOptions" style="display:none;">
+        <div class="form-group">
+          <label for="redirectDelaySeconds">Delay seconds</label>
+          <input type="number" id="redirectDelaySeconds" min="1" max="300" value="5">
+        </div>
+        <div class="form-group">
+          <label for="redirectMessage">Message</label>
+          <textarea id="redirectMessage" rows="3" maxlength="500" placeholder="This site has moved. You will be redirected shortly."></textarea>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="redirectCancelBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="redirectSubmitBtn">Create Redirect</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Associate Site Modal -->
+<div class="modal-overlay" id="associateModal">
+  <div class="modal">
+    <h3>Add Nginx Site</h3>
+    <p class="modal-sub" id="associateModalSub">Create an Nginx site for this container</p>
+    <form id="associateForm">
+      <input type="hidden" id="assocContainerId">
+      <input type="hidden" id="assocContainerName">
+      <div class="form-group" id="assocPortSelectWrap">
+        <label for="assocPortSelect">Published host port</label>
+        <select id="assocPortSelect"></select>
+      </div>
+      <div class="form-group">
+        <label for="assocTemplate">Template Type</label>
+        <select id="assocTemplate">
+          <option value="api">API (rate limit + proxy)</option>
+          <option value="nestjs">NestJS (WebSocket + Proxy)</option>
+          <option value="nextjs">Next.js (SSR + ISR + Static)</option>
+          <option value="frontend">Frontend / SPA</option>
+          <option value="minio">MinIO (Object Storage)</option>
+          <option value="mcp">MCP / SSE streaming</option>
+          <option value="gd-app">GD-App (Legacy)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="assocDomain">Domain</label>
+        <input type="text" id="assocDomain" required placeholder="example.com">
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:0.5rem;font-weight:500;">
+          <input type="checkbox" id="assocIncludeWWW" style="width:auto;">
+          Include www alias
+        </label>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:0.5rem;font-weight:500;">
+          <input type="checkbox" id="assocEnableSSL" style="width:auto;">
+          Enable SSL after create (certbot)
+        </label>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:0.5rem;font-weight:500;">
+          <input type="checkbox" id="assocAllowShared" style="width:auto;">
+          Allow sharing host port with another domain
+        </label>
+      </div>
+      <div class="form-group" style="border:1px solid var(--border);border-radius:6px;padding:10px;">
+        <div style="font-size:0.75rem;font-weight:600;margin-bottom:6px;">Template options</div>
+        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8rem;"><input type="checkbox" id="optWebSocket" style="width:auto;"> WebSocket</label>
+        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8rem;"><input type="checkbox" id="optSSE" style="width:auto;"> SSE / streaming</label>
+        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8rem;"><input type="checkbox" id="optRateLimit" style="width:auto;"> Rate limiting</label>
+        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8rem;"><input type="checkbox" id="optReqBufOff" style="width:auto;"> Request buffering off</label>
+        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8rem;"><input type="checkbox" id="optResBufOff" style="width:auto;"> Response buffering off</label>
+        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8rem;margin-top:4px;">Body size <input type="text" id="optBodySize" placeholder="1m, 200m, 0" style="width:5rem;margin-left:4px;"></label>
+      </div>
+      <div class="form-group" id="assocAllocate" style="display:none;">
+          <div style="font-size:0.74rem;color:#d29922;line-height:1.45;margin-bottom:6px;">
+            ⚠ <strong>This container has no host port published.</strong>
+            Allocate a free port from the sp port range, then redeploy the
+            container with <code>-p &lt;allocated&gt;:&lt;internal&gt;</code> before
+            clicking Create Site.
+          </div>
+          <button type="button" id="assocAllocateBtn" onclick="allocatePortForAssoc()"
+                  class="btn btn-sm" style="background:var(--accent);color:#fff;font-size:0.74rem;">
+            Allocate via sp port
+          </button>
+          <div id="assocAllocateMsg" style="font-size:0.7rem;color:var(--text-muted);margin-top:6px;line-height:1.4;"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="assocCancelBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="assocSubmitBtn">Create Site</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Container Replica Modal -->
+<div class="modal-overlay" id="replicaModal">
+  <div class="modal" style="max-width: 720px;">
+    <h3>Create Replica</h3>
+    <p class="modal-sub" id="replicaModalSub">Clone a container into an independent replica.</p>
+    <form id="replicaForm">
+      <input type="hidden" id="replicaParentId">
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label for="replicaName">Replica name</label>
+          <input type="text" id="replicaName" required placeholder="email-sender-blue">
+        </div>
+        <div class="form-group">
+          <label for="replicaAlias">Visible label</label>
+          <input type="text" id="replicaAlias" required placeholder="go-up">
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="replicaTemplate">Nginx template</label>
+        <select id="replicaTemplate">
+          <option value="api">API</option>
+          <option value="nestjs">NestJS</option>
+          <option value="nextjs">Next.js</option>
+          <option value="frontend">Frontend / SPA</option>
+          <option value="minio">MinIO</option>
+          <option value="gd-app">GD-App</option>
+          <option value="back">Back / no publish</option>
+        </select>
+        <p style="font-size:0.72rem;color:var(--text-muted);line-height:1.45;margin-top:6px;">
+          Host port is assigned automatically from the ServerPilot port registry and remains reserved for this replica.
+        </p>
+      </div>
+      <div class="form-group">
+        <label>Environment variables</label>
+        <div id="replicaEnvSyncPanel" style="display:none;margin-bottom:10px;"></div>
+        <div id="replicaEnvEditorRoot"></div>
+      </div>
+      <div class="form-group">
+        <label>Independent data copies</label>
+        <div id="replicaMountSummary" style="font-size:0.76rem;color:var(--text-muted);line-height:1.45;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg-input);"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="replicaCancelBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="replicaSubmitBtn">Create Replica</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Reload Container Environment Modal -->
+<div class="modal-overlay" id="reloadEnvModal">
+  <div class="modal" style="max-width: 520px;">
+    <h3>Reload environment</h3>
+    <p class="modal-sub" id="reloadEnvModalSub">Recreate this container with a managed app environment file.</p>
+    <form id="reloadEnvForm">
+      <input type="hidden" id="reloadEnvContainerId">
+      <input type="hidden" id="reloadEnvContainerName">
+      <div class="form-group">
+        <label for="reloadEnvApp">Application</label>
+        <select id="reloadEnvApp" required></select>
+      </div>
+      <div class="form-group">
+        <label for="reloadEnvFile">Environment file</label>
+        <select id="reloadEnvFile" required></select>
+      </div>
+      <p style="font-size:0.76rem;color:var(--text-muted);line-height:1.45;margin-bottom:1rem;">
+        This stops the current container, recreates it with the selected environment, and restores the old container if Docker cannot start the replacement.
+      </p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="reloadEnvCancelBtn">Cancel</button>
+        <button type="submit" class="btn btn-warning" id="reloadEnvSubmitBtn">Reload Env</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Confirm Modal -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal">
+    <h3 id="confirmTitle">Confirm Action</h3>
+    <p class="confirm-text" id="confirmText"></p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-outline" id="confirmCancelBtn">Cancel</button>
+      <button type="button" class="btn btn-primary" id="confirmOkBtn">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Config Editor Modal -->
+<div class="modal-overlay" id="configEditorModal">
+  <div class="modal config-editor-modal">
+    <h3>Edit Config <span class="config-domain" id="configEditorDomain"></span></h3>
+    <p class="modal-sub">Edit the Nginx configuration file. Use Save to persist without reloading, or Save &amp; Reload to validate and apply.</p>
+    <textarea class="config-textarea" id="configEditorTextarea" spellcheck="false"></textarea>
+    <div class="config-error-box" id="configEditorError"></div>
+    <div class="config-actions">
+      <div class="config-actions-left">
+        <button type="button" class="btn btn-sm btn-outline" id="configResetBtn">Reset</button>
+      </div>
+      <div class="config-actions-right">
+        <button type="button" class="btn btn-sm btn-outline" id="configCancelBtn">Cancel</button>
+        <button type="button" class="btn btn-sm btn-warning" id="configSaveBtn">Save</button>
+        <button type="button" class="btn btn-sm btn-success" id="configSaveReloadBtn">Save &amp; Reload</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- GD-App Activate Modal -->
+<div class="modal-overlay" id="gdappModal">
+  <div class="modal" style="max-width: 480px;">
+    <h3>Activate GD-App Site</h3>
+    <p class="modal-sub" id="gdappModalSub">Set up the full nginx configuration with WebSocket, SSE, SSL, and security headers.</p>
+    <form id="gdappForm">
+      <input type="hidden" id="gdappContainerName">
+      <div class="form-group">
+        <label for="gdappDomain">Domain</label>
+        <input type="text" id="gdappDomain" required placeholder="docs.example.com">
+      </div>
+      <div class="form-group">
+        <label for="gdappPort">Host port to proxy</label>
+        <input type="text" id="gdappPort" required placeholder="3010" value="3010">
+        <div style="font-size:0.7rem;color:var(--text-muted);margin-top:4px;line-height:1.4;">
+          The port Docker published on the host (left side of <code>3001:8080</code>) — NOT the container's internal port.
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="gdappCancelBtn">Cancel</button>
+        <button type="submit" class="btn" id="gdappSubmitBtn" style="background:rgba(138,43,226,0.9); color:#fff;">Activate Site</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Container Logs Modal -->
+<div class="modal-overlay" id="containerLogsModal">
+  <div class="modal progress-modal">
+    <h3>Container logs <span class="progress-domain" id="containerLogsTitle"></span></h3>
+    <p class="modal-sub">Last 10 lines from <code>docker logs --tail 10 --timestamps</code>.</p>
+    <pre class="progress-log" id="containerLogsBody" style="color:var(--text-secondary);"></pre>
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button type="button" class="btn btn-sm btn-danger" id="containerLogsClearBtn">Limpiar logs</button>
+      <div style="display:flex; gap:0.5rem;">
+        <button type="button" class="btn btn-sm btn-outline" id="containerLogsRefreshBtn">Refresh</button>
+        <button type="button" class="btn btn-sm btn-primary" id="containerLogsCloseBtn">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Progress / Log Modal -->
+<div class="modal-overlay" id="progressModal">
+  <div class="modal progress-modal">
+    <h3 id="progressTitle">Processing</h3>
+    <p class="modal-sub" id="progressSubtitle"></p>
+    <div id="progressPruneBarWrap" style="display:none;margin:0.75rem 0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.35rem;gap:0.5rem;flex-wrap:wrap;">
+        <span id="progressPruneBarLabel">Progreso estimado</span>
+        <span id="progressPruneBarStats" style="font-variant-numeric:tabular-nums;"></span>
+      </div>
+      <div style="height:10px;background:var(--bg-input);border-radius:5px;overflow:hidden;border:1px solid var(--border);">
+        <div id="progressPruneBarFill" style="height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--green));transition:width 0.45s ease;"></div>
+      </div>
+    </div>
+    <div class="progress-log" id="progressLog"></div>
+    <div class="progress-status" id="progressStatus">
+      <span class="progress-spinner" id="progressSpinner"></span>
+      <span id="progressStatusText">Working...</span>
+    </div>
+    <div class="progress-actions">
+      <button type="button" class="btn btn-sm btn-outline" id="progressCloseBtn" style="display:none;">Close</button>
+      <button type="button" class="btn btn-sm" id="progressInstallBtn" style="display:none;background:#8a2be2;color:#fff;margin-left:8px;">Install & Retry</button>
+    </div>
+  </div>
+</div>
+
+<!-- Docker Prune Confirm Modal -->
+<div class="modal-overlay" id="dockerPruneModal">
+  <div class="modal" style="max-width:520px;">
+    <h3 id="dockerPruneModalTitle">Confirmar limpieza Docker</h3>
+    <div id="dockerPruneModalRisk" style="margin:0.5rem 0;font-size:0.78rem;font-weight:600;"></div>
+    <p id="dockerPruneModalDesc" style="font-size:0.82rem;color:var(--text-secondary);line-height:1.45;margin:0.5rem 0;"></p>
+    <div id="dockerPruneModalReclaim" style="display:none;margin:0.5rem 0;padding:0.65rem 0.75rem;border:1px solid var(--green);border-radius:6px;background:rgba(46,160,67,0.08);"></div>
+    <div id="dockerPruneModalRemoves" style="font-size:0.78rem;margin:0.5rem 0;"></div>
+    <div id="dockerPruneModalKeeps" style="font-size:0.78rem;margin:0.5rem 0;"></div>
+    <div id="dockerPruneTypeConfirmWrap" style="display:none;margin:0.75rem 0;">
+      <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:0.35rem;">
+        Escribe <code id="dockerPruneTypeConfirmLabel" style="color:var(--red);"></code> para confirmar:
+      </label>
+      <input type="text" id="dockerPruneTypeConfirmInput" autocomplete="off" spellcheck="false"
+        style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);color:var(--text-primary);font-family:monospace;font-size:0.82rem;">
+    </div>
+    <div id="dockerPruneModalOutput" style="display:none;margin-top:0.75rem;padding:0.65rem;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;font-family:monospace;font-size:0.72rem;white-space:pre-wrap;color:var(--text-secondary);max-height:160px;overflow:auto;"></div>
+    <div class="modal-actions" style="margin-top:1rem;">
+      <button type="button" class="btn btn-outline" id="dockerPruneCancelBtn">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="dockerPruneExecuteBtn">Ejecutar prune</button>
+    </div>
+  </div>
+</div>
+
+{{end}}

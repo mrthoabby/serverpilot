@@ -1,0 +1,123 @@
+{{define "panel_cases"}}
+    <div class="tab-panel" id="panel-cases">
+      <!-- Header + toggle + new button -->
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;margin-bottom:1rem;">
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <div style="display:flex;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+            <button id="casesFilterAll" onclick="setCasesFilter('')"
+              style="padding:6px 14px;font-size:0.8rem;font-weight:600;border:none;cursor:pointer;transition:background 0.2s,color 0.2s;background:var(--accent);color:#fff;">
+              All
+            </button>
+            <button id="casesFilterPublic" onclick="setCasesFilter('public')"
+              style="padding:6px 14px;font-size:0.8rem;font-weight:600;border:none;cursor:pointer;transition:background 0.2s,color 0.2s;background:none;color:var(--text-secondary);">
+              🌐 Public
+            </button>
+            <button id="casesFilterPrivate" onclick="setCasesFilter('private')"
+              style="padding:6px 14px;font-size:0.8rem;font-weight:600;border:none;cursor:pointer;transition:background 0.2s,color 0.2s;background:none;color:var(--text-secondary);">
+              🔒 Private
+            </button>
+          </div>
+          <span id="casesFilterLabel" style="font-size:0.78rem;color:var(--text-muted);"></span>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="openCaseModal(null)" style="gap:0.4rem;">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z"/></svg>
+          New Case
+        </button>
+      </div>
+
+      <!-- Cases list -->
+      <div id="casesContent">
+        <div class="spinner"><div class="spinner-ring"></div>Loading cases...</div>
+      </div>
+
+      <!-- Case modal (create / edit / view) -->
+      <div id="caseModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:580px;width:92%;max-height:90vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;">
+            <h3 id="caseModalTitle" style="margin:0;font-size:1.05rem;">New Case</h3>
+            <button onclick="closeCaseModal()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.25rem;line-height:1;">&#x2715;</button>
+          </div>
+
+          <input type="hidden" id="caseEditId" value="">
+
+          <!-- View mode -->
+          <div id="caseViewMode" style="display:none;">
+            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;">
+              <span id="caseViewVisibilityBadge"></span>
+              <span id="caseViewTags" style="display:flex;gap:0.35rem;flex-wrap:wrap;"></span>
+            </div>
+            <h4 id="caseViewTitleEl" style="margin:0 0 0.75rem;font-size:1rem;"></h4>
+            <div id="caseViewDesc" style="font-size:0.875rem;color:var(--text-secondary);line-height:1.6;white-space:pre-wrap;word-break:break-word;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;padding:0.75rem 1rem;min-height:80px;margin-bottom:1rem;"></div>
+            <div id="caseViewMeta" style="font-size:0.75rem;color:var(--text-muted);"></div>
+            <div style="display:flex;gap:0.5rem;margin-top:1.25rem;justify-content:flex-end;">
+              <button class="btn btn-sm btn-outline" onclick="closeCaseModal()">Close</button>
+              <button class="btn btn-sm" onclick="switchCaseToEdit()" style="background:var(--accent);color:#fff;border:none;">Edit</button>
+            </div>
+          </div>
+
+          <!-- Edit / Create mode -->
+          <div id="caseEditMode" style="display:block;">
+            <div style="display:flex;flex-direction:column;gap:1rem;">
+              <div>
+                <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">Title *</label>
+                <input type="text" id="caseInputTitle" maxlength="120" placeholder="e.g. MinIO production setup"
+                  style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.875rem;">
+              </div>
+              <div>
+                <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">Visibility *</label>
+                <div style="display:flex;gap:0.5rem;">
+                  <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;font-size:0.875rem;padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);flex:1;justify-content:center;" id="visLabelPublic">
+                    <input type="radio" name="caseVisibility" value="public" id="caseVisPublic" onchange="onCaseVisibilityChange()" style="accent-color:var(--accent);">
+                    🌐 Public
+                  </label>
+                  <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;font-size:0.875rem;padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);flex:1;justify-content:center;" id="visLabelPrivate">
+                    <input type="radio" name="caseVisibility" value="private" id="caseVisPrivate" onchange="onCaseVisibilityChange()" style="accent-color:var(--yellow);">
+                    🔒 Private
+                  </label>
+                </div>
+              </div>
+              <div>
+                <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">Description</label>
+                <textarea id="caseInputDesc" maxlength="4000" rows="5" placeholder="Notes, configuration details, credentials, steps..."
+                  style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.875rem;resize:vertical;line-height:1.5;"></textarea>
+              </div>
+              <div>
+                <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">Tags <span style="opacity:0.6;">(comma-separated, optional)</span></label>
+                <input type="text" id="caseInputTags" maxlength="400" placeholder="docker, nginx, ssl"
+                  style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.875rem;">
+              </div>
+            </div>
+            <div style="display:flex;gap:0.5rem;margin-top:1.5rem;justify-content:flex-end;align-items:center;">
+              <span id="caseModalErr" style="font-size:0.8rem;color:var(--red);flex:1;"></span>
+              <button class="btn btn-sm btn-outline" onclick="closeCaseModal()">Cancel</button>
+              <button class="btn btn-sm" id="caseModalSaveBtn" onclick="saveCase()"
+                style="background:var(--accent);color:#fff;border:none;">Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Delete confirmation -->
+      <div id="caseDeleteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1001;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:440px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;">
+            <svg width="22" height="22" viewBox="0 0 16 16" fill="var(--red)"><path d="M8.982 1.566a1.13 1.13 0 00-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 01-1.1 0L7.1 5.995A.905.905 0 018 5zm.002 6a1 1 0 110 2 1 1 0 010-2z"/></svg>
+            <h3 style="margin:0;color:var(--red);">Delete Case</h3>
+          </div>
+          <p id="caseDeleteDesc" style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1.5rem;line-height:1.5;"></p>
+          <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
+            <button class="btn btn-sm btn-outline" onclick="closeCaseDeleteModal()">Cancel</button>
+            <button class="btn btn-sm" id="caseDeleteConfirmBtn"
+              style="background:var(--red);color:#fff;border:none;" onclick="confirmDeleteCase()">Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Database Tab — saved connections + SQL query runner.
+         All credentials are encrypted at rest with AES-256-GCM (key
+         derived from session_secret); query results are cached
+         no-store and capped at 1000 rows / 10 MB; every query is
+         audit-logged with actor + sha256(sql) (never the plain SQL
+         because it can contain literal secrets). -->
+{{end}}

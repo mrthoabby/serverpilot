@@ -11,7 +11,7 @@ The daemon and many CLI commands run as root. Treat every change as privileged s
 - Prefer `rg --files` and targeted `rg -n` searches before opening files.
 - Do not read binaries in `release/**`. Use `ls`, `file`, or hashes only when a release task needs them.
 - Ignore historical Homebrew formulas `homebrew/Formula/sp@*.rb` unless the task is about release history.
-- For UI work, search `internal/web/static/index.html` by tab id, endpoint, or function name. It is large and has embedded CSS/JS.
+- For UI work, search `internal/web/templates/partials/` for HTML, `internal/web/static/js/` for JavaScript, and `internal/web/static/css/` for styles. Tab panels use `id="panel-<name>"`; API calls live in `static/js/modules/*.js`.
 - Use `SECURITY_REVIEW.md` as backlog context, not as a file to reread every turn.
 
 ## Standard Commands

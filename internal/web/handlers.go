@@ -143,10 +143,9 @@ var indexHTML []byte
 var faviconSVG []byte
 
 func init() {
-	data, err := staticFiles.ReadFile("static/index.html")
+	data, err := renderDashboardHTML()
 	if err != nil {
-		// Will be caught at startup — panic is acceptable for a required embed.
-		panic("failed to read embedded index.html: " + err.Error())
+		panic("failed to render dashboard template: " + err.Error())
 	}
 	indexHTML = data
 

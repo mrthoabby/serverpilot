@@ -1,0 +1,92 @@
+{{define "panel_terminal"}}
+    <div class="tab-panel" id="panel-terminal">
+      <div class="card" style="background:var(--bg-primary);border-color:var(--border);">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding-bottom:0.75rem;">
+          <h2 style="display:flex;align-items:center;gap:0.5rem;">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="color:var(--accent)"><path d="M0 3a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H2a2 2 0 01-2-2V3zm9.5 5.5h-3a.5.5 0 000 1h3a.5.5 0 000-1zm-6.354-.354a.5.5 0 10.707.707l2-2a.5.5 0 000-.707l-2-2a.5.5 0 10-.707.707L4.793 6.5 3.146 8.146z"/></svg>
+            Terminal
+          </h2>
+          <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+            <span id="termStatus" style="font-size:0.8125rem;color:var(--text-muted);">Disconnected</span>
+            <button class="btn btn-sm btn-outline" id="termConnectBtn">Connect</button>
+            <button class="btn btn-sm btn-outline" id="termDisconnectBtn" style="display:none;">Disconnect</button>
+            <button class="btn btn-sm btn-outline" id="termLogsBtn" title="Muestra los últimos logs del servicio serverpilot">Ver logs</button>
+            <button class="btn btn-sm btn-outline" id="termAccessKeyBtn" title="Genera o muestra la clave pública para conectar desde este servidor a otros VPS">Access key</button>
+            <button class="btn btn-sm btn-outline" id="termCopyInstallBtn" title="Copia el comando para instalar ServerPilot en otro servidor">Copy install command</button>
+            <button class="btn btn-sm btn-outline" id="termAddSSHBtn" title="Abrir una segunda terminal SSH hacia otro servidor usando la access key">Añadir conexión SSH</button>
+            <button class="btn btn-sm btn-primary" id="termSettingsBtn" style="display:none;" title="Abrir Settings para completar la configuración del dominio">Configurar dominio</button>
+            <button class="btn btn-sm btn-outline" id="termOpenDomainBtn" style="display:none;" title="Abrir el dashboard desde el dominio configurado">Abrir dominio</button>
+            <button class="btn btn-sm btn-success" id="termEnableSSLBtn" style="display:none;" title="Habilitar SSL para el dominio configurado">Enable SSL</button>
+            <button class="btn btn-sm btn-warning" id="termFixProxyBtn" style="display:none;" title="Añade cabeceras WebSocket en nginx para este dominio">Reparar proxy WebSocket</button>
+          </div>
+        </div>
+        <div id="termFixProxyHint" style="display:none;padding:0.5rem 0.75rem;margin:0 0.75rem;font-size:0.78rem;color:var(--text-secondary);background:rgba(255,165,0,0.08);border:1px solid var(--orange);border-radius:6px;"></div>
+        <div id="termAccessKeyPanel" style="display:none;margin:0.5rem 0.75rem 0;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.45rem 0.65rem;border-bottom:1px solid var(--border);font-size:0.76rem;color:var(--text-muted);">
+            <span>ServerPilot outbound SSH access key</span>
+            <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
+              <button type="button" class="btn btn-sm btn-outline" id="termCopyPublicKeyBtn" style="padding:2px 8px;font-size:0.7rem;">Copy public key</button>
+              <button type="button" class="btn btn-sm btn-outline" id="termCopySSHExampleBtn" style="padding:2px 8px;font-size:0.7rem;">Copy SSH example</button>
+              <button type="button" class="btn btn-sm btn-outline" id="termAccessKeyCloseBtn" style="padding:2px 8px;font-size:0.7rem;">Close</button>
+            </div>
+          </div>
+          <div style="padding:0.65rem;display:grid;gap:0.5rem;">
+            <div style="font-size:0.74rem;color:var(--text-muted);">Paste this public key into the provider field <code>Public SSH-Key for User Admin</code>.</div>
+            <pre id="termAccessPublicKey" style="margin:0;max-height:120px;overflow:auto;padding:0.6rem;font-family:monospace;font-size:0.72rem;line-height:1.45;color:var(--text-secondary);background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;white-space:pre-wrap;"></pre>
+            <div style="font-size:0.74rem;color:var(--text-muted);">After the VPS is created, connect from this terminal with:</div>
+            <pre id="termAccessSSHExample" style="margin:0;padding:0.6rem;font-family:monospace;font-size:0.72rem;line-height:1.45;color:var(--text-secondary);background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;white-space:pre-wrap;"></pre>
+          </div>
+        </div>
+        <div id="termLogsPanel" style="display:none;margin:0.5rem 0.75rem 0;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.45rem 0.65rem;border-bottom:1px solid var(--border);font-size:0.76rem;color:var(--text-muted);">
+            <span id="termLogsCommand">journalctl -u serverpilot</span>
+            <div style="display:flex;gap:0.4rem;align-items:center;">
+              <button type="button" class="btn btn-sm btn-outline" id="termLogsRefreshBtn" style="padding:2px 8px;font-size:0.7rem;">Refresh</button>
+              <button type="button" class="btn btn-sm btn-outline" id="termLogsCloseBtn" style="padding:2px 8px;font-size:0.7rem;">Close</button>
+            </div>
+          </div>
+          <pre id="termLogsBody" style="margin:0;max-height:260px;overflow:auto;padding:0.65rem;font-family:monospace;font-size:0.74rem;line-height:1.45;color:var(--text-secondary);white-space:pre-wrap;"></pre>
+        </div>
+        <div id="terminalContainer" style="padding:0.5rem 0;border-radius:6px;overflow:hidden;"></div>
+        <div id="sshConnectPanel" style="display:none;margin:0.5rem 0.75rem 0;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.45rem 0.65rem;border-bottom:1px solid var(--border);font-size:0.76rem;color:var(--text-muted);">
+            <span>Remote SSH connection</span>
+            <button type="button" class="btn btn-sm btn-outline" id="sshConnectCloseBtn" style="padding:2px 8px;font-size:0.7rem;">Close</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:0.5rem;align-items:end;padding:0.65rem;">
+            <label style="display:grid;gap:0.25rem;font-size:0.72rem;color:var(--text-muted);">Host or IP
+              <input id="sshHostInput" type="text" placeholder="89.117.72.100" autocomplete="off" style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.82rem;">
+            </label>
+            <label style="display:grid;gap:0.25rem;font-size:0.72rem;color:var(--text-muted);">User
+              <input id="sshUserInput" type="text" value="admin" autocomplete="username" style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.82rem;">
+            </label>
+            <label style="display:grid;gap:0.25rem;font-size:0.72rem;color:var(--text-muted);">Port
+              <input id="sshPortInput" type="number" min="1" max="65535" value="22" inputmode="numeric" style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font);font-size:0.82rem;">
+            </label>
+            <button type="button" class="btn btn-sm btn-success" id="sshConnectBtn">Connect SSH</button>
+          </div>
+        </div>
+        <div id="sshTerminalPanel" style="display:none;margin:0.5rem 0.75rem 0;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.45rem 0.65rem;border-bottom:1px solid var(--border);">
+            <div style="display:flex;align-items:center;gap:0.5rem;min-width:0;">
+              <span style="font-size:0.78rem;font-weight:700;color:var(--text-primary);">SSH</span>
+              <span id="sshTargetLabel" style="font-size:0.76rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+              <span id="sshStatus" style="font-size:0.76rem;color:var(--text-muted);">Disconnected</span>
+            </div>
+            <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
+              <button type="button" class="btn btn-sm btn-outline" id="sshCopyInstallBtn" style="padding:2px 8px;font-size:0.7rem;">Copy install command</button>
+              <button type="button" class="btn btn-sm btn-outline" id="sshDisconnectBtn" style="padding:2px 8px;font-size:0.7rem;">Disconnect</button>
+            </div>
+          </div>
+          <div id="sshTerminalContainer" style="min-height:260px;padding:0.5rem 0;border-radius:6px;overflow:hidden;"></div>
+        </div>
+        <p style="padding:0.5rem 0.75rem;font-size:0.75rem;color:var(--text-muted);">
+          Session closes after 10 minutes of inactivity. Re-authentication required to connect.
+        </p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+{{end}}
