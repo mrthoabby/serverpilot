@@ -1,0 +1,23 @@
+internal/compose/exec_test.go
+  s_8182556d4f4d67::t_17a010538d5f33 1-38
+internal/compose/exec.go
+  s_8182556d4f4d67::t_7fec1af89643d7 89-90
+  s_8182556d4f4d67::t_c8e99c8d02dc0c 161-163,167-186
+  s_8182556d4f4d67::t_dfc00a7fcb7adc 187-188
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "f03f69fc4763c0b6578f329efa2d15d7ef4ea96a",
+  "prompts": {},
+  "sessions": {
+    "s_8182556d4f4d67": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "050707da-cb0a-4b12-9f07-fa7a36b58cc7",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
