@@ -5601,87 +5601,73 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   });
 
   var assocModal = document.getElementById("associateModal");
-
-  // _assocPendingContainer is the container the modal currently points at.
-  // Stored for allocatePortForAssoc which needs the internal port to render
-  // the "redeploy with -p X:Y" instruction.
   var _assocPendingContainer = null;
 
+  function publishedTCPPortsForAssoc(container) {
+    var out = [];
+    (container.ports || []).forEach(function(p) {
+      if (p.host_port && (p.protocol || "tcp") === "tcp") {
+        out.push(p);
+      }
+    });
+    return out;
+  }
+
   function openAssociateModal(container, templateType) {
+    if (!container) return;
+    var modal = document.getElementById("associateModal");
+    var containerIdEl = document.getElementById("assocContainerId");
+    var containerNameEl = document.getElementById("assocContainerName");
+    var portSelect = document.getElementById("assocPortSelect");
+    var portWrap = document.getElementById("assocPortSelectWrap");
+    var allocate = document.getElementById("assocAllocate");
+    var submitBtn = document.getElementById("assocSubmitBtn");
+    var templateEl = document.getElementById("assocTemplate");
+    var domainEl = document.getElementById("assocDomain");
+    if (!modal || !containerIdEl || !portSelect || !submitBtn) {
+      showToast("Associate modal unavailable — hard-refresh the dashboard (Ctrl+Shift+R)", "error");
+      return;
+    }
+
     _assocPendingContainer = container;
-    document.getElementById("assocContainerId").value = container.id;
-    var label = templateType || "nestjs";
-    var templateNames = { api: "API reverse proxy", nestjs: "NestJS site", nextjs: "Next.js site", frontend: "Frontend/SPA site", minio: "MinIO object storage" };
-    var actionText = "Create " + (templateNames[label] || "an Nginx site");
-    setText(document.getElementById("associateModalSub"), actionText + " for \"" + container.name + "\"");
-    document.getElementById("assocDomain").value = "";
-    document.getElementById("assocIncludeWWW").checked = false;
+    containerIdEl.value = container.id || "";
+    if (containerNameEl) containerNameEl.value = container.name || "";
 
-    // Prefill the HOST port (the one Docker published on 0.0.0.0:<port>),
-    // not the container's internal port. Nginx runs on the host, outside
-    // the docker network, so its proxy_pass must target the host port.
-    // If the container has NO host_port (Dockerfile EXPOSE but never
-    // `-p`-published), surface the Allocate-via-sp-port helper.
-    var hostPort = "";
-    var hasExposedOnly = false;
-    if (container.ports && container.ports.length) {
-      var first = container.ports[0];
-      if (first.host_port) {
-        hostPort = String(first.host_port);
-      } else if (first.container_port) {
-        hasExposedOnly = true;
-      }
+    var label = templateType || "api";
+    setText(
+      document.getElementById("associateModalSub"),
+      "Add site for \"" + (container.name || "") + "\" — choose template, domain, and published port"
+    );
+
+    if (domainEl) domainEl.value = "";
+    var includeWWW = document.getElementById("assocIncludeWWW");
+    if (includeWWW) includeWWW.checked = false;
+    var enableSSL = document.getElementById("assocEnableSSL");
+    if (enableSSL) enableSSL.checked = false;
+    var allowShared = document.getElementById("assocAllowShared");
+    if (allowShared) allowShared.checked = false;
+    if (templateEl) templateEl.value = label;
+
+    var allocateMsg = document.getElementById("assocAllocateMsg");
+    if (allocateMsg) {
+      allocateMsg.style.color = "var(--text-muted)";
+      allocateMsg.textContent = "";
     }
-    document.getElementById("assocPort").value = hostPort;
-    document.getElementById("assocTemplate").value = label;
 
-    // Toggle the Allocate panel based on whether the operator needs help.
-    var panel = document.getElementById("assocAllocate");
-    var msg = document.getElementById("assocAllocateMsg");
-    if (msg) { msg.style.color = "var(--text-muted)"; msg.textContent = ""; }
-    if (panel) panel.style.display = hasExposedOnly ? "block" : "none";
-
-    assocModal.classList.add("show");
+    portSelect.innerHTML = "";
+    var published = publishedTCPPortsForAssoc(container);
+    published.forEach(function(p, idx) {
+      var opt = document.createElement("option");
+      opt.value = JSON.stringify({ host: p.host_port, container: p.container_port });
+      setText(opt, p.host_port + " → " + p.container_port + "/" + (p.protocol || "tcp"));
+      portSelect.appendChild(opt);
+      if (idx === 0) portSelect.value = opt.value;
+    });
+    if (portWrap) portWrap.style.display = published.length ? "block" : "none";
+    if (allocate) allocate.style.display = published.length ? "none" : "block";
+    submitBtn.disabled = !published.length;
+    modal.classList.add("show");
   }
-
-  // allocatePortForAssoc reserves a free host port from the sp port range
-  // (default 3000-3999) for 60 seconds, prefills the modal, and renders
-  // an instruction snippet showing the exact `-p` mapping to use. The
-  // server-side endpoint is the same one used by CI/CD scripts (sp port
-  // CLI), so the reservation is real and visible to other allocators.
-  async function allocatePortForAssoc() {
-    var btn = document.getElementById("assocAllocateBtn");
-    var msg = document.getElementById("assocAllocateMsg");
-    if (!btn || !msg) return;
-    btn.disabled = true;
-    msg.style.color = "var(--text-muted)";
-    msg.textContent = "Allocating from sp port range…";
-    try {
-      var resp = await apiFetch("/api/system/port");
-      var data = (resp && resp.data) || {};
-      var port = data.port;
-      if (!port) throw new Error("no port returned");
-      document.getElementById("assocPort").value = String(port);
-      var internal = "<internal>";
-      if (_assocPendingContainer && _assocPendingContainer.ports && _assocPendingContainer.ports.length) {
-        var p = _assocPendingContainer.ports[0];
-        if (p && p.container_port) internal = String(p.container_port);
-      }
-      msg.style.color = "#3fb950";
-      msg.innerHTML =
-        '✓ Port <strong>' + port + '</strong> reserved for ~60s. Redeploy the container with:<br>' +
-        '<code style="display:inline-block;margin-top:4px;padding:3px 6px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;font-size:0.72rem;">' +
-          'docker run … -p ' + port + ':' + escapeHtml(internal) + ' …' +
-        '</code><br>' +
-        '<span style="font-size:0.66rem;color:var(--text-muted);">After the new container is up, click <strong>Create Site</strong>. If you don\'t finish within 60s, click Allocate again to extend.</span>';
-    } catch (err) {
-      msg.style.color = "#f85149";
-      msg.textContent = "Failed: " + ((err && err.message) || "error");
-    } finally {
-      btn.disabled = false;
-    }
-  }
-  window.allocatePortForAssoc = allocatePortForAssoc;
 
   onEl("assocCancelBtn", "click", function() {
     var modal = document.getElementById("associateModal");
@@ -11366,9 +11352,11 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   window.showDashboard           = showDashboard;
   window.onEl                    = onEl;
   window.setText                 = setText;
+  window.openAssociateModal      = openAssociateModal;
 
 })();
-
+<script src="/static/containers-sites.js"></script>
+<script>
 // ── Cases ─────────────────────────────────────────────────────────────────
 (function() {
   var casesFilter = '';       // '' | 'public' | 'private'
@@ -12452,6 +12440,5 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   });
 })();
 </script>
-<script src="/static/containers-sites.js"></script>
 </body>
 </html>

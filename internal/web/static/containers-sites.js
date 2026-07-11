@@ -2,6 +2,7 @@
 (function() {
   var expandedContainers = {};
   var composeProjects = [];
+  var _assocPendingContainer = null;
 
   function siteProxyPort(site) {
     var proxy = (site && site.proxy_pass) || "";
@@ -390,10 +391,17 @@
         loadReplicas(),
         apiFetch("/api/compose/projects").catch(function() { return { data: [] }; })
       ]);
-      containers = (results[0] && results[0].data) ? results[0].data : [];
-      sites = (results[1] && results[1].data) ? results[1].data : [];
+      var nextContainers = (results[0] && results[0].data) ? results[0].data : [];
+      var nextSites = (results[1] && results[1].data) ? results[1].data : [];
       var mappingsData = (results[2] && results[2].data) ? results[2].data : results[2];
       composeProjects = (results[4] && results[4].data) ? results[4].data : [];
+      // Keep dashboard state in sync whether callers use IIFE locals or globals.
+      containers = nextContainers;
+      sites = nextSites;
+      if (typeof window !== "undefined") {
+        window.containers = nextContainers;
+        window.sites = nextSites;
+      }
       mappings = {
         mapped: (mappingsData && mappingsData.mapped) || [],
         unmappedContainers: (mappingsData && mappingsData.unmappedContainers) || [],
@@ -402,6 +410,7 @@
         standalone_redirects: (mappingsData && mappingsData.standalone_redirects) || [],
         unassigned_sites: (mappingsData && mappingsData.unassigned_sites) || []
       };
+      if (typeof window !== "undefined") window.mappings = mappings;
       applyReplicaLabels();
       setText(document.getElementById("containerCount"), String(containers.length));
       if (typeof renderContainersV2 === "function") renderContainersV2(wrap);
@@ -567,23 +576,53 @@
     renderGlobalSections(wrap);
   };
 
-  var _origOpenAssociate = window.openAssociateModal;
   window.openAssociateModal = function(container, templateType) {
-    if (container && container.compose && container.compose.is_compose && !publishedTCPPorts(container).length) {
+    if (!container) return;
+    if (container.compose && container.compose.is_compose && !publishedTCPPorts(container).length) {
       showToast("Compose service is internal-only. Publish via stack deploy before adding a site.", "warning");
       return;
     }
-    _assocPendingContainer = container;
-    document.getElementById("assocContainerId").value = container.id;
-    document.getElementById("assocContainerName").value = container.name || "";
-    setText(document.getElementById("associateModalSub"), "Add site for \"" + container.name + "\"");
-    document.getElementById("assocDomain").value = "";
-    document.getElementById("assocIncludeWWW").checked = false;
-    document.getElementById("assocEnableSSL").checked = false;
-    document.getElementById("assocAllowShared").checked = false;
-    document.getElementById("assocTemplate").value = templateType || "api";
-
+    var modal = document.getElementById("associateModal");
+    var containerId = document.getElementById("assocContainerId");
+    var containerName = document.getElementById("assocContainerName");
     var portSelect = document.getElementById("assocPortSelect");
+    var portWrap = document.getElementById("assocPortSelectWrap");
+    var allocate = document.getElementById("assocAllocate");
+    var submitBtn = document.getElementById("assocSubmitBtn");
+    var templateEl = document.getElementById("assocTemplate");
+    var domainEl = document.getElementById("assocDomain");
+    if (!modal || !containerId || !portSelect || !submitBtn) return;
+
+    _assocPendingContainer = container;
+    containerId.value = container.id || "";
+    if (containerName) containerName.value = container.name || "";
+
+    var label = templateType || "api";
+    var templateNames = {
+      api: "API reverse proxy",
+      nestjs: "NestJS site",
+      nextjs: "Next.js site",
+      frontend: "Frontend/SPA site",
+      minio: "MinIO object storage"
+    };
+    var actionText = "Create " + (templateNames[label] || "an Nginx site");
+    setText(document.getElementById("associateModalSub"), actionText + " for \"" + (container.name || "") + "\"");
+
+    if (domainEl) domainEl.value = "";
+    var includeWWW = document.getElementById("assocIncludeWWW");
+    if (includeWWW) includeWWW.checked = false;
+    var enableSSL = document.getElementById("assocEnableSSL");
+    if (enableSSL) enableSSL.checked = false;
+    var allowShared = document.getElementById("assocAllowShared");
+    if (allowShared) allowShared.checked = false;
+    if (templateEl) templateEl.value = label;
+
+    var allocateMsg = document.getElementById("assocAllocateMsg");
+    if (allocateMsg) {
+      allocateMsg.style.color = "var(--text-muted)";
+      allocateMsg.textContent = "";
+    }
+
     portSelect.innerHTML = "";
     var published = publishedTCPPorts(container);
     published.forEach(function(p, idx) {
@@ -593,10 +632,58 @@
       portSelect.appendChild(opt);
       if (idx === 0) portSelect.value = opt.value;
     });
-    document.getElementById("assocPortSelectWrap").style.display = published.length ? "block" : "none";
-    document.getElementById("assocAllocate").style.display = published.length ? "none" : "block";
-    document.getElementById("assocSubmitBtn").disabled = !published.length;
-    document.getElementById("associateModal").classList.add("show");
+    if (portWrap) portWrap.style.display = published.length ? "block" : "none";
+    if (allocate) allocate.style.display = published.length ? "none" : "block";
+    submitBtn.disabled = !published.length;
+    modal.classList.add("show");
+  };
+
+  window.allocatePortForAssoc = async function() {
+    var btn = document.getElementById("assocAllocateBtn");
+    var msg = document.getElementById("assocAllocateMsg");
+    var portSelect = document.getElementById("assocPortSelect");
+    var portWrap = document.getElementById("assocPortSelectWrap");
+    var allocate = document.getElementById("assocAllocate");
+    var submitBtn = document.getElementById("assocSubmitBtn");
+    if (!btn || !msg || !portSelect) return;
+    btn.disabled = true;
+    msg.style.color = "var(--text-muted)";
+    msg.textContent = "Allocating from sp port range…";
+    try {
+      var resp = await apiFetch("/api/system/port");
+      var data = (resp && resp.data) || {};
+      var port = data.port;
+      if (!port) throw new Error("no port returned");
+      var internal = "<internal>";
+      var exposed = _assocPendingContainer ? exposedOnlyTCPPorts(_assocPendingContainer) : [];
+      if (exposed.length && exposed[0].container_port) {
+        internal = String(exposed[0].container_port);
+      } else if (_assocPendingContainer && _assocPendingContainer.ports && _assocPendingContainer.ports.length) {
+        var p = _assocPendingContainer.ports[0];
+        if (p && p.container_port) internal = String(p.container_port);
+      }
+      var opt = document.createElement("option");
+      opt.value = JSON.stringify({ host: port, container: internal === "<internal>" ? 0 : internal });
+      setText(opt, port + " → " + internal + "/tcp (allocated)");
+      portSelect.innerHTML = "";
+      portSelect.appendChild(opt);
+      portSelect.value = opt.value;
+      if (portWrap) portWrap.style.display = "block";
+      if (allocate) allocate.style.display = "none";
+      if (submitBtn) submitBtn.disabled = false;
+      msg.style.color = "#3fb950";
+      msg.innerHTML =
+        '✓ Port <strong>' + port + '</strong> reserved for ~60s. Redeploy the container with:<br>' +
+        '<code style="display:inline-block;margin-top:4px;padding:3px 6px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;font-size:0.72rem;">' +
+          'docker run … -p ' + port + ':' + escapeHtml(internal) + ' …' +
+        '</code><br>' +
+        '<span style="font-size:0.66rem;color:var(--text-muted);">After the new container is up, click <strong>Create Site</strong>. If you don\'t finish within 60s, click Allocate again to extend.</span>';
+    } catch (err) {
+      msg.style.color = "#f85149";
+      msg.textContent = "Failed: " + ((err && err.message) || "error");
+    } finally {
+      btn.disabled = false;
+    }
   };
 
   var assocForm = document.getElementById("associateForm");
@@ -663,4 +750,8 @@
     }
     return loadContainers();
   };
+
+  if (document.getElementById("panel-containers") && document.getElementById("panel-containers").classList.contains("active")) {
+    loadContainers();
+  }
 })();
