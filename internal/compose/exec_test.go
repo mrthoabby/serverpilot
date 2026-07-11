@@ -36,3 +36,16 @@ func indexOf(items []string, target string) int {
 	}
 	return -1
 }
+
+func TestRenderPortOverrideYAMLUsesOverrideMerge(t *testing.T) {
+	out := RenderPortOverrideYAML([]Endpoint{
+		{Service: "web", ContainerPort: "8080", EnvVar: "SP_COMPOSE_PORT_WEB_8080"},
+	})
+	body := string(out)
+	if !strings.Contains(body, "ports: !override") {
+		t.Fatalf("expected !override merge tag, got:\n%s", body)
+	}
+	if !strings.Contains(body, "127.0.0.1:${SP_COMPOSE_PORT_WEB_8080}:8080") {
+		t.Fatalf("expected localhost bind, got:\n%s", body)
+	}
+}

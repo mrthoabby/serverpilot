@@ -312,7 +312,7 @@ func RenderPortOverrideYAML(endpoints []Endpoint) []byte {
 	for _, svc := range serviceNames {
 		b.WriteString("  ")
 		b.WriteString(svc)
-		b.WriteString(":\n    ports:\n")
+		b.WriteString(":\n    ports: !override\n")
 		for _, ep := range byService[svc] {
 			b.WriteString("      - \"127.0.0.1:${")
 			b.WriteString(ep.EnvVar)
