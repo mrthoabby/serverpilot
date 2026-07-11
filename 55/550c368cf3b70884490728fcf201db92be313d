@@ -1,0 +1,125 @@
+internal/web/templates/partials/panel-sites.html
+  s_ffa45bffb369d6::t_b8d0cb51a7b782 1-18
+internal/web/AGENTS.md
+  s_ffa45bffb369d6::t_839f868cbaade1 7-25,31-34,46-50
+internal/web/templates/partials/head.html
+  s_ffa45bffb369d6::t_b8d0cb51a7b782 1-10,16-19
+  s_ffa45bffb369d6::t_6fd8c6a0a7ea5e 11-15
+internal/web/dashboard_templates_test.go
+  s_ffa45bffb369d6::t_c8202b1cca33e0 1-28
+internal/web/static/js/modules/container-logs.js
+  s_ffa45bffb369d6::t_745ada973c8352 1-174
+internal/web/dashboard_templates.go
+  s_ffa45bffb369d6::t_592f26c056d594 1-41
+internal/web/static/js/modules/containers.js
+  s_ffa45bffb369d6::t_745ada973c8352 1-848
+internal/web/static/css/base.css
+  s_ffa45bffb369d6::t_bf65336ccbf945 1-38
+internal/web/static/js/cases.js
+  s_ffa45bffb369d6::t_a0c8c942db3cfd 1-219
+internal/web/static/js/modules/mappings.js
+  s_ffa45bffb369d6::t_745ada973c8352 1-262
+internal/web/static/css/components.css
+  s_ffa45bffb369d6::t_bf65336ccbf945 1-555
+internal/web/static/js/modules/sites.js
+  s_ffa45bffb369d6::t_745ada973c8352 1-413
+internal/web/templates/partials/panel-mappings.html
+  s_ffa45bffb369d6::t_b8d0cb51a7b782 1-17
+internal/web/static/js/modules/resources.js
+  s_ffa45bffb369d6::t_745ada973c8352 1-120
+internal/web/templates/partials/panel-users.html
+  s_ffa45bffb369d6::t_b8d0cb51a7b782 1-209
+internal/web/static/js/modules/settings.js
+  s_ffa45bffb369d6::t_745ada973c8352 1-449
+internal/web/static/css/tabs.css
+  s_ffa45bffb369d6::t_bf65336ccbf945 1-246
+internal/web/handlers.go
+  s_ffa45bffb369d6::t_c954bf6f5960d3 146,148
+internal/web/static/js/modules/images.js
+  s_ffa45bffb369d6::t_745ada973c8352 1-208
+internal/web/templates/partials/login.html
+  s_ffa45bffb369d6::t_b8d0cb51a7b782 1-48
+internal/web/templates/partials/panel-images.html
+  s_ffa45bffb369d6::t_b8d0cb51a7b782 1-21
+internal/web/templates/partials/scripts.html
+  s_ffa45bffb369d6::t_b8d0cb51a7b782 1-32
+internal/web/static/js/modules/database.js
+  s_ffa45bffb369d6::t_745ada973c8352 1-726
+internal/web/static/css/layout.css
+  s_ffa45bffb369d6::t_bf65336ccbf945 1-303
+internal/web/static/js/modules/users.js
+  s_ffa45bffb369d6::t_7570c260ace486 4
+  s_ffa45bffb369d6::t_745ada973c8352 1-3,5-437
+internal/web/static/js/modules/charts.js
+  s_ffa45bffb369d6::t_745ada973c8352 1-260
+internal/web/templates/partials/toast.html
+  s_ffa45bffb369d6::t_b8d0cb51a7b782 1-5
+internal/web/static/js/terminal.js
+  s_ffa45bffb369d6::t_a0c8c942db3cfd 1-858
+internal/web/templates/dashboard.html
+  s_ffa45bffb369d6::t_b8d0cb51a7b782 1-17
+internal/web/static/js/modules/gcp-firewall.js
+  s_ffa45bffb369d6::t_745ada973c8352 1-121
+internal/web/templates/partials/modals.html
+  s_ffa45bffb369d6::t_b8d0cb51a7b782 1-332
+internal/web/templates/partials/panel-settings.html
+  s_ffa45bffb369d6::t_b8d0cb51a7b782 1-160
+internal/web/static/js/modules/site-modals.js
+  s_ffa45bffb369d6::t_745ada973c8352 1-280
+internal/web/templates/partials/panel-db.html
+  s_ffa45bffb369d6::t_b8d0cb51a7b782 1-123
+internal/web/static/css/login.css
+  s_ffa45bffb369d6::t_bf65336ccbf945 1-179
+internal/web/templates/partials/panel-cases.html
+  s_ffa45bffb369d6::t_b8d0cb51a7b782 1-123
+internal/web/templates/partials/panel-containers.html
+  s_ffa45bffb369d6::t_b8d0cb51a7b782 1-18
+internal/web/static/js/core.js
+  s_ffa45bffb369d6::t_5d46fdf2c88e2f 194-209
+  s_ffa45bffb369d6::t_4b6446073af210 4
+  s_ffa45bffb369d6::t_745ada973c8352 1-3,5-193,210-581
+internal/web/templates/partials/panel-terminal.html
+  s_ffa45bffb369d6::t_b8d0cb51a7b782 1-92
+internal/web/static/js/modules/modals.js
+  s_ffa45bffb369d6::t_745ada973c8352 1-34,36,38-48,50-53,55-89,91-121,123-126,128-201,203-206,208-228,230,232-333,335-351
+internal/web/static/js/modules/memory.js
+  s_ffa45bffb369d6::t_745ada973c8352 1-335
+internal/web/static/js/modules/permissions.js
+  s_ffa45bffb369d6::t_745ada973c8352 1-334
+internal/web/static/js/bootstrap.js
+  s_ffa45bffb369d6::t_da0979a89c4cb2 4-12,15-18,20-44,46-60
+  s_ffa45bffb369d6::t_745ada973c8352 1-3,13-14,19,45
+internal/web/static/js/modules/ssh.js
+  s_ffa45bffb369d6::t_745ada973c8352 1-216
+internal/web/templates/partials/dashboard-shell.html
+  s_ffa45bffb369d6::t_b8d0cb51a7b782 1-85
+internal/web/static/js/modules/apps.js
+  s_ffa45bffb369d6::t_36b745f9d996d6 511-524
+  s_ffa45bffb369d6::t_745ada973c8352 1-510
+internal/web/templates/partials/panel-resources.html
+  s_ffa45bffb369d6::t_b8d0cb51a7b782 1-270
+AGENTS.md
+  s_ffa45bffb369d6::t_85b2a3c0831a06 14
+internal/web/static/js/modules/stats.js
+  s_ffa45bffb369d6::t_745ada973c8352 1-89
+internal/web/static/js/modules/disk.js
+  s_ffa45bffb369d6::t_745ada973c8352 1-2,4-10,12-16,18-28,30-36,38-56,58-62,64-67,69-80,82-102,104-105,107-113,115-123,125-133,135-141,143-187,189-263,265-279,282,285-291,295-305,307-308,310-315,317-328,330-339,342,346-350,352-363,365-371,373-391,394-443,445-497,499-510,513-517,519-552,554-555,558-561,563-577,580-583,585-586,590-595,598-602,604-612,615-621,623-624,626-631,633-634,636-653,656-667,669-671,673-676,678-688,690-693,695-742,744-749,751-754,756-758,760-763,765-768,771-772,774-785,787-791,793,795-803,805-810,812-820,822-826,828-846,849-860,863-877,880-916,918,920-929,931,933-942,945-948,951-953,955-957,959-966,968-971,974-979,982-1005,1008-1014,1016-1019,1021-1038,1040-1041,1045-1050,1052-1062,1065-1070,1072-1075,1077-1089,1092-1111,1114-1118,1120-1126,1128-1132,1134-1137,1140-1148,1151,1153,1155-1159,1161-1163,1166-1175,1179-1194,1196-1211,1213,1215-1226,1228-1232,1234-1247,1249-1250,1252-1256,1258-1269,1271-1273,1276-1284,1288-1294,1296-1324,1326-1329,1331-1336,1338-1342,1344-1362,1365-1368,1370-1373,1375-1395,1397-1401,1403-1409,1411-1412,1414-1419,1421-1422,1424-1428,1430-1437,1440-1453,1455-1456,1458-1475,1477-1480,1482-1491,1493-1495,1497-1505,1507-1509,1511-1515,1517-1525,1527-1537,1539,1541-1562,1564,1566,1568-1574
+internal/web/templates/partials/panel-apps.html
+  s_ffa45bffb369d6::t_b8d0cb51a7b782 1-247
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "55550c368cf3b70884490728fcf201db92be313d",
+  "prompts": {},
+  "sessions": {
+    "s_ffa45bffb369d6": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "606b6df3-9ef0-4710-8e57-746172ad4e81",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
