@@ -6,7 +6,9 @@
   var progressStatusText = document.getElementById("progressStatusText");
   var progressCloseBtn = document.getElementById("progressCloseBtn");
   var progressInstallBtn = document.getElementById("progressInstallBtn");
+  var progressBackgroundBtn = document.getElementById("progressBackgroundBtn");
   var currentEventSource = null;
+  var currentJobId = null;
   var lastStreamedUrl = "";
   var lastStreamedBody = null;
   var lastStreamedTitle = "";
@@ -20,6 +22,8 @@
     setText(progressStatusText, "Working...");
     progressCloseBtn.style.display = "none";
     progressInstallBtn.style.display = "none";
+    if (progressBackgroundBtn) progressBackgroundBtn.style.display = "inline-flex";
+    currentJobId = null;
     showPruneProgressBar(false);
     progressModal.classList.add("show");
   }
@@ -54,6 +58,8 @@
 
   function finishProgress(success, message, depMissing) {
     progressSpinner.style.display = "none";
+    if (progressBackgroundBtn) progressBackgroundBtn.style.display = "none";
+    currentJobId = null;
     if (success) {
       setText(progressStatusText, "Completed successfully");
       progressStatusText.style.color = "var(--green)";
@@ -74,12 +80,10 @@
         appendLogLine("");
         appendLogLine("--- Installing " + depMissing + " ---");
         // Call the install endpoint.
-        fetch("/api/dependencies/install", {
+        fetch("/api/dependencies/install", prepareApiFetchOptions({
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ "package": depMissing }),
-          credentials: "same-origin"
-        }).then(function(response) {
+          body: { "package": depMissing }
+        })).then(function(response) {
           var reader = response.body.getReader();
           var decoder = new TextDecoder();
           var buf = "";
@@ -139,6 +143,22 @@
       currentEventSource = null;
     }
   }
+
+  // Send the running operation to the background: hide the modal but keep the
+  // server-side operation going. The jobs indicator keeps it visible and the
+  // user can reopen it later. Never cancels the operation.
+  function sendProgressToBackground() {
+    var running = progressSpinner && progressSpinner.style.display !== "none";
+    closeProgressModal();
+    if (running) {
+      if (typeof showToast === "function") {
+        showToast("El proceso sigue ejecut\u00e1ndose en segundo plano", "success");
+      }
+      if (window.SP && SP.jobs && SP.jobs.refresh) SP.jobs.refresh();
+    }
+  }
+
+  onEl("progressBackgroundBtn", "click", sendProgressToBackground);
 
   function refreshCoreTabsAfterMutation() {
     if (typeof invalidateDashboardCoreCache === "function") {
@@ -254,6 +274,13 @@
     });
     if (!data) return;
 
+    if (event === "job") {
+      // The server announces the tracked job id so we can reconnect/observe it.
+      try { currentJobId = JSON.parse(data); } catch(e) { currentJobId = data; }
+      if (window.SP && SP.jobs && SP.jobs.refresh) SP.jobs.refresh();
+      return;
+    }
+
     if (event === "log") {
       try {
         var text = JSON.parse(data);
@@ -271,6 +298,7 @@
       } catch(e) {
         finishProgress(true, "");
       }
+      if (window.SP && SP.jobs && SP.jobs.refresh) SP.jobs.refresh();
     }
   }
 

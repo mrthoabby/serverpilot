@@ -416,6 +416,7 @@ window.SP = window.SP || {};
     loginScreen.style.display = "flex";
     dashboard.style.display = "none";
     stopGlobalRefresh();
+    if (window.SP && SP.jobs && SP.jobs.stop) SP.jobs.stop();
     loadLoginOptions();
   }
 
@@ -426,6 +427,8 @@ window.SP = window.SP || {};
     // Load the active tab immediately, then start the 30s refresh cycle.
     if (tabLoaders[activeTab]) tabLoaders[activeTab]();
     startGlobalRefresh();
+    // Begin watching background operations (unified process center).
+    if (window.SP && SP.jobs && SP.jobs.start) SP.jobs.start();
   }
 
   async function loadLoginOptions() {

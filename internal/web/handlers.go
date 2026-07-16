@@ -491,7 +491,7 @@ func (s *Server) handleContainerReplicaCreate(w http.ResponseWriter, r *http.Req
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
 		return
 	}
-	s.streamReplicaOperation(w, "replica-create", func(progress replicas.Progress) (interface{}, error) {
+	s.streamReplicaOperation(w, "replica-create", "Creating replica", func(progress replicas.Progress) (interface{}, error) {
 		return replicas.Create(req, progress)
 	})
 }
@@ -506,7 +506,7 @@ func (s *Server) handleContainerReplicaSync(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
 		return
 	}
-	s.streamReplicaOperation(w, "replica-sync", func(progress replicas.Progress) (interface{}, error) {
+	s.streamReplicaOperation(w, "replica-sync", "Syncing replica", func(progress replicas.Progress) (interface{}, error) {
 		return replicas.Sync(req, progress)
 	})
 }
@@ -521,7 +521,7 @@ func (s *Server) handleContainerReplicaDelete(w http.ResponseWriter, r *http.Req
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
 		return
 	}
-	s.streamReplicaOperation(w, "replica-delete", func(progress replicas.Progress) (interface{}, error) {
+	s.streamReplicaOperation(w, "replica-delete", "Deleting replica", func(progress replicas.Progress) (interface{}, error) {
 		return nil, replicas.Delete(req, progress)
 	})
 }
@@ -545,7 +545,7 @@ func (s *Server) handleContainerReplicaUpdate(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: rep})
 }
 
-func (s *Server) streamReplicaOperation(w http.ResponseWriter, stage string, run func(replicas.Progress) (interface{}, error)) {
+func (s *Server) streamReplicaOperation(w http.ResponseWriter, stage, title string, run func(replicas.Progress) (interface{}, error)) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "streaming not supported"})
@@ -555,6 +555,10 @@ func (s *Server) streamReplicaOperation(w http.ResponseWriter, stage string, run
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+
+	var job *backgroundJob
+	w, job = s.wrapSSE(w, flusher, stage, title, "")
+	defer job.finishIfAbandoned()
 
 	progress := func(line string) {
 		sseWriteLog(w, flusher, line)
@@ -765,8 +769,13 @@ func (s *Server) certbotEnableArgsForDomains(certbotBin string, domains []string
 	return args
 }
 
-// sseWriteEvent writes an SSE event to the ResponseWriter and flushes.
+// sseWriteEvent writes an SSE event to the ResponseWriter and flushes. When the
+// writer is a job tee, the frame is also recorded into the background-job
+// registry before writing, so tracking survives a client disconnect.
 func sseWriteEvent(w http.ResponseWriter, flusher http.Flusher, event, data string) {
+	if tee, ok := w.(*sseJobTee); ok && event != "job" {
+		tee.job.record(event, data)
+	}
 	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
 	flusher.Flush()
 }
@@ -809,6 +818,10 @@ func (s *Server) handleSSLEnable(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+
+	var job *backgroundJob
+	w, job = s.wrapSSE(w, flusher, "ssl-enable", "Enabling SSL", req.Domain)
+	defer job.finishIfAbandoned()
 
 	sseWriteLog(w, flusher, "[Step 1/3] Requesting SSL certificate for "+req.Domain+"...")
 
@@ -889,6 +902,10 @@ func (s *Server) handleSSLDisable(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+
+	var job *backgroundJob
+	w, job = s.wrapSSE(w, flusher, "ssl-disable", "Disabling SSL", req.Domain)
+	defer job.finishIfAbandoned()
 
 	sseWriteLog(w, flusher, "[Step 1/3] Removing SSL certificate for "+req.Domain+"...")
 
@@ -984,6 +1001,10 @@ func (s *Server) handleSiteDelete(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+
+	var job *backgroundJob
+	w, job = s.wrapSSE(w, flusher, "site-delete", "Deleting site", displayName)
+	defer job.finishIfAbandoned()
 
 	// Step 1: Remove SSL certificate if present (only if domain is a real domain, not "_").
 	sseWriteLog(w, flusher, "[Step 1/4] Checking SSL certificate...")
@@ -1125,6 +1146,10 @@ func (s *Server) handleSiteUpdateDomain(w http.ResponseWriter, r *http.Request) 
 	if oldDisplay == "" || oldDisplay == "_" {
 		oldDisplay = configName
 	}
+
+	var job *backgroundJob
+	w, job = s.wrapSSE(w, flusher, "site-update-domain", "Updating domain", oldDisplay+" \u2192 "+newDomain)
+	defer job.finishIfAbandoned()
 
 	sseWriteLog(w, flusher, "[Step 1/6] Reading current site "+oldDisplay+"...")
 	oldContent, err := nginx.ReadConfigContent(configName)
@@ -1713,6 +1738,10 @@ func (s *Server) handleSiteEnableWWW(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+
+	var job *backgroundJob
+	w, job = s.wrapSSE(w, flusher, "site-enable-www", "Enabling www alias", req.Domain)
+	defer job.finishIfAbandoned()
 
 	wwwDomain, err := nginx.WWWAliasForDomain(req.Domain)
 	if err != nil {
@@ -3941,6 +3970,10 @@ func (s *Server) handleDependencyInstall(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
+	var job *backgroundJob
+	w, job = s.wrapSSE(w, flusher, "dependency-install", "Installing "+req.Package, req.Package)
+	defer job.finishIfAbandoned()
+
 	logLine := func(line string) {
 		log.Printf("[install %s] %s", req.Package, line)
 		sseWriteLog(w, flusher, line)
@@ -4051,6 +4084,10 @@ func (s *Server) handleGDAppActivate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+
+	var job *backgroundJob
+	w, job = s.wrapSSE(w, flusher, "gdapp-activate", "Activating GD-App", req.Domain)
+	defer job.finishIfAbandoned()
 
 	domain := req.Domain
 	port := req.Port

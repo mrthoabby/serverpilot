@@ -96,6 +96,18 @@ func GetPruneJob(id string) (*PruneJob, bool) {
 	return clonePruneJob(job), true
 }
 
+// ListPruneJobs returns clones of all tracked prune jobs (running and recently
+// finished). It is used to surface prune activity in the unified jobs view.
+func ListPruneJobs() []*PruneJob {
+	pruneJobsMu.RLock()
+	defer pruneJobsMu.RUnlock()
+	out := make([]*PruneJob, 0, len(pruneJobs))
+	for _, job := range pruneJobs {
+		out = append(out, clonePruneJob(job))
+	}
+	return out
+}
+
 // ActivePruneJob returns the currently running prune job, if any.
 func ActivePruneJob() (*PruneJob, bool) {
 	pruneJobsMu.RLock()

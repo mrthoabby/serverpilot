@@ -23,6 +23,7 @@ type Server struct {
 	version      string
 	sessionStore *auth.SessionStore
 	emailOTP     *emailOTPManager
+	jobs         *jobRegistry
 }
 
 // NewServer creates a new web server instance.
@@ -33,6 +34,7 @@ func NewServer(config *auth.Config, port int, version string) *Server {
 		version:      version,
 		sessionStore: auth.NewSessionStore(),
 		emailOTP:     newEmailOTPManager(),
+		jobs:         newJobRegistry(),
 	}
 }
 
@@ -67,6 +69,9 @@ func (s *Server) Start() error {
 	mux.Handle("/api/security/mfa/setup", s.requireReauth(http.HandlerFunc(s.handleMFASetup)))
 	mux.Handle("/api/security/mfa/enable", s.requireReauth(http.HandlerFunc(s.handleMFAEnable)))
 	mux.Handle("/api/security/mfa/disable", s.requireReauth(http.HandlerFunc(s.handleMFADisable)))
+	mux.Handle("/api/jobs", s.authMiddleware(http.HandlerFunc(s.handleJobsList)))
+	mux.Handle("/api/jobs/tail", s.authMiddleware(http.HandlerFunc(s.handleJobTail)))
+	mux.Handle("/api/jobs/dismiss", s.authMiddleware(http.HandlerFunc(s.handleJobDismiss)))
 	mux.Handle("/api/containers", s.authMiddleware(http.HandlerFunc(s.handleContainers)))
 	mux.Handle("/api/containers/logs", s.authMiddleware(http.HandlerFunc(s.handleContainerLogs)))
 	mux.Handle("/api/containers/logs/clear", s.requireReauth(http.HandlerFunc(s.handleContainerLogsClear)))

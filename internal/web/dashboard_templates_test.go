@@ -30,6 +30,7 @@ var dashboardJSFiles = []string{
 	"static/js/modules/disk.js",
 	"static/js/modules/stats.js",
 	"static/js/modules/resources.js",
+	"static/js/modules/jobs.js",
 	"static/js/bootstrap.js",
 	"static/containers-sites.js",
 	"static/js/cases.js",
