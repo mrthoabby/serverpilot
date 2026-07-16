@@ -550,6 +550,8 @@
 }
 .container-sites-panel h4 { margin: 0 0 8px; font-size: 0.85rem; }
 .container-site-row { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.container-site-row a { color: var(--accent); text-decoration: none; }
+.container-site-row a:hover { text-decoration: underline; }
 .container-expand-btn { min-width: 2rem; padding: 0.1rem 0.35rem; }
 .port-resolve-banner { font-size: 0.75rem; color: #d29922; margin-bottom: 8px; line-height: 1.4; }
 

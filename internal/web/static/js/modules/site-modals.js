@@ -76,73 +76,8 @@
   });
 
   var assocModal = document.getElementById("associateModal");
-  var _assocPendingContainer = null;
 
-  function publishedTCPPortsForAssoc(container) {
-    var out = [];
-    (container.ports || []).forEach(function(p) {
-      if (p.host_port && (p.protocol || "tcp") === "tcp") {
-        out.push(p);
-      }
-    });
-    return out;
-  }
-
-  function openAssociateModal(container, templateType) {
-    if (!container) return;
-    var modal = document.getElementById("associateModal");
-    var containerIdEl = document.getElementById("assocContainerId");
-    var containerNameEl = document.getElementById("assocContainerName");
-    var portSelect = document.getElementById("assocPortSelect");
-    var portWrap = document.getElementById("assocPortSelectWrap");
-    var allocate = document.getElementById("assocAllocate");
-    var submitBtn = document.getElementById("assocSubmitBtn");
-    var templateEl = document.getElementById("assocTemplate");
-    var domainEl = document.getElementById("assocDomain");
-    if (!modal || !containerIdEl || !portSelect || !submitBtn) {
-      showToast("Associate modal unavailable — hard-refresh the dashboard (Ctrl+Shift+R)", "error");
-      return;
-    }
-
-    _assocPendingContainer = container;
-    containerIdEl.value = container.id || "";
-    if (containerNameEl) containerNameEl.value = container.name || "";
-
-    var label = templateType || "api";
-    setText(
-      document.getElementById("associateModalSub"),
-      "Add site for \"" + (container.name || "") + "\" — choose template, domain, and published port"
-    );
-
-    if (domainEl) domainEl.value = "";
-    var includeWWW = document.getElementById("assocIncludeWWW");
-    if (includeWWW) includeWWW.checked = false;
-    var enableSSL = document.getElementById("assocEnableSSL");
-    if (enableSSL) enableSSL.checked = false;
-    var allowShared = document.getElementById("assocAllowShared");
-    if (allowShared) allowShared.checked = false;
-    if (templateEl) templateEl.value = label;
-
-    var allocateMsg = document.getElementById("assocAllocateMsg");
-    if (allocateMsg) {
-      allocateMsg.style.color = "var(--text-muted)";
-      allocateMsg.textContent = "";
-    }
-
-    portSelect.innerHTML = "";
-    var published = publishedTCPPortsForAssoc(container);
-    published.forEach(function(p, idx) {
-      var opt = document.createElement("option");
-      opt.value = JSON.stringify({ host: p.host_port, container: p.container_port });
-      setText(opt, p.host_port + " → " + p.container_port + "/" + (p.protocol || "tcp"));
-      portSelect.appendChild(opt);
-      if (idx === 0) portSelect.value = opt.value;
-    });
-    if (portWrap) portWrap.style.display = published.length ? "block" : "none";
-    if (allocate) allocate.style.display = published.length ? "none" : "block";
-    submitBtn.disabled = !published.length;
-    modal.classList.add("show");
-  }
+  // openAssociateModal + associate form submit: containers-sites.js
 
   onEl("assocCancelBtn", "click", function() {
     var modal = document.getElementById("associateModal");

@@ -66,7 +66,75 @@
   }
 
   function refreshContainerView() {
-    return loadContainers();
+    return window.loadContainers();
+  }
+
+  function associateTemplateForContainer(container) {
+    var labels = (typeof containerLabels !== "undefined" ? containerLabels : {}) || {};
+    var label = labels[container.name] || "";
+    if (label === "api" || label === "nestjs" || label === "nextjs" || label === "frontend" || label === "minio") {
+      return label;
+    }
+    return "api";
+  }
+
+  function siteDomainFromItem(item) {
+    if (!item) return "";
+    return (item.site && item.site.domain) || (item.mapping && item.mapping.nginx_domain) || "";
+  }
+
+  function appendMetaBadge(row, text, className) {
+    var badge = document.createElement("span");
+    badge.className = className || "badge badge-info";
+    badge.style.marginLeft = "8px";
+    setText(badge, text);
+    row.appendChild(badge);
+  }
+
+  function renderSiteSummaryRow(row, site, mapping) {
+    var domain = siteDomainFromItem({ site: site, mapping: mapping });
+    var titleWrap = document.createElement("div");
+    titleWrap.style.display = "flex";
+    titleWrap.style.flexWrap = "wrap";
+    titleWrap.style.alignItems = "center";
+    titleWrap.style.gap = "6px";
+
+    if (domain) {
+      var link = document.createElement("a");
+      link.href = (site && site.ssl_enabled ? "https://" : "http://") + domain;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.style.fontWeight = "600";
+      setText(link, domain);
+      titleWrap.appendChild(link);
+    } else {
+      var title = document.createElement("strong");
+      setText(title, "?");
+      titleWrap.appendChild(title);
+    }
+
+    if (site) {
+      appendMetaBadge(titleWrap, site.enabled ? "Enabled" : "Disabled", "badge " + (site.enabled ? "badge-running" : "badge-stopped"));
+      if (site.ssl_enabled) appendMetaBadge(titleWrap, "SSL", "badge badge-info");
+      if (site.www_enabled) appendMetaBadge(titleWrap, "WWW", "badge badge-info");
+    }
+    if (mapping && mapping.orphaned) appendMetaBadge(titleWrap, "Orphan", "badge badge-warning");
+    if (mapping && mapping.redirect_active) appendMetaBadge(titleWrap, "Redirect active", "badge badge-running");
+
+    row.appendChild(titleWrap);
+
+    var meta = document.createElement("div");
+    meta.style.marginTop = "4px";
+    meta.style.color = "var(--text-muted)";
+    meta.style.fontSize = "0.75rem";
+    var parts = [];
+    if (mapping && (mapping.host_port || mapping.container_port)) {
+      parts.push("port " + (mapping.host_port || "?") + " → container " + (mapping.container_port || "?"));
+    }
+    if (site && site.proxy_pass) parts.push("proxy " + site.proxy_pass);
+    if (site && site.redirect_target && !site.proxy_pass) parts.push("redirect → " + site.redirect_target);
+    setText(meta, parts.join(" · ") || "No routing metadata");
+    row.appendChild(meta);
   }
 
   function appendSiteActions(tdAct, site, configName, mapping) {
@@ -200,29 +268,7 @@
         row.className = "container-site-row";
         var site = item.site;
         var m = item.mapping;
-        var title = document.createElement("strong");
-        setText(title, (site && site.domain) || m.nginx_domain || "?");
-        row.appendChild(title);
-        if (m.orphaned) {
-          var ob = document.createElement("span");
-          ob.className = "badge badge-warning";
-          ob.style.marginLeft = "8px";
-          setText(ob, "Orphan");
-          row.appendChild(ob);
-        }
-        if (m.redirect_active) {
-          var rb = document.createElement("span");
-          rb.className = "badge badge-running";
-          rb.style.marginLeft = "8px";
-          setText(rb, "Redirect active");
-          row.appendChild(rb);
-        }
-        var portInfo = document.createElement("span");
-        portInfo.style.marginLeft = "8px";
-        portInfo.style.color = "var(--text-muted)";
-        portInfo.style.fontSize = "0.75rem";
-        setText(portInfo, "port " + (m.host_port || m.container_port || "?"));
-        row.appendChild(portInfo);
+        renderSiteSummaryRow(row, site, m);
         var actions = document.createElement("div");
         actions.className = "actions-cell";
         actions.style.marginTop = "6px";
@@ -247,7 +293,8 @@
       var addBtn = document.createElement("button");
       addBtn.className = "btn btn-sm btn-primary";
       setText(addBtn, "+ Add Site");
-      addBtn.addEventListener("click", function() { openAssociateModal(container, "api"); });
+      var templateType = associateTemplateForContainer(container);
+      addBtn.addEventListener("click", function() { window.openAssociateModal(container, templateType); });
       portActions.appendChild(addBtn);
     } else {
       var warn = document.createElement("div");
@@ -380,8 +427,7 @@
     }
   };
 
-  var _origLoadContainers = window.loadContainers;
-  window.loadContainers = async function() {
+  window.__spLoadContainers = async function() {
     var wrap = document.getElementById("containersContent");
     try {
       var results = await Promise.all([
@@ -389,12 +435,13 @@
         apiFetch("/api/sites"),
         apiFetch("/api/mappings"),
         loadReplicas(),
+        loadLabels(),
         apiFetch("/api/compose/projects").catch(function() { return { data: [] }; })
       ]);
       var nextContainers = (results[0] && results[0].data) ? results[0].data : [];
       var nextSites = (results[1] && results[1].data) ? results[1].data : [];
       var mappingsData = (results[2] && results[2].data) ? results[2].data : results[2];
-      composeProjects = (results[4] && results[4].data) ? results[4].data : [];
+      composeProjects = (results[5] && results[5].data) ? results[5].data : [];
       // Keep dashboard state in sync whether callers use IIFE locals or globals.
       containers = nextContainers;
       sites = nextSites;
@@ -413,8 +460,7 @@
       if (typeof window !== "undefined") window.mappings = mappings;
       applyReplicaLabels();
       setText(document.getElementById("containerCount"), String(containers.length));
-      if (typeof renderContainersV2 === "function") renderContainersV2(wrap);
-      else if (_origLoadContainers) await _origLoadContainers();
+      renderContainers(wrap);
       updateTabTimestamp("containers");
     } catch (err) {
       wrap.innerHTML = "";
@@ -426,10 +472,11 @@
       wrap.appendChild(em);
     }
   };
+  window.loadContainers = window.__spLoadContainers;
 
   window.loadSites = window.loadContainers;
 
-  window.renderContainersV2 = function(wrap) {
+  function renderContainers(wrap) {
     wrap.innerHTML = "";
     if (!containers.length) {
       var em = document.createElement("div");
@@ -456,9 +503,11 @@
     var replicaNames = {};
     containerReplicas.forEach(function(r) { if (r.name) replicaNames[r.name] = true; });
 
-    function renderRow(c, isReplica) {
+    function renderRow(c, replica) {
+      var isReplica = !!replica;
       var tr = document.createElement("tr");
       if (isReplica) tr.className = "replica-row";
+      var linked = sitesByContainer(c);
 
       var tdExp = document.createElement("td");
       var chev = document.createElement("button");
@@ -467,15 +516,27 @@
       setText(chev, expandedContainers[key] ? "▼" : "▶");
       chev.addEventListener("click", function() {
         expandedContainers[key] = !expandedContainers[key];
-        renderContainersV2(wrap);
+        renderContainers(wrap);
       });
       tdExp.appendChild(chev);
       tr.appendChild(tdExp);
 
       var tdName = document.createElement("td");
+      if (isReplica) tdName.style.paddingLeft = "1.6rem";
       var nameStrong = document.createElement("strong");
-      setText(nameStrong, c.name);
+      if (isReplica && replica) {
+        setText(nameStrong, (replica.name || c.name) + " \u2190 " + (replica.parent_name || ""));
+      } else {
+        setText(nameStrong, c.name);
+      }
       tdName.appendChild(nameStrong);
+      if (isReplica && replica && replica.alias) {
+        var alias = document.createElement("div");
+        alias.style.fontSize = "0.7rem";
+        alias.style.color = "var(--accent)";
+        setText(alias, "label: " + replica.alias + " \u00b7 template: " + (replica.template_type || "back"));
+        tdName.appendChild(alias);
+      }
       if (c.compose && c.compose.is_compose) {
         var composeBadge = document.createElement("span");
         composeBadge.className = "badge badge-info";
@@ -483,22 +544,41 @@
         setText(composeBadge, (c.compose.project || "compose") + "/" + (c.compose.service || "service"));
         tdName.appendChild(composeBadge);
       }
-      var count = sitesByContainer(c).length;
-      if (count) {
-        var badge = document.createElement("span");
-        badge.className = "badge badge-info";
-        badge.style.marginLeft = "6px";
-        setText(badge, count + " site" + (count === 1 ? "" : "s"));
-        tdName.appendChild(badge);
+      if (linked.length === 1) {
+        var domainBadge = document.createElement("span");
+        domainBadge.className = "badge badge-info";
+        domainBadge.style.marginLeft = "6px";
+        domainBadge.title = "Associated site — expand row for actions";
+        setText(domainBadge, siteDomainFromItem(linked[0]));
+        tdName.appendChild(domainBadge);
+      } else if (linked.length > 1) {
+        var countBadge = document.createElement("span");
+        countBadge.className = "badge badge-info";
+        countBadge.style.marginLeft = "6px";
+        setText(countBadge, linked.length + " sites");
+        tdName.appendChild(countBadge);
+      } else if (isReplica && replica && replica.domain) {
+        var replicaDomainBadge = document.createElement("span");
+        replicaDomainBadge.className = "badge badge-info";
+        replicaDomainBadge.style.marginLeft = "6px";
+        setText(replicaDomainBadge, replica.domain);
+        tdName.appendChild(replicaDomainBadge);
       }
       tr.appendChild(tdName);
 
       var tdImg = document.createElement("td");
-      var imgCode = document.createElement("span");
-      imgCode.style.fontFamily = "monospace";
-      imgCode.style.fontSize = "0.8rem";
-      setText(imgCode, c.image || "-");
-      tdImg.appendChild(imgCode);
+      if (isReplica && replica) {
+        var sync = document.createElement("span");
+        sync.className = replica.outdated ? "badge badge-stopped" : "badge badge-running";
+        setText(sync, replica.outdated ? "Outdated" : "Synced");
+        tdImg.appendChild(sync);
+      } else {
+        var imgCode = document.createElement("span");
+        imgCode.style.fontFamily = "monospace";
+        imgCode.style.fontSize = "0.8rem";
+        setText(imgCode, c.image || "-");
+        tdImg.appendChild(imgCode);
+      }
       tr.appendChild(tdImg);
 
       var tdStatus = document.createElement("td");
@@ -524,11 +604,81 @@
 
       var tdAct = document.createElement("td");
       tdAct.className = "actions-cell";
+
       var logsBtn = document.createElement("button");
       logsBtn.className = "btn btn-sm btn-outline";
+      logsBtn.style.marginRight = "0.35rem";
       setText(logsBtn, "Logs");
       logsBtn.addEventListener("click", function() { openContainerLogsModal(c); });
       tdAct.appendChild(logsBtn);
+
+      if (typeof reloadContainerEnv === "function") {
+        var reloadEnvBtn = document.createElement("button");
+        reloadEnvBtn.className = "btn btn-sm btn-outline";
+        reloadEnvBtn.style.marginRight = "0.35rem";
+        setText(reloadEnvBtn, "Reload env");
+        reloadEnvBtn.disabled = !c.id;
+        reloadEnvBtn.title = "Recreate this container with a selected managed app environment file.";
+        reloadEnvBtn.addEventListener("click", function() { reloadContainerEnv(c); });
+        tdAct.appendChild(reloadEnvBtn);
+      }
+
+      if (!isReplica && typeof openReplicaModal === "function") {
+        var reps = replicasByParentName()[c.name] || [];
+        var replicaBtn = document.createElement("button");
+        replicaBtn.className = "btn btn-sm btn-outline";
+        replicaBtn.style.marginRight = "0.35rem";
+        setText(replicaBtn, "Create replica");
+        replicaBtn.disabled = reps.length >= 3;
+        replicaBtn.title = replicaBtn.disabled ? "Maximum 3 replicas reached" : "Clone this container into an independent replica";
+        replicaBtn.addEventListener("click", function() { openReplicaModal(c); });
+        tdAct.appendChild(replicaBtn);
+      }
+
+      if (isReplica && replica) {
+        var replicaTemplate = replica.template_type || "back";
+        if (replicaTemplate !== "back") {
+          var manageBtn = document.createElement("button");
+          manageBtn.className = "btn btn-sm btn-primary";
+          manageBtn.style.marginRight = "0.35rem";
+          setText(manageBtn, replica.domain ? "Manage Site" : associateButtonText(replicaTemplate));
+          manageBtn.addEventListener("click", function() {
+            if (replica.domain) {
+              window.openSitesTab(c);
+            } else {
+              window.openAssociateModal(c, replicaTemplate);
+            }
+          });
+          tdAct.appendChild(manageBtn);
+        }
+        if (typeof syncReplica === "function") {
+          var syncBtn = document.createElement("button");
+          syncBtn.className = "btn btn-sm btn-warning";
+          syncBtn.style.marginRight = "0.35rem";
+          setText(syncBtn, "Sync with parent");
+          syncBtn.addEventListener("click", function() { syncReplica(replica); });
+          tdAct.appendChild(syncBtn);
+        }
+        if (typeof deleteReplica === "function") {
+          var delBtn = document.createElement("button");
+          delBtn.className = "btn btn-sm btn-danger";
+          setText(delBtn, "Delete");
+          delBtn.addEventListener("click", function() { deleteReplica(replica); });
+          tdAct.appendChild(delBtn);
+        }
+      }
+
+      if (!linked.length && hasPublishedTCPPort(c)) {
+        var addSiteBtn = document.createElement("button");
+        addSiteBtn.className = "btn btn-sm btn-primary";
+        setText(addSiteBtn, "Add Site");
+        addSiteBtn.addEventListener("click", function() {
+          expandedContainers[key] = true;
+          window.openAssociateModal(c, associateTemplateForContainer(c));
+        });
+        tdAct.appendChild(addSiteBtn);
+      }
+
       tr.appendChild(tdAct);
       tbody.appendChild(tr);
 
@@ -559,14 +709,14 @@
       td.appendChild(strong);
       header.appendChild(td);
       tbody.appendChild(header);
-      composeGroups[project].forEach(function(c) { renderRow(c, false); });
+      composeGroups[project].forEach(function(c) { renderRow(c); });
     });
 
     standalone.forEach(function(c) {
-      renderRow(c, false);
+      renderRow(c);
       var reps = replicasByParentName()[c.name] || [];
       reps.forEach(function(rep) {
-        renderRow(containerForReplica(rep), true);
+        renderRow(containerForReplica(rep), rep);
       });
     });
 
@@ -574,7 +724,8 @@
     tw.appendChild(table);
     wrap.appendChild(tw);
     renderGlobalSections(wrap);
-  };
+  }
+  window.renderContainers = renderContainers;
 
   window.openAssociateModal = function(container, templateType) {
     if (!container) return;
@@ -748,10 +899,10 @@
       var key = container.id || container.name;
       if (key) expandedContainers[key] = true;
     }
-    return loadContainers();
+    return window.loadContainers();
   };
 
   if (document.getElementById("panel-containers") && document.getElementById("panel-containers").classList.contains("active")) {
-    loadContainers();
+    window.loadContainers();
   }
 })();

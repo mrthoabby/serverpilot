@@ -398,7 +398,7 @@
       createBtn.className = "btn btn-sm btn-primary";
       setText(createBtn, associateButtonText(candidate.label));
       createBtn.addEventListener("click", function() {
-        openAssociateModal(candidate.container, candidate.label);
+        window.openAssociateModal(candidate.container, candidate.label);
       });
       tdAct.appendChild(createBtn);
       tr.appendChild(tdAct);

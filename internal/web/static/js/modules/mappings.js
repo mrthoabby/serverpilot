@@ -15,14 +15,16 @@
       setText(document.getElementById("mappingCount"), String(total));
       renderMappings(wrap);
       updateTabTimestamp("mappings");
-      // Mappings load in parallel with containers — if containers finished
-      // first they rendered with an empty mappings.mapped (race condition)
-      // and showed "Associate" instead of "Asociado". Re-render now that we
-      // know the real state. textContent / DOM-API rendering paths used by
-      // renderContainers keep this XSS-safe.
+      // Refresh containers view with mapping data.
       if (containers && containers.length) {
         var cWrap = document.getElementById("containersContent");
-        if (cWrap) renderContainers(cWrap);
+        if (cWrap) {
+          if (typeof window.renderContainers === "function") {
+            window.renderContainers(cWrap);
+          } else if (typeof window.loadContainers === "function") {
+            window.loadContainers();
+          }
+        }
       }
     } catch(err) {
       wrap.innerHTML = "";
