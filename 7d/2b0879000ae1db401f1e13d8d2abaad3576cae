@@ -1,0 +1,21 @@
+version.go
+  s_b0d52b3b1d960e::t_6a7b40ec250e16 3
+homebrew/Formula/sp.rb
+  s_b0d52b3b1d960e::t_6a7b40ec250e16 4,9-10,12-13,19-20,22-23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "7d2b0879000ae1db401f1e13d8d2abaad3576cae",
+  "prompts": {},
+  "sessions": {
+    "s_b0d52b3b1d960e": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "9b3571b5-dddc-4916-8e0f-197e804ae574",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
