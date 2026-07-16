@@ -55,9 +55,9 @@
     }
   }
 
-  async function loadContainers() {
+  async function loadContainers(opts) {
     if (typeof window.__spLoadContainers === "function") {
-      return window.__spLoadContainers();
+      return window.__spLoadContainers(opts);
     }
   }
 
@@ -118,7 +118,13 @@
         }
       });
       showToast("Replica label set to " + templateType + ": " + replica.name, "success");
-      await Promise.all([loadReplicas(), loadMappings(), loadSites(), loadContainers()]);
+      if (typeof invalidateDashboardCoreCache === "function") invalidateDashboardCoreCache();
+      await Promise.all([
+        loadReplicas(),
+        loadMappings({ force: true }),
+        loadSites({ force: true }),
+        loadContainers({ force: true })
+      ]);
     } catch(err) {
       showToast("Failed to update replica label: " + err.message, "error");
     }

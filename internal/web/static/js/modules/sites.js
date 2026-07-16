@@ -1,33 +1,24 @@
 /* Sites tab */
 "use strict";
 
-  async function loadSites() {
+  async function loadSites(opts) {
+    opts = opts || {};
     var wrap = document.getElementById("sitesContent");
+    var silent = !!opts.silent;
+    var force = !!opts.force;
+    var hadSnapshot = !!(SP.cache && SP.cache.dashboardCore);
     try {
-      var results = await Promise.all([
-        apiFetch("/api/sites"),
-        apiFetch("/api/containers"),
-        apiFetch("/api/mappings"),
-        loadLabels(),
-        loadReplicas()
-      ]);
-      var resp = results[0];
-      var containersResp = results[1];
-      var mappingsResp = results[2];
-      sites = (resp && resp.data) ? resp.data : (Array.isArray(resp) ? resp : []);
-      containers = (containersResp && containersResp.data) ? containersResp.data : (Array.isArray(containersResp) ? containersResp : []);
-      var mappingsData = (mappingsResp && mappingsResp.data) ? mappingsResp.data : mappingsResp;
-      mappings = {
-        mapped: (mappingsData && mappingsData.mapped) || [],
-        unmappedContainers: (mappingsData && mappingsData.unmappedContainers) || [],
-        orphanedSites: (mappingsData && mappingsData.orphanedSites) || [],
-        dashboardSites: (mappingsData && mappingsData.dashboardSites) || []
-      };
+      if (!silent && !hadSnapshot && wrap) {
+        showSpinner(wrap);
+      }
+      var core = await fetchDashboardCore({ force: force });
+      applyDashboardCoreState(core);
       applyReplicaLabels();
       setText(document.getElementById("siteCount"), String(sites.length + engineSiteCandidates().length));
       renderSites(wrap);
       updateTabTimestamp("sites");
     } catch(err) {
+      if (!wrap) return;
       wrap.innerHTML = "";
       var em = document.createElement("div");
       em.className = "empty-state";

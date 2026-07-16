@@ -119,12 +119,12 @@ func TestDashboardScriptLoadOrder(t *testing.T) {
 func TestDashboardJSNoSplitBoundaryRegressions(t *testing.T) {
 	// v2.0.1 broke these modules by leaving loader bodies without function wrappers.
 	cases := map[string][]string{
-		"sites.js":     {"async function loadSites()"},
-		"images.js":    {"async function loadImages()"},
-		"mappings.js":  {"async function loadMappings()"},
-		"memory.js":    {"function formatMemDual("},
-		"stats.js":     {"function renderContainerStats("},
-		"containers.js": {"async function loadReplicas()", "async function loadContainers()"},
+		"sites.js":      {"async function loadSites"},
+		"images.js":     {"async function loadImages"},
+		"mappings.js":   {"async function loadMappings"},
+		"memory.js":     {"function formatMemDual("},
+		"stats.js":      {"function renderContainerStats("},
+		"containers.js": {"async function loadReplicas()", "async function loadContainers"},
 	}
 	root := filepath.Join("..", "..", "internal", "web", "static", "js", "modules")
 

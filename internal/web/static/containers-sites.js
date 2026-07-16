@@ -427,42 +427,33 @@
     }
   };
 
-  window.__spLoadContainers = async function() {
+  window.__spLoadContainers = async function(opts) {
+    opts = opts || {};
     var wrap = document.getElementById("containersContent");
+    var silent = !!opts.silent;
+    var force = !!opts.force;
+    var hadSnapshot = !!(SP.cache && SP.cache.dashboardCore);
     try {
-      var results = await Promise.all([
-        apiFetch("/api/containers"),
-        apiFetch("/api/sites"),
-        apiFetch("/api/mappings"),
-        loadReplicas(),
-        loadLabels(),
-        apiFetch("/api/compose/projects").catch(function() { return { data: [] }; })
-      ]);
-      var nextContainers = (results[0] && results[0].data) ? results[0].data : [];
-      var nextSites = (results[1] && results[1].data) ? results[1].data : [];
-      var mappingsData = (results[2] && results[2].data) ? results[2].data : results[2];
-      composeProjects = (results[5] && results[5].data) ? results[5].data : [];
-      // Keep dashboard state in sync whether callers use IIFE locals or globals.
-      containers = nextContainers;
-      sites = nextSites;
-      if (typeof window !== "undefined") {
-        window.containers = nextContainers;
-        window.sites = nextSites;
+      if (!silent && !hadSnapshot && wrap) {
+        showSpinner(wrap);
       }
-      mappings = {
-        mapped: (mappingsData && mappingsData.mapped) || [],
-        unmappedContainers: (mappingsData && mappingsData.unmappedContainers) || [],
-        orphanedSites: (mappingsData && mappingsData.orphanedSites) || [],
-        dashboardSites: (mappingsData && mappingsData.dashboardSites) || [],
-        standalone_redirects: (mappingsData && mappingsData.standalone_redirects) || [],
-        unassigned_sites: (mappingsData && mappingsData.unassigned_sites) || []
-      };
-      if (typeof window !== "undefined") window.mappings = mappings;
+
+      var core = await fetchDashboardCore({ force: force });
+      applyDashboardCoreState(core);
       applyReplicaLabels();
       setText(document.getElementById("containerCount"), String(containers.length));
       renderContainers(wrap);
       updateTabTimestamp("containers");
+
+      // Compose metadata is optional; load in the background without blocking the list.
+      fetchComposeProjects({ force: force }).then(function(projects) {
+        composeProjects = projects || [];
+        if (activeTab === "containers" && wrap) {
+          renderContainers(wrap);
+        }
+      }).catch(function() { /* non-fatal */ });
     } catch (err) {
+      if (!wrap) return;
       wrap.innerHTML = "";
       var em = document.createElement("div");
       em.className = "empty-state";

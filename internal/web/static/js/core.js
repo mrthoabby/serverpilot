@@ -208,6 +208,119 @@ window.SP = window.SP || {};
   };
   var pendingMFASecret = "";
 
+  // Shared fetch cache: dedupes in-flight requests (O(1) keys) and reuses a
+  // short-lived snapshot so tab switches / modal refreshes avoid repeat API work.
+  SP.cache = SP.cache || {};
+  SP.inFlight = SP.inFlight || {};
+  var CORE_CACHE_MS = 4000;
+
+  function apiList(resp) {
+    if (resp && resp.data) return resp.data;
+    return Array.isArray(resp) ? resp : [];
+  }
+
+  function mappingsFromPayload(mappingsData) {
+    mappingsData = mappingsData || {};
+    return {
+      mapped: mappingsData.mapped || [],
+      unmappedContainers: mappingsData.unmappedContainers || [],
+      orphanedSites: mappingsData.orphanedSites || [],
+      dashboardSites: mappingsData.dashboardSites || [],
+      standalone_redirects: mappingsData.standalone_redirects || [],
+      unassigned_sites: mappingsData.unassigned_sites || []
+    };
+  }
+
+  function applyDashboardCoreState(core) {
+    containers = core.containers || [];
+    sites = core.sites || [];
+    mappings = mappingsFromPayload(core.mappingsData);
+    window.containers = containers;
+    window.sites = sites;
+    window.mappings = mappings;
+  }
+
+  function invalidateDashboardCoreCache() {
+    delete SP.cache.dashboardCore;
+    delete SP.inFlight.dashboardCore;
+    delete SP.cache.composeProjects;
+    delete SP.inFlight.composeProjects;
+  }
+
+  async function fetchDashboardCore(opts) {
+    var force = opts && opts.force;
+    var key = "dashboardCore";
+    var now = Date.now();
+    if (!force && SP.cache[key] && (now - SP.cache[key].ts) < CORE_CACHE_MS) {
+      return SP.cache[key].value;
+    }
+    if (!force && SP.inFlight[key]) {
+      return SP.inFlight[key];
+    }
+    SP.inFlight[key] = Promise.all([
+      apiFetch("/api/containers"),
+      apiFetch("/api/sites"),
+      apiFetch("/api/mappings"),
+      loadLabels(),
+      loadReplicas()
+    ]).then(function(results) {
+      var value = {
+        containers: apiList(results[0]),
+        sites: apiList(results[1]),
+        mappingsData: (results[2] && results[2].data) ? results[2].data : results[2]
+      };
+      SP.cache[key] = { ts: Date.now(), value: value };
+      delete SP.inFlight[key];
+      return value;
+    }).catch(function(err) {
+      delete SP.inFlight[key];
+      throw err;
+    });
+    return SP.inFlight[key];
+  }
+
+  async function fetchComposeProjects(opts) {
+    var force = opts && opts.force;
+    var key = "composeProjects";
+    var now = Date.now();
+    if (!force && SP.cache[key] && (now - SP.cache[key].ts) < CORE_CACHE_MS) {
+      return SP.cache[key].value;
+    }
+    if (!force && SP.inFlight[key]) {
+      return SP.inFlight[key];
+    }
+    SP.inFlight[key] = apiFetch("/api/compose/projects").catch(function() {
+      return { data: [] };
+    }).then(function(resp) {
+      var value = (resp && resp.data) ? resp.data : [];
+      SP.cache[key] = { ts: Date.now(), value: value };
+      delete SP.inFlight[key];
+      return value;
+    }).catch(function(err) {
+      delete SP.inFlight[key];
+      throw err;
+    });
+    return SP.inFlight[key];
+  }
+
+  function showSpinner(el) {
+    if (!el) return;
+    el.innerHTML = "";
+    var s = document.createElement("div");
+    s.className = "spinner";
+    var ring = document.createElement("div");
+    ring.className = "spinner-ring";
+    s.appendChild(ring);
+    s.appendChild(document.createTextNode("Loading..."));
+    el.appendChild(s);
+  }
+
+  window.invalidateDashboardCoreCache = invalidateDashboardCoreCache;
+  window.fetchDashboardCore = fetchDashboardCore;
+  window.fetchComposeProjects = fetchComposeProjects;
+  window.applyDashboardCoreState = applyDashboardCoreState;
+  window.showSpinner = showSpinner;
+
   function initEnvEditors() {
     if (!editEnvEditor && document.getElementById("editEnvEditorRoot")) {
       editEnvEditor = EnvEditor.mount(document.getElementById("editEnvEditorRoot"), {
@@ -239,16 +352,16 @@ window.SP = window.SP || {};
 
   // Tab load functions — each loads data for its tab.
   var tabLoaders = {
-    containers: function() { return loadContainers(); },
-    sites:      function() { return loadSites(); },
-    images:     function() { return loadImages(); },
-    mappings:   function() { return loadMappings(); },
-    resources:  function() { return loadResources(); },
-    apps:       function() { loadManagedApps(); loadDependencies(); return loadApps(); },  // no auto-refresh for apps
-    users:      function() { loadSystemUsers(); return loadDeployUsers(); },
-    cases:      function() { return loadCases(); },
-    db:         function() { return loadDBConnections(); },
-    settings:   function() { return loadSettings(); }
+    containers: function(opts) { return loadContainers(opts); },
+    sites:      function(opts) { return loadSites(opts); },
+    images:     function(opts) { return loadImages(opts); },
+    mappings:   function(opts) { return loadMappings(opts); },
+    resources:  function(opts) { return loadResources(opts); },
+    apps:       function(opts) { loadManagedApps(); loadDependencies(); return loadApps(); },
+    users:      function(opts) { loadSystemUsers(); return loadDeployUsers(); },
+    cases:      function(opts) { return loadCases(); },
+    db:         function(opts) { return loadDBConnections(); },
+    settings:   function(opts) { return loadSettings(); }
   };
 
   // ── Single global auto-refresh: fixed 30s, active tab only ──
@@ -263,7 +376,7 @@ window.SP = window.SP || {};
       // Skip auto-refresh for tabs that only need manual refresh.
       var noAutoRefresh = { apps: true, cases: true };
       if (activeTab && tabLoaders[activeTab] && !noAutoRefresh[activeTab]) {
-        tabLoaders[activeTab]();
+        tabLoaders[activeTab]({ silent: true });
       }
     }, REFRESH_INTERVAL);
   }
@@ -567,15 +680,5 @@ window.SP = window.SP || {};
   });
 
   // ── Data Loading ──
-  function showSpinner(el) {
-    el.innerHTML = "";
-    var s = document.createElement("div");
-    s.className = "spinner";
-    var ring = document.createElement("div");
-    ring.className = "spinner-ring";
-    s.appendChild(ring);
-    s.appendChild(document.createTextNode("Loading..."));
-    el.appendChild(s);
-  }
 
   // ── Containers ──

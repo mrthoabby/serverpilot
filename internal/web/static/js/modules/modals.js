@@ -140,9 +140,21 @@
     }
   }
 
+  function refreshCoreTabsAfterMutation() {
+    if (typeof invalidateDashboardCoreCache === "function") {
+      invalidateDashboardCoreCache();
+    }
+    return Promise.all([
+      loadSites({ force: true }),
+      loadMappings({ force: true }),
+      loadContainers({ force: true }),
+      loadSettings()
+    ]);
+  }
+
   onEl("progressCloseBtn", "click", function() {
     closeProgressModal();
-    Promise.all([loadSites(), loadMappings(), loadContainers(), loadSettings()]);
+    refreshCoreTabsAfterMutation();
   });
 
   onEl("progressModal", "click", function(e) {
@@ -150,7 +162,7 @@
     var closeBtn = document.getElementById("progressCloseBtn");
     if (e.target === modal && closeBtn && closeBtn.style.display !== "none") {
       closeProgressModal();
-      Promise.all([loadSites(), loadMappings(), loadContainers(), loadSettings()]);
+      refreshCoreTabsAfterMutation();
     }
   });
 
@@ -254,7 +266,7 @@
         var result = JSON.parse(data);
         finishProgress(result.success !== false, result.error || result.message || "", result.dependency_missing || null);
         if (result.success !== false && lastStreamedUrl && (lastStreamedUrl.indexOf("/api/container-replicas/") === 0 || lastStreamedUrl.indexOf("/api/sites/") === 0 || lastStreamedUrl.indexOf("/api/ssl/") === 0)) {
-          Promise.all([loadSites(), loadMappings(), loadContainers()]);
+          refreshCoreTabsAfterMutation();
         }
       } catch(e) {
         finishProgress(true, "");

@@ -3,8 +3,21 @@
 
 
   var resourcesFirstLoad = true; // first load shows spinners, subsequent refreshes are silent
+  var _resourcesInflight = null;
 
-  async function loadResources() {
+  async function loadResources(opts) {
+    opts = opts || {};
+    if (_resourcesInflight && !opts.force) {
+      return _resourcesInflight;
+    }
+    _resourcesInflight = loadResourcesBody(opts).finally(function() {
+      _resourcesInflight = null;
+    });
+    return _resourcesInflight;
+  }
+
+  async function loadResourcesBody(opts) {
+    opts = opts || {};
     // Fire both requests in parallel — main system data is fast,
     // disk breakdown is slow (runs du on multiple directories).
     var sysPromise = apiFetch("/api/system").catch(function() { return null; });
@@ -115,6 +128,3 @@
       renderDiskBreakdown(d);
     }
   }
-
-  // ── SVG Pie Chart ──
-  var PIE_COLORS = ["#00b4d8", "#3fb950", "#f85149", "#d29922", "#db6d28", "#8b5cf6", "#ec4899", "#6366f1"];

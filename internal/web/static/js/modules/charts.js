@@ -1,6 +1,9 @@
 /* SVG charts */
 "use strict";
 
+  // Palette shared by the memory pie and CPU bars. Defined here (the owner
+  // module) so charts.js has no cross-file dependency on resources.js.
+  var PIE_COLORS = ["#00b4d8", "#3fb950", "#f85149", "#d29922", "#db6d28", "#8b5cf6", "#ec4899", "#6366f1"];
 
   function renderMemoryPie(d) {
     var svg = document.getElementById("memPieChart");
