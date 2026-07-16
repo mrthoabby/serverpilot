@@ -474,8 +474,6 @@
   };
   window.loadContainers = window.__spLoadContainers;
 
-  window.loadSites = window.loadContainers;
-
   function renderContainers(wrap) {
     wrap.innerHTML = "";
     if (!containers.length) {

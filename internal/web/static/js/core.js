@@ -240,7 +240,7 @@ window.SP = window.SP || {};
   // Tab load functions — each loads data for its tab.
   var tabLoaders = {
     containers: function() { return loadContainers(); },
-    sites:      function() { return loadContainers(); },
+    sites:      function() { return loadSites(); },
     images:     function() { return loadImages(); },
     mappings:   function() { return loadMappings(); },
     resources:  function() { return loadResources(); },

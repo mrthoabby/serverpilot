@@ -191,6 +191,3 @@
   window.generateNewKeyForCurrentUser = generateNewKeyForCurrentUser;
   window.openShowKeysModal         = openShowKeysModal;
   window.copyToClipboardField      = copyToClipboardField;
-
-  // ── Database tab ───────────────────────────────────────────────────────
-  // Saved connections + SQL query runner. Connections are managed via

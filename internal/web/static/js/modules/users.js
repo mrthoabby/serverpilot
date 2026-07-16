@@ -445,5 +445,3 @@
   window.loadSystemUsers         = loadSystemUsers;
   window.toggleSystemUserGroup   = toggleSystemUserGroup;
 
-  // ── Google Cloud Firewall (conditional) ──
-

@@ -18,7 +18,7 @@ window.SP = window.SP || {};
 })();
 
 // Export core tab loaders and helpers for other scripts, inline handlers, and extensions.
-window.loadContainers = loadContainers;
+// loadContainers is assigned by containers-sites.js after __spLoadContainers is defined.
 window.loadSites = loadSites;
 window.loadImages = loadImages;
 window.loadMappings = loadMappings;

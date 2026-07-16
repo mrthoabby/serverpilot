@@ -331,6 +331,3 @@
         if (loadMsg) loadMsg.textContent = "Error al cargar procesos";
       });
   };
-
-  // ── Disk Breakdown Pie + Table ──
-  // ── Disk Usage Explorer ──

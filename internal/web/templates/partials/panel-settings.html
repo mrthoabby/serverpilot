@@ -116,6 +116,7 @@
               <span class="settings-step-status" id="settingsEmailLoginStatus"></span>
             </div>
             <p class="settings-step-desc">Allow dashboard login with a one-time code delivered by Email Sender.</p>
+            <form id="settingsEmailLoginForm" autocomplete="off" onsubmit="return false;">
             <label style="display:flex;align-items:center;gap:0.45rem;margin-top:0.65rem;font-size:0.8125rem;color:var(--text-secondary);">
               <input type="checkbox" id="settingsEmailLoginEnabled">
               Enable email login
@@ -147,9 +148,10 @@
               </div>
             </div>
             <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;">
-              <button class="btn btn-sm btn-primary" id="settingsEmailLoginSaveBtn">Save Email Login</button>
-              <button class="btn btn-sm btn-outline" id="settingsEmailLoginTestBtn">Send Test Code</button>
+              <button type="button" class="btn btn-sm btn-primary" id="settingsEmailLoginSaveBtn">Save Email Login</button>
+              <button type="button" class="btn btn-sm btn-outline" id="settingsEmailLoginTestBtn">Send Test Code</button>
             </div>
+            </form>
           </div>
           </div>
         </div>
