@@ -45,7 +45,7 @@ endif
 # ---------------------------------------------------------------------------
 
 .PHONY: all
-all: ensure-formula release-dir build-all archive-prev update-formula
+all: ensure-formula release-dir build-all archive-prev update-formula prerun
 	@echo ""
 	@echo "============================================"
 	@echo "  Build complete: $(BIN_NAME) v$(VERSION)"
@@ -181,6 +181,14 @@ update-formula:
 	@echo "Formula updated: $(FORMULA)"
 
 # ---------------------------------------------------------------------------
+# prerun: trim old release/ version directories (keep newest KEEP_RELEASES)
+# ---------------------------------------------------------------------------
+
+.PHONY: prerun
+prerun:
+	@KEEP_RELEASES=$${KEEP_RELEASES:-10} bash prerun.sh
+
+# ---------------------------------------------------------------------------
 # clean: remove build artifacts
 # ---------------------------------------------------------------------------
 
@@ -216,6 +224,7 @@ help:
 	@echo "  build-all      Cross-compile for all platforms"
 	@echo "  archive-prev   Archive previous version formula"
 	@echo "  update-formula Update SHA256 hashes in formula"
+	@echo "  prerun         Trim release/ to the 10 newest version dirs (KEEP_RELEASES=N)"
 	@echo "  clean          Remove build artifacts"
 	@echo "  version        Print current version"
 	@echo "  checksums      Print SHA256 checksums of binaries"
