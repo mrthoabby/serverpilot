@@ -1,0 +1,32 @@
+internal/web/dashboard_templates.go
+  s_b0d52b3b1d960e::t_3aaabdf283569f 31-37,43-44
+internal/web/dashboard_templates_test.go
+  s_b0d52b3b1d960e::t_e02ca606142224 4-5,13-14,44-48,50,61-63,84,86,93,98,100-106,131-138
+internal/web/handlers.go
+  s_b0d52b3b1d960e::t_b9efbac92c29d6 172
+internal/web/server.go
+  s_b0d52b3b1d960e::t_f311a5b5b6081b 24,32-35,40
+  s_b0d52b3b1d960e::t_1dcaceea0142ff 228-229
+  s_b0d52b3b1d960e::t_53b3fe391e070f 291-301
+  s_b0d52b3b1d960e::t_22fd699f3e0d16 230
+internal/web/templates/partials/scripts.html
+  s_b0d52b3b1d960e::t_bd6fbef5cba787 2-26,30
+internal/web/templates/partials/head.html
+  s_b0d52b3b1d960e::t_0448165e342c1d 11-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "b3e75da49f9f2ebf97f1c923ca84ca33b8704ba1",
+  "prompts": {},
+  "sessions": {
+    "s_b0d52b3b1d960e": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "9b3571b5-dddc-4916-8e0f-197e804ae574",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
