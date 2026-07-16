@@ -1,0 +1,37 @@
+internal/web/static/containers-sites.js
+  s_b0d52b3b1d960e::t_dc49cc92d16353 430-431,433-435,437-438,440-442,447-454,456
+internal/web/static/js/modules/resources.js
+  s_b0d52b3b1d960e::t_1f9fd627670798 6,8-20
+internal/web/static/js/modules/charts.js
+  s_b0d52b3b1d960e::t_219d2c4977ec83 4-6
+internal/web/static/js/core.js
+  s_b0d52b3b1d960e::t_209cbeb3c2bbab 211-323
+  s_b0d52b3b1d960e::t_65bf73c622893d 355-364
+  s_b0d52b3b1d960e::t_e4c920463562dd 379
+internal/web/static/js/modules/sites.js
+  s_b0d52b3b1d960e::t_b8a7f6aeb4d234 4-5,7-9,11-15,21
+internal/web/static/js/modules/modals.js
+  s_b0d52b3b1d960e::t_3a3a329bc45eb7 165
+  s_b0d52b3b1d960e::t_16521ec9051e0c 269
+internal/web/static/js/modules/containers.js
+  s_b0d52b3b1d960e::t_1832a7237f415a 58,60
+  s_b0d52b3b1d960e::t_fd669660c1b9cb 121-127
+internal/web/dashboard_templates_test.go
+  s_b0d52b3b1d960e::t_d8bbbcc6c3a47d 122-127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "6fe4b0a3fee79a9c3b15a8d56171efbf5a8fb164",
+  "prompts": {},
+  "sessions": {
+    "s_b0d52b3b1d960e": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "9b3571b5-dddc-4916-8e0f-197e804ae574",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
