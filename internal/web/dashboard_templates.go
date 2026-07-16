@@ -28,13 +28,20 @@ func loadDashboardTemplate() (*template.Template, error) {
 	return dashboardTmpl, dashboardTmplErr
 }
 
-func renderDashboardHTML() ([]byte, error) {
+// dashboardTemplateData is passed to the dashboard HTML templates so asset URLs
+// can include a version query string for cache-busting after deploys.
+type dashboardTemplateData struct {
+	Version string
+}
+
+func renderDashboardHTML(version string) ([]byte, error) {
 	tmpl, err := loadDashboardTemplate()
 	if err != nil {
 		return nil, fmt.Errorf("parse dashboard templates: %w", err)
 	}
 	var buf bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&buf, "dashboard.html", nil); err != nil {
+	data := dashboardTemplateData{Version: version}
+	if err := tmpl.ExecuteTemplate(&buf, "dashboard.html", data); err != nil {
 		return nil, fmt.Errorf("execute dashboard template: %w", err)
 	}
 	return buf.Bytes(), nil

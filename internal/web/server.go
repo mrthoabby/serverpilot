@@ -21,6 +21,7 @@ type Server struct {
 	config       *auth.Config
 	port         int
 	version      string
+	indexHTML    []byte
 	sessionStore *auth.SessionStore
 	emailOTP     *emailOTPManager
 	jobs         *jobRegistry
@@ -28,10 +29,15 @@ type Server struct {
 
 // NewServer creates a new web server instance.
 func NewServer(config *auth.Config, port int, version string) *Server {
+	indexHTML, err := renderDashboardHTML(version)
+	if err != nil {
+		panic("failed to render dashboard template: " + err.Error())
+	}
 	return &Server{
 		config:       config,
 		port:         port,
 		version:      version,
+		indexHTML:    indexHTML,
 		sessionStore: auth.NewSessionStore(),
 		emailOTP:     newEmailOTPManager(),
 		jobs:         newJobRegistry(),
@@ -219,8 +225,9 @@ func (s *Server) Start() error {
 	mux.Handle("/api/terminal/service-logs", s.requireReauth(http.HandlerFunc(s.handleTerminalServiceLogs)))
 	mux.Handle("/api/terminal/access-key", s.requireReauth(http.HandlerFunc(s.handleTerminalAccessKey)))
 
-	// Static files.
-	mux.Handle("/static/", http.FileServer(http.FS(staticFiles)))
+	// Static files — long-lived cache is safe because dashboard HTML appends
+	// ?v=<version> to every asset URL, busting CDN/browser caches on deploy.
+	mux.Handle("/static/", staticImmutableHandler{next: http.FileServer(http.FS(staticFiles))})
 
 	// Initialise the scanner/bot detection logger (non-fatal if log path is unavailable).
 	initScannerLogger()
@@ -280,4 +287,15 @@ func (s *Server) Start() error {
 		ErrorLog:          log.Default(),
 	}
 	return srv.ListenAndServe()
+}
+
+// staticImmutableHandler wraps a static file handler with long-lived cache headers.
+// Dashboard HTML uses ?v=<version> on asset URLs so each release gets fresh keys.
+type staticImmutableHandler struct {
+	next http.Handler
+}
+
+func (h staticImmutableHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	h.next.ServeHTTP(w, r)
 }

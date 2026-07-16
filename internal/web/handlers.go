@@ -132,23 +132,11 @@ type siteWWWRequest struct {
 	ConfigName string `json:"config_name"`
 }
 
-// indexHTML caches the embedded index.html content at startup so we don't
-// allocate a fresh ~180 KB []byte copy on every GET / request.
-// embed.FS.ReadFile() returns a new slice each time — over thousands of
-// requests this was a major source of gradual memory growth.
-var indexHTML []byte
-
 // faviconSVG caches the embedded favicon so the dashboard tab shows the
 // ServerPilot logo. Served for both /favicon.svg and /favicon.ico.
 var faviconSVG []byte
 
 func init() {
-	data, err := renderDashboardHTML()
-	if err != nil {
-		panic("failed to render dashboard template: " + err.Error())
-	}
-	indexHTML = data
-
 	icon, err := staticFiles.ReadFile("static/favicon.svg")
 	if err != nil {
 		panic("failed to read embedded favicon.svg: " + err.Error())
@@ -181,7 +169,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	w.Write(indexHTML)
+	w.Write(s.indexHTML)
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {

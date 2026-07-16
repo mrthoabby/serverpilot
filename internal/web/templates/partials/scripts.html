@@ -1,33 +1,33 @@
 {{define "scripts"}}
-<script src="/static/env-editor.js"></script>
-<script src="/static/js/core.js" data-cfasync="false"></script>
-<script src="/static/js/modules/containers.js" data-cfasync="false"></script>
-<script src="/static/js/modules/sites.js" data-cfasync="false"></script>
-<script src="/static/js/modules/images.js" data-cfasync="false"></script>
-<script src="/static/js/modules/mappings.js" data-cfasync="false"></script>
-<script src="/static/js/modules/container-logs.js" data-cfasync="false"></script>
-<script src="/static/js/modules/site-modals.js" data-cfasync="false"></script>
-<script src="/static/js/modules/modals.js" data-cfasync="false"></script>
-<script src="/static/js/modules/apps.js" data-cfasync="false"></script>
-<script src="/static/js/modules/ssh.js" data-cfasync="false"></script>
-<script src="/static/js/modules/database.js" data-cfasync="false"></script>
-<script src="/static/js/modules/permissions.js" data-cfasync="false"></script>
-<script src="/static/js/modules/users.js" data-cfasync="false"></script>
-<script src="/static/js/modules/gcp-firewall.js" data-cfasync="false"></script>
-<script src="/static/js/modules/settings.js" data-cfasync="false"></script>
-<script src="/static/js/modules/charts.js" data-cfasync="false"></script>
-<script src="/static/js/modules/memory.js" data-cfasync="false"></script>
-<script src="/static/js/modules/disk.js" data-cfasync="false"></script>
-<script src="/static/js/modules/stats.js" data-cfasync="false"></script>
-<script src="/static/js/modules/resources.js" data-cfasync="false"></script>
-<script src="/static/js/modules/jobs.js" data-cfasync="false"></script>
-<script src="/static/containers-sites.js"></script>
-<script src="/static/js/bootstrap.js" data-cfasync="false"></script>
-<script src="/static/js/cases.js" data-cfasync="false"></script>
+<script src="/static/env-editor.js?v={{.Version}}"></script>
+<script src="/static/js/core.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/containers.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/sites.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/images.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/mappings.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/container-logs.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/site-modals.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/modals.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/apps.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/ssh.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/database.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/permissions.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/users.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/gcp-firewall.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/settings.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/charts.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/memory.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/disk.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/stats.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/resources.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/modules/jobs.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/containers-sites.js?v={{.Version}}"></script>
+<script src="/static/js/bootstrap.js?v={{.Version}}" data-cfasync="false"></script>
+<script src="/static/js/cases.js?v={{.Version}}" data-cfasync="false"></script>
 
 <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/lib/xterm.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10/lib/addon-fit.js"></script>
-<script src="/static/js/terminal.js" data-cfasync="false"></script>
+<script src="/static/js/terminal.js?v={{.Version}}" data-cfasync="false"></script>
 </body>
 </html>
 {{end}}

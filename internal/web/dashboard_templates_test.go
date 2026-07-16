@@ -1,12 +1,16 @@
 package web
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+const testDashboardVersion = "2.0.4-test"
 
 var dashboardJSFiles = []string{
 	"static/env-editor.js",
@@ -37,8 +41,13 @@ var dashboardJSFiles = []string{
 	"static/js/terminal.js",
 }
 
+// vmScriptParseCheck validates JS the way a browser classic script tag does.
+// node --check wraps files in a CommonJS function and misses top-level return/await.
+const vmScriptParseCheck = `const fs=require('fs'),vm=require('vm');` +
+	`new vm.Script(fs.readFileSync(process.argv[1],'utf8'),{filename:process.argv[1]});`
+
 func TestRenderDashboardHTML(t *testing.T) {
-	html, err := renderDashboardHTML()
+	html, err := renderDashboardHTML(testDashboardVersion)
 	if err != nil {
 		t.Fatalf("renderDashboardHTML() error: %v", err)
 	}
@@ -49,8 +58,9 @@ func TestRenderDashboardHTML(t *testing.T) {
 		"id=\"dashboard\"",
 		"id=\"panel-containers\"",
 		"id=\"associateModal\"",
-		"/static/js/core.js",
-		"/static/containers-sites.js",
+		"/static/js/core.js?v=" + testDashboardVersion,
+		"/static/containers-sites.js?v=" + testDashboardVersion,
+		"/static/css/base.css?v=" + testDashboardVersion,
 		"id=\"settingsEmailLoginForm\"",
 		"</html>",
 	}
@@ -71,28 +81,29 @@ func TestDashboardJSSyntax(t *testing.T) {
 	for _, rel := range dashboardJSFiles {
 		path := filepath.Join(root, "internal", "web", rel)
 		t.Run(rel, func(t *testing.T) {
-			out, err := exec.Command("node", "--check", path).CombinedOutput()
+			out, err := exec.Command("node", "-e", vmScriptParseCheck, path).CombinedOutput()
 			if err != nil {
-				t.Fatalf("syntax check failed: %v\n%s", err, strings.TrimSpace(string(out)))
+				t.Fatalf("browser-style syntax check failed: %v\n%s", err, strings.TrimSpace(string(out)))
 			}
 		})
 	}
 }
 
 func TestDashboardScriptLoadOrder(t *testing.T) {
-	html, err := renderDashboardHTML()
+	html, err := renderDashboardHTML(testDashboardVersion)
 	if err != nil {
 		t.Fatalf("renderDashboardHTML() error: %v", err)
 	}
 	body := string(html)
+	v := testDashboardVersion
 
-	resourcesIdx := strings.Index(body, `src="/static/js/modules/resources.js"`)
-	chartsIdx := strings.Index(body, `src="/static/js/modules/charts.js"`)
-	memoryIdx := strings.Index(body, `src="/static/js/modules/memory.js"`)
-	diskIdx := strings.Index(body, `src="/static/js/modules/disk.js"`)
-	statsIdx := strings.Index(body, `src="/static/js/modules/stats.js"`)
-	bootstrapIdx := strings.Index(body, `src="/static/js/bootstrap.js"`)
-	containersSitesIdx := strings.Index(body, `src="/static/containers-sites.js"`)
+	resourcesIdx := strings.Index(body, `src="/static/js/modules/resources.js?v=`+v)
+	chartsIdx := strings.Index(body, `src="/static/js/modules/charts.js?v=`+v)
+	memoryIdx := strings.Index(body, `src="/static/js/modules/memory.js?v=`+v)
+	diskIdx := strings.Index(body, `src="/static/js/modules/disk.js?v=`+v)
+	statsIdx := strings.Index(body, `src="/static/js/modules/stats.js?v=`+v)
+	bootstrapIdx := strings.Index(body, `src="/static/js/bootstrap.js?v=`+v)
+	containersSitesIdx := strings.Index(body, `src="/static/containers-sites.js?v=`+v)
 
 	checks := map[string]int{
 		"charts.js":           chartsIdx,
@@ -114,6 +125,17 @@ func TestDashboardScriptLoadOrder(t *testing.T) {
 	}
 	if !(resourcesIdx < containersSitesIdx && containersSitesIdx < bootstrapIdx) {
 		t.Fatalf("containers-sites.js must load before bootstrap.js so loadContainers is fully wired")
+	}
+}
+
+func TestStaticImmutableHandlerSetsCacheControl(t *testing.T) {
+	h := staticImmutableHandler{next: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/js/core.js", nil))
+	if got := rec.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
+		t.Fatalf("Cache-Control = %q, want immutable long-cache", got)
 	}
 }
 
