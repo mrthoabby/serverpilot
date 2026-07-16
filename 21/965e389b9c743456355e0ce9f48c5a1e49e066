@@ -1,0 +1,23 @@
+vs-pre-run/Makefile
+  s_b0d52b3b1d960e::t_7069a2bcb3b0ca 184-190
+  s_b0d52b3b1d960e::t_e0deac8e0507a1 227
+  s_b0d52b3b1d960e::t_537fcec870bee1 48
+vs-pre-run/prerun.sh
+  s_b0d52b3b1d960e::t_2e25c39b76a3db 1-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "21965e389b9c743456355e0ce9f48c5a1e49e066",
+  "prompts": {},
+  "sessions": {
+    "s_b0d52b3b1d960e": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "9b3571b5-dddc-4916-8e0f-197e804ae574",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
