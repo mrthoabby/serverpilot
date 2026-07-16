@@ -1,0 +1,54 @@
+internal/web/static/js/modules/containers.js
+  s_8182556d4f4d67::t_614ee27a553393 50-52
+  s_8182556d4f4d67::t_d83577954028b9 59-60
+  s_8182556d4f4d67::t_a1faa3ed9dc7cd 37-39
+internal/web/static/containers-sites.js
+  s_8182556d4f4d67::t_d705470512af6f 438
+  s_8182556d4f4d67::t_437ab465d46879 444
+  s_8182556d4f4d67::t_57ae4384b621ed 570-581
+  s_8182556d4f4d67::t_091e383e1acac0 296
+  s_8182556d4f4d67::t_32b6283bad241d 69
+  s_8182556d4f4d67::t_e08be23022ec68 607,610,614,616-619,621-637,671-676,678-681
+  s_8182556d4f4d67::t_ce2f31f2714ad9 638-648,650-670
+  s_8182556d4f4d67::t_e04e4b4a04076f 519
+  s_8182556d4f4d67::t_a25d466a5744c5 271
+  s_8182556d4f4d67::t_c3f03f07374252 506-507,525,527-531,533-539
+  s_8182556d4f4d67::t_be1ebcd3f5fa3f 727-728
+  s_8182556d4f4d67::t_5d1e8443bf3777 902,906
+  s_8182556d4f4d67::t_708fa079a57ee8 677
+  s_8182556d4f4d67::t_c374af59e2fc71 297
+  s_8182556d4f4d67::t_b0e7823051d557 72-137
+  s_8182556d4f4d67::t_f223021ba51020 510,547-559
+  s_8182556d4f4d67::t_433c68943ac124 615,620
+  s_8182556d4f4d67::t_1d092799572d17 649
+  s_8182556d4f4d67::t_f670e230fb068c 712,716,719
+  s_8182556d4f4d67::t_6af4825416db2c 430,463,475,479
+  s_8182556d4f4d67::t_39c4ef6b1bd182 560-565
+internal/web/static/js/modules/sites.js
+  s_8182556d4f4d67::t_970bc5bdcd0c0c 401
+internal/web/static/css/components.css
+  s_8182556d4f4d67::t_f6d00e0aa50a89 553-554
+internal/web/static/js/modules/site-modals.js
+  s_8182556d4f4d67::t_1f7298666e27f0 80
+internal/web/static/js/bootstrap.js
+  s_8182556d4f4d67::t_ecfecb2a4bfc4a 40-42
+internal/web/static/js/modules/mappings.js
+  s_8182556d4f4d67::t_accdcb4a9488ad 21,24-27
+  s_8182556d4f4d67::t_5ac8f212aaac93 18,22-23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "afc4e2af7dbb5c60f7c59f094b1160b833bd6986",
+  "prompts": {},
+  "sessions": {
+    "s_8182556d4f4d67": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "050707da-cb0a-4b12-9f07-fa7a36b58cc7",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
