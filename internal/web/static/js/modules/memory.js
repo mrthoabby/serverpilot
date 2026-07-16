@@ -1,6 +1,7 @@
 /* Services + memory panels */
 "use strict";
 
+  function formatMemDual(mb) {
     if (mb >= 1024) {
       return (mb / 1024).toFixed(2) + " GB (" + mb.toFixed(0) + " MB)";
     }

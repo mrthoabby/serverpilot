@@ -433,5 +433,17 @@
     if (e.target === this) closeResetModal();
   });
 
+  window.setAuthMode             = setAuthMode;
+  window.createDeployUser        = createDeployUser;
+  window.togglePasswordVis       = togglePasswordVis;
+  window.openAddKeyModal         = openAddKeyModal;
+  window.openResetModal          = openResetModal;
+  window.closeResetModal         = closeResetModal;
+  window.submitResetPassword     = submitResetPassword;
+  window.deleteDeployUser        = deleteDeployUser;
+  window.loadDeployUsers         = loadDeployUsers;
+  window.loadSystemUsers         = loadSystemUsers;
+  window.toggleSystemUserGroup   = toggleSystemUserGroup;
+
   // ── Google Cloud Firewall (conditional) ──
 

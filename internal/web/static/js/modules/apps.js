@@ -522,3 +522,10 @@
   window.openDeleteAppModal   = openDeleteAppModal;
   window.closeDeleteAppModal  = closeDeleteAppModal;
   window.submitDeleteApp      = submitDeleteApp;
+
+  window.loadApps                = loadApps;
+  window.loadDependencies        = loadDependencies;
+  window.refreshDependenciesAndApps = refreshDependenciesAndApps;
+  window.openAppUninstallModal   = openAppUninstallModal;
+  window.closeAppUninstallModal  = closeAppUninstallModal;
+  window.executeUninstall        = executeUninstall;

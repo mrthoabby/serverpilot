@@ -255,6 +255,3 @@
       svg.appendChild(val);
     });
   }
-
-  // ── Services Table ──
-  function formatMemDual(mb) {

@@ -192,25 +192,5 @@
   window.openShowKeysModal         = openShowKeysModal;
   window.copyToClipboardField      = copyToClipboardField;
 
-  // Inline `onclick="..."` handlers in HTML resolve names via the global
-  // scope; functions defined inside this IIFE are NOT visible to them
-  // unless we explicitly attach them to `window`. Without these exports
-  // every onclick that calls one of these throws ReferenceError silently.
-  //
-  // This block is the ONE place where every name used by an inline onclick
-  // gets re-exported. Adding a new onclick="myFn()" in HTML must come with
-  // a `window.myFn = myFn;` line below — otherwise the click is a no-op.
-  window.setAuthMode             = setAuthMode;
-  window.createDeployUser        = createDeployUser;
-  window.togglePasswordVis       = togglePasswordVis;
-  window.openAddKeyModal         = openAddKeyModal;
-  window.openResetModal          = openResetModal;
-  window.closeResetModal         = closeResetModal;
-  window.submitResetPassword     = submitResetPassword;
-  window.deleteDeployUser        = deleteDeployUser;
-  window.loadDeployUsers         = loadDeployUsers;
-  window.loadSystemUsers         = loadSystemUsers;
-  window.toggleSystemUserGroup   = toggleSystemUserGroup;
-
   // ── Database tab ───────────────────────────────────────────────────────
   // Saved connections + SQL query runner. Connections are managed via

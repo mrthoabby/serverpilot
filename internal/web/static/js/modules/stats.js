@@ -1,6 +1,7 @@
 /* Container stats table */
 "use strict";
 
+  function renderContainerStats(d) {
     var wrap = document.getElementById("containerStatsContent");
     if (!wrap) return;
     wrap.innerHTML = "";
@@ -84,6 +85,3 @@
     tw.appendChild(table);
     wrap.appendChild(tw);
   }
-
-  // ── Initial: try loading dashboard (if session cookie exists) ──
-  (async function init() {

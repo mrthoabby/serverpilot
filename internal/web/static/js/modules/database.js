@@ -695,32 +695,6 @@
       }
     };
   })();
-  // Apps tab.
-  window.loadApps                = loadApps;
-  window.loadDependencies        = loadDependencies;
-  window.refreshDependenciesAndApps = refreshDependenciesAndApps;
-  window.openAppUninstallModal   = openAppUninstallModal;
-  window.closeAppUninstallModal  = closeAppUninstallModal;
-  window.executeUninstall        = executeUninstall;
-  // GCP firewall.
-  window.loadFirewallRules       = loadFirewallRules;
-  window.openFirewallPort        = openFirewallPort;
-  window.closeFirewallRule       = closeFirewallRule;
-
-  // The Cases tab lives in a SEPARATE IIFE further down the file. It calls
-  // `apiFetch`, `esc`, `escapeHtml`, and `showToast` by bare name, which
-  // means it expects to find them in the global scope. Re-export here so
-  // that second IIFE can resolve them. (CSP-compatible: no eval, no
-  // dynamic Function() — purely property assignment.)
-  window.apiFetch          = apiFetch;
-  window.promptReauth      = promptReauth;
-  window.showLogin         = showLogin;
-  window.showDashboard     = showDashboard;
-  window.loadSettings       = loadSettings;
-  window.runStreamedOperation = runStreamedOperation;
-  window.esc               = esc;
-  window.escapeHtml        = escapeHtml;
-  window.showToast         = showToast;
 
   // ── Permissions ─────────────────────────────────────────────────────────
   //

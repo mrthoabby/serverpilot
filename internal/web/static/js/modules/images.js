@@ -1,6 +1,7 @@
 /* Images tab */
 "use strict";
 
+  async function loadImages() {
     var wrap = document.getElementById("imagesContent");
     try {
       var resp = await apiFetch("/api/images");
@@ -203,6 +204,3 @@
   onEl("deleteSelectedForceBtn", "click", function() {
     deleteSelectedImages(true);
   });
-
-  // ── Mappings ──
-  async function loadMappings() {

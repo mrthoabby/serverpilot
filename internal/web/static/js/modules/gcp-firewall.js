@@ -119,3 +119,7 @@
       }
     }).catch(function() { alert("Connection error"); });
   }
+
+  window.loadFirewallRules       = loadFirewallRules;
+  window.openFirewallPort        = openFirewallPort;
+  window.closeFirewallRule       = closeFirewallRule;

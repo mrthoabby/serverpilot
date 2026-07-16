@@ -1569,6 +1569,3 @@
     tw.appendChild(table);
     wrap.appendChild(tw);
   }
-
-  // ── Container Stats Table ──
-  function renderContainerStats(d) {

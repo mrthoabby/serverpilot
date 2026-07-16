@@ -399,6 +399,3 @@
       env: env
     }, "Creating Replica", document.getElementById("replicaName").value.trim());
   });
-
-  // ── Sites ──
-  async function loadSites() {

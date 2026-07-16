@@ -1,6 +1,7 @@
 /* Mappings tab */
 "use strict";
 
+  async function loadMappings() {
     var wrap = document.getElementById("mappingsContent");
     try {
       var resp = await apiFetch("/api/mappings");

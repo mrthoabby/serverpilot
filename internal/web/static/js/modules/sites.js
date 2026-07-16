@@ -1,6 +1,7 @@
 /* Sites tab */
 "use strict";
 
+  async function loadSites() {
     var wrap = document.getElementById("sitesContent");
     try {
       var results = await Promise.all([
@@ -408,6 +409,3 @@
     tw.appendChild(table);
     wrap.appendChild(tw);
   }
-
-  // ── Images ──
-  async function loadImages() {
