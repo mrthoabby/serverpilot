@@ -1,0 +1,60 @@
+internal/web/templates/partials/modals.html
+  s_b0d52b3b1d960e::t_99d22b7208fc7f 302
+internal/web/static/js/modules/jobs.js
+  s_b0d52b3b1d960e::t_f0650183621bc9 1-276
+internal/web/jobs_test.go
+  s_b0d52b3b1d960e::t_eb603b00d202ed 1-235
+internal/docker/prune_job.go
+  s_b0d52b3b1d960e::t_837a60545c0639 99-110
+internal/web/templates/partials/dashboard-shell.html
+  s_b0d52b3b1d960e::t_40e6b87963d332 19-33
+internal/web/jobs.go
+  s_b0d52b3b1d960e::t_7c198d6dbe86d6 1-451
+internal/web/server.go
+  s_b0d52b3b1d960e::t_70d88db97a5bd6 26,37
+  s_b0d52b3b1d960e::t_124da9442be74d 72-74
+internal/web/templates/partials/scripts.html
+  s_b0d52b3b1d960e::t_eea304eab57a09 23
+internal/web/static/css/components.css
+  s_b0d52b3b1d960e::t_f0fd15a9352971 558-641
+internal/web/dashboard_templates_test.go
+  s_b0d52b3b1d960e::t_680bc6c092c7be 33
+internal/web/handlers.go
+  s_b0d52b3b1d960e::t_817291b5f9311b 524
+  s_b0d52b3b1d960e::t_c29d8c578b812e 548,559-561
+  s_b0d52b3b1d960e::t_84d520a3880ca6 906-909
+  s_b0d52b3b1d960e::t_d885de15df1db7 1150-1153
+  s_b0d52b3b1d960e::t_d3a1b955ae69e2 509
+  s_b0d52b3b1d960e::t_cc58a8fe096e98 3973-3976
+  s_b0d52b3b1d960e::t_638a3f3b7ebc3f 772-774,776-778
+  s_b0d52b3b1d960e::t_69cdb548347e64 1742-1745
+  s_b0d52b3b1d960e::t_2978c72696be3c 822-825
+  s_b0d52b3b1d960e::t_74444443b824bc 1005-1008
+  s_b0d52b3b1d960e::t_546b3348332f44 4088-4091
+  s_b0d52b3b1d960e::t_98bff72939155c 494
+internal/web/static/js/modules/modals.js
+  s_b0d52b3b1d960e::t_52dbf4aacfdc5b 83,85-86
+  s_b0d52b3b1d960e::t_26825421ecf9d3 9,11
+  s_b0d52b3b1d960e::t_14ead4f1dca8e9 147-162
+  s_b0d52b3b1d960e::t_b36005217ed87b 277-283,301
+  s_b0d52b3b1d960e::t_46bf3669611744 25-26
+  s_b0d52b3b1d960e::t_d7f076adc8494d 61-62
+internal/web/static/js/core.js
+  s_b0d52b3b1d960e::t_f5ff82c0a5e01e 419,430-431
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "0c89c431b1046a0170735e9b0866d7ffccec3fa2",
+  "prompts": {},
+  "sessions": {
+    "s_b0d52b3b1d960e": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "9b3571b5-dddc-4916-8e0f-197e804ae574",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
