@@ -1,0 +1,38 @@
+internal/nginx/repair_test.go
+  s_9d42ed75d09991::t_e921efe2075ee4 38-108
+internal/web/static/containers-sites.js
+  s_9d42ed75d09991::t_883fc21f462a1a 927-928,932-937,943,945-949,953,956-966,984,986-990,1003-1020
+internal/web/static/css/components.css
+  s_9d42ed75d09991::t_72e3e43c6595c3 188-323
+internal/web/static/js/modules/site-modals.js
+  s_9d42ed75d09991::t_a1f2e9d46d1217 11-181,187
+internal/web/static/js/bootstrap.js
+  s_9d42ed75d09991::t_74f25cc2c01ee7 41-42
+internal/nginx/repair.go
+  s_9d42ed75d09991::t_f9f11304bdce9f 15-21,31,34-35
+  s_9d42ed75d09991::t_ac14abfe110cac 44-45
+  s_9d42ed75d09991::t_a41a5d6e461a53 273,277-285,290-309,313,318-390
+  s_9d42ed75d09991::t_e22377b217b718 47-53
+internal/web/handlers.go
+  s_9d42ed75d09991::t_969d9e2eff81a0 1503
+  s_9d42ed75d09991::t_1e95dff7ae726e 1526
+internal/web/templates/partials/modals.html
+  s_9d42ed75d09991::t_7d4f4c3edfef05 136-140
+  s_9d42ed75d09991::t_8d288474956bd2 284-303
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "db33725afb55b0caa91a2d3f1b650e7faf3e0777",
+  "prompts": {},
+  "sessions": {
+    "s_9d42ed75d09991": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ca396ca0-92d0-4608-bd48-7db50cd50ae4",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
