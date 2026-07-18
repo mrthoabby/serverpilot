@@ -891,7 +891,6 @@
     return window.loadContainers();
   };
 
-  if (document.getElementById("panel-containers") && document.getElementById("panel-containers").classList.contains("active")) {
-    window.loadContainers();
-  }
+  // Initial tab load runs from showDashboard() after /api/session/status confirms auth.
+  // Do not fetch protected APIs here — panel-containers is "active" in HTML even on login.
 })();
