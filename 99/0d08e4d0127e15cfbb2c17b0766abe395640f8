@@ -1,0 +1,50 @@
+internal/web/templates/partials/panel-apps.html
+  s_9d42ed75d09991::t_8f292cd9282cf8 56
+  s_9d42ed75d09991::t_1deb026ec5398b 31
+internal/web/handlers.go
+  s_9d42ed75d09991::t_b92ddc945d4869 1415-1423
+internal/web/static/js/core.js
+  s_9d42ed75d09991::t_dd3895f6f7341e 130-144
+  s_9d42ed75d09991::t_1f2514da64c8d1 178-180
+internal/web/static/js/modules/apps.js
+  s_9d42ed75d09991::t_c9e35dd82d356f 597-599
+internal/web/static/containers-sites.js
+  s_9d42ed75d09991::t_0a26623eb646d4 922
+  s_9d42ed75d09991::t_f19644de7fd743 926-928
+  s_9d42ed75d09991::t_52ab2cc42f8f8e 754
+  s_9d42ed75d09991::t_ea45297aa60e62 86-106
+  s_9d42ed75d09991::t_fd4b8c091ade7a 838
+  s_9d42ed75d09991::t_dd8c527f61fdeb 794-800
+  s_9d42ed75d09991::t_f91b45d071e599 861-862,866-887
+internal/sites/service.go
+  s_9d42ed75d09991::t_3c38a0babc0154 13
+  s_9d42ed75d09991::t_dd5ee741f79e77 147-148,161-166
+  s_9d42ed75d09991::t_4410cd30939eee 44
+internal/web/static/css/components.css
+  s_9d42ed75d09991::t_48d85886d894fa 454-477
+internal/web/templates/partials/panel-users.html
+  s_9d42ed75d09991::t_90bbb2c3056b23 17
+internal/portalloc/leases.go
+  s_9d42ed75d09991::t_e8363446ee7e2d 305-317
+internal/web/session_security.go
+  s_9d42ed75d09991::t_53dbd3108cf512 115-116,125-129
+internal/web/templates/partials/modals.html
+  s_9d42ed75d09991::t_4d5a6a0029839b 126,130
+  s_9d42ed75d09991::t_2cceb7c0e5e2aa 109-122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "990d08e4d0127e15cfbb2c17b0766abe395640f8",
+  "prompts": {},
+  "sessions": {
+    "s_9d42ed75d09991": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ca396ca0-92d0-4608-bd48-7db50cd50ae4",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
