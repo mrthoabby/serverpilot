@@ -34,6 +34,11 @@ func ReleaseService(req ReleaseRequest, progress Progress) error {
 	if err := ValidateProjectName(req.Name); err != nil {
 		return err
 	}
+	unlockRelease, err := acquireProjectReleaseLock(req.Name)
+	if err != nil {
+		return err
+	}
+	defer unlockRelease()
 	req.Service = strings.TrimSpace(req.Service)
 	if req.Service == "" {
 		req.Service = "app"
@@ -99,6 +104,9 @@ func ReleaseService(req ReleaseRequest, progress Progress) error {
 	}
 
 	if analysis.Fingerprint != gen.Fingerprint {
+		if ParseStrategy(req.Strategy) == StrategyBlueGreen {
+			return fmt.Errorf("compose manifest changed — run a rolling reconcile before blue-green release")
+		}
 		return reconcileReleaseStack(req, rec, gen, analysis, progress)
 	}
 

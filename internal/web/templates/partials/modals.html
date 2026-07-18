@@ -235,7 +235,7 @@
           <option value="blue-green">Blue-green (parallel + nginx switch)</option>
         </select>
         <div style="font-size:0.7rem;color:var(--text-muted);margin-top:4px;line-height:1.4;">
-          Blue-green requires stateless services/containers. Stateful stacks are rejected with a clear error.
+          Blue-green requires a stateless target service. Compose targets must use named external shared networks; dependencies remain running and are not redeployed.
         </div>
       </div>
       <div class="form-group" id="releaseHealthGroup" style="display:none;">

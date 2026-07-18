@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/mrthoabby/serverpilot/internal/deps"
@@ -30,5 +31,21 @@ func TestReleaseServiceRequiresCompose(t *testing.T) {
 	}, nil)
 	if err == nil {
 		t.Fatal("expected error when compose is missing")
+	}
+}
+
+func TestProjectReleaseLockRejectsConcurrentRelease(t *testing.T) {
+	cleanup := SetRegistryRootForTests(t.TempDir())
+	defer cleanup()
+
+	unlock, err := acquireProjectReleaseLock("shop")
+	if err != nil {
+		t.Fatalf("acquireProjectReleaseLock: %v", err)
+	}
+	defer unlock()
+
+	_, err = acquireProjectReleaseLock("shop")
+	if err == nil || !strings.Contains(err.Error(), "already running") {
+		t.Fatalf("expected concurrent lock rejection, got %v", err)
 	}
 }

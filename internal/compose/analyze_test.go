@@ -60,3 +60,39 @@ func TestAnalyzeProjectAcceptsSPComposePort(t *testing.T) {
 		t.Fatalf("unexpected endpoints: %#v", res.Endpoints)
 	}
 }
+
+func TestAnalyzeProjectCapturesNamedExternalNetworks(t *testing.T) {
+	root := t.TempDir()
+	opt := filepath.Join(root, "shop")
+	if err := os.MkdirAll(opt, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	compose := `services:
+  app:
+    image: nginx:alpine
+    ports:
+      - "${SP_COMPOSE_PORT_APP_8080}:8080"
+    networks:
+      - shared
+networks:
+  shared:
+    external: true
+    name: shop-shared
+`
+	if err := os.WriteFile(filepath.Join(opt, "docker-compose.yml"), []byte(compose), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	LockManagedAppsRootForTest(t, root)
+
+	res, err := AnalyzeProjectStrict("shop", opt, "docker-compose.yml")
+	if err != nil {
+		t.Fatalf("AnalyzeProjectStrict: %v", err)
+	}
+	if len(res.Services) != 1 || len(res.Services[0].Networks) != 1 {
+		t.Fatalf("unexpected network analysis: %#v", res.Services)
+	}
+	network := res.Services[0].Networks[0]
+	if !network.External || network.RuntimeName != "shop-shared" {
+		t.Fatalf("unexpected external network: %#v", network)
+	}
+}

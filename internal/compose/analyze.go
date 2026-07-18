@@ -17,6 +17,12 @@ import (
 type rawCompose struct {
 	Services map[string]rawService `yaml:"services"`
 	Include  []string              `yaml:"include"`
+	Networks map[string]rawNetwork `yaml:"networks"`
+}
+
+type rawNetwork struct {
+	External bool   `yaml:"external"`
+	Name     string `yaml:"name"`
 }
 
 type rawService struct {
@@ -35,6 +41,7 @@ type rawService struct {
 	Secrets       any      `yaml:"secrets"`
 	Configs       any      `yaml:"configs"`
 	ContainerName string   `yaml:"container_name"`
+	Networks      any      `yaml:"networks"`
 }
 
 // AnalyzeProject reads and policy-checks a compose project without mutating state.
@@ -97,7 +104,7 @@ func AnalyzeProject(name, rootDir, composeFile string) (*AnalyzeResult, error) {
 			continue
 		}
 		ApplyRawServicePolicy(result, svcName, raw)
-		spec := analyzeService(root, svcName, raw)
+		spec := analyzeService(root, svcName, raw, doc.Networks)
 		result.Services = append(result.Services, spec)
 		result.Endpoints = append(result.Endpoints, spec.Endpoints...)
 		result.Mounts = append(result.Mounts, spec.Mounts...)
@@ -115,7 +122,7 @@ func AnalyzeProject(name, rootDir, composeFile string) (*AnalyzeResult, error) {
 	return result, nil
 }
 
-func analyzeService(projectRoot, name string, raw rawService) ServiceSpec {
+func analyzeService(projectRoot, name string, raw rawService, networks map[string]rawNetwork) ServiceSpec {
 	spec := ServiceSpec{Name: name}
 
 	if issue := CheckPrivileged(raw.Privileged); issue != nil {
@@ -175,11 +182,43 @@ func analyzeService(projectRoot, name string, raw rawService) ServiceSpec {
 		mount := analyzeVolume(projectRoot, name, idx, vol)
 		spec.Mounts = append(spec.Mounts, mount)
 	}
+	for _, networkName := range composeNetworkRefs(raw.Networks) {
+		network, ok := networks[networkName]
+		if !ok {
+			spec.InternalOnly = true
+			continue
+		}
+		spec.Networks = append(spec.Networks, NetworkSpec{
+			Name:        networkName,
+			RuntimeName: strings.TrimSpace(network.Name),
+			External:    network.External,
+		})
+	}
 
 	if len(spec.Endpoints) == 0 {
 		spec.InternalOnly = true
 	}
 	return spec
+}
+
+func composeNetworkRefs(raw any) []string {
+	var refs []string
+	switch value := raw.(type) {
+	case []interface{}:
+		for _, item := range value {
+			if name, ok := item.(string); ok && strings.TrimSpace(name) != "" {
+				refs = append(refs, strings.TrimSpace(name))
+			}
+		}
+	case map[string]interface{}:
+		for name := range value {
+			if strings.TrimSpace(name) != "" {
+				refs = append(refs, strings.TrimSpace(name))
+			}
+		}
+	}
+	sortStrings(refs)
+	return refs
 }
 
 func analyzeBuild(projectRoot string, build any) (contextPath, dockerfile string, issues []string) {

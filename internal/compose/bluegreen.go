@@ -34,7 +34,14 @@ func ParseStrategy(strategy string) string {
 // ReleaseServiceBlueGreen deploys the inactive color in parallel, validates health,
 // repoints nginx, drains, and removes the previous color.
 func ReleaseServiceBlueGreen(req ReleaseRequest, rec ProjectRecord, gen Generation, analysis *AnalyzeResult, progress Progress) error {
-	if err := analysisAllowsBlueGreen(analysis); err != nil {
+	targetService, err := serviceForBlueGreen(analysis, req.Service)
+	if err != nil {
+		return err
+	}
+	if err := validateSharedExternalNetworks(targetService); err != nil {
+		return err
+	}
+	if err := analysisAllowsBlueGreen(targetService); err != nil {
 		return err
 	}
 	currentColor := normalizeColor(gen.Color)
@@ -50,7 +57,7 @@ func ReleaseServiceBlueGreen(req ReleaseRequest, rec ProjectRecord, gen Generati
 		return err
 	}
 
-	ownerPorts, endpoints, createdOwners, err := reserveColorEndpoints(req.Name, targetColor, analysis.Endpoints)
+	ownerPorts, endpoints, createdOwners, err := reserveColorEndpoints(req.Name, targetColor, targetService.Endpoints)
 	if err != nil {
 		return err
 	}
@@ -78,8 +85,8 @@ func ReleaseServiceBlueGreen(req ReleaseRequest, rec ProjectRecord, gen Generati
 		portalloc.ReleaseOwners(createdOwners)
 		return err
 	}
-	if err := targetRunner.Up(req.ImageRef); err != nil {
-		_ = targetRunner.Down(false)
+	if err := targetRunner.UpServiceNoDeps(req.Service, req.ImageRef); err != nil {
+		_ = targetRunner.RemoveService(req.Service)
 		portalloc.ReleaseOwners(createdOwners)
 		return err
 	}
@@ -91,7 +98,7 @@ func ReleaseServiceBlueGreen(req ReleaseRequest, rec ProjectRecord, gen Generati
 	for _, ep := range endpoints {
 		containerName, err := targetRunner.ContainerNameForService(ep.Service)
 		if err != nil {
-			_ = targetRunner.Down(false)
+			_ = targetRunner.RemoveService(req.Service)
 			portalloc.ReleaseOwners(createdOwners)
 			return fmt.Errorf("blue-green health: %w", err)
 		}
@@ -101,7 +108,7 @@ func ReleaseServiceBlueGreen(req ReleaseRequest, rec ProjectRecord, gen Generati
 			HealthURL:     req.HealthURL,
 			Timeout:       healthTimeout,
 		}); err != nil {
-			_ = targetRunner.Down(false)
+			_ = targetRunner.RemoveService(req.Service)
 			portalloc.ReleaseOwners(createdOwners)
 			return fmt.Errorf("blue-green health check failed for %s: %w", ep.Service, err)
 		}
@@ -116,12 +123,34 @@ func ReleaseServiceBlueGreen(req ReleaseRequest, rec ProjectRecord, gen Generati
 		}
 		switches = append(switches, trafficswitch.PortSwitch{OldPort: oldPort, NewPort: ep.HostPort})
 	}
-	if err := trafficswitch.RepointComposeProject(req.Name, switches); err != nil {
-		_ = targetRunner.Down(false)
+	rollbackSites, err := trafficswitch.RepointComposeProjectWithRollback(req.Name, switches)
+	if err != nil {
+		_ = targetRunner.RemoveService(req.Service)
 		portalloc.ReleaseOwners(createdOwners)
 		return err
 	}
 
+	now := time.Now().UTC()
+	newGen := Generation{
+		ID:             genID,
+		Number:         gen.Number + 1,
+		ComposeProject: colorProjectName(req.Name, targetColor),
+		Color:          targetColor,
+		Fingerprint:    analysis.Fingerprint,
+		State:          StateActive,
+		Endpoints:      mergeGenerationEndpoints(gen.Endpoints, endpoints, req.Service),
+		CreatedAt:      now,
+		PromotedAt:     now,
+	}
+	rec.ActiveGenID = genID
+	rec.Generations = append(rec.Generations, newGen)
+	rec.UpdatedAt = now
+	if err := UpsertProject(rec); err != nil {
+		_ = rollbackSites()
+		_ = targetRunner.RemoveService(req.Service)
+		portalloc.ReleaseOwners(createdOwners)
+		return err
+	}
 	drain := req.Drain
 	if drain <= 0 {
 		drain = defaultDrain
@@ -133,27 +162,10 @@ func ReleaseServiceBlueGreen(req ReleaseRequest, rec ProjectRecord, gen Generati
 
 	if hasGen, oldRunner := activeColorRunner(rec, gen); hasGen {
 		progress("Stopping previous " + currentColor + " color...")
-		_ = oldRunner.Down(false)
-		portalloc.ReleaseColorOwners(req.Name, currentColor)
-	}
-
-	now := time.Now().UTC()
-	newGen := Generation{
-		ID:             genID,
-		Number:         gen.Number + 1,
-		ComposeProject: colorProjectName(req.Name, targetColor),
-		Color:          targetColor,
-		Fingerprint:    analysis.Fingerprint,
-		State:          StateActive,
-		Endpoints:      endpoints,
-		CreatedAt:      now,
-		PromotedAt:     now,
-	}
-	rec.ActiveGenID = genID
-	rec.Generations = append(rec.Generations, newGen)
-	rec.UpdatedAt = now
-	if err := UpsertProject(rec); err != nil {
-		return err
+		if err := oldRunner.RemoveService(req.Service); err != nil {
+			return fmt.Errorf("blue-green cleanup previous service: %w", err)
+		}
+		releasePreviousEndpointOwners(req.Name, gen, endpoints)
 	}
 	progress("Blue-green release complete — active color is now " + targetColor + ".")
 	return nil
@@ -199,16 +211,61 @@ func oppositeColor(color string) string {
 	return ColorGreen
 }
 
-func analysisAllowsBlueGreen(analysis *AnalyzeResult) error {
-	for _, m := range analysis.Mounts {
+func analysisAllowsBlueGreen(service ServiceSpec) error {
+	for _, m := range service.Mounts {
 		if !m.Supported {
 			continue
 		}
 		if m.Type == "volume" || m.Type == "bind" {
-			return fmt.Errorf("compose stack has persistent mounts — use --strategy rolling for stateful stacks")
+			return fmt.Errorf("service %q has persistent mounts — use --strategy rolling for stateful services", service.Name)
 		}
 	}
 	return nil
+}
+
+func serviceForBlueGreen(analysis *AnalyzeResult, name string) (ServiceSpec, error) {
+	for _, service := range analysis.Services {
+		if service.Name != name {
+			continue
+		}
+		if len(service.Endpoints) == 0 {
+			return ServiceSpec{}, fmt.Errorf("service %q has no published endpoints to switch", name)
+		}
+		return service, nil
+	}
+	return ServiceSpec{}, fmt.Errorf("service %q not found in compose manifest", name)
+}
+
+func validateSharedExternalNetworks(service ServiceSpec) error {
+	if len(service.Networks) == 0 {
+		return fmt.Errorf("service %q must declare a named external shared network for blue-green", service.Name)
+	}
+	for _, network := range service.Networks {
+		if !network.External || strings.TrimSpace(network.RuntimeName) == "" {
+			return fmt.Errorf("service %q must use only named external networks for blue-green", service.Name)
+		}
+	}
+	return nil
+}
+
+func mergeGenerationEndpoints(previous, replacement []Endpoint, service string) []Endpoint {
+	out := make([]Endpoint, 0, len(previous)+len(replacement))
+	for _, endpoint := range previous {
+		if endpoint.Service != service {
+			out = append(out, endpoint)
+		}
+	}
+	return append(out, replacement...)
+}
+
+func releasePreviousEndpointOwners(project string, previous Generation, endpoints []Endpoint) {
+	for _, endpoint := range endpoints {
+		if previous.Color == "" {
+			_ = portalloc.ReleaseOwner(endpointOwner(project, endpoint))
+			continue
+		}
+		_ = portalloc.ReleaseOwner(portalloc.ComposeColorOwner(project, previous.Color, endpoint.Service, endpoint.ContainerPort, endpoint.Protocol))
+	}
 }
 
 func endpointKey(ep Endpoint) string {

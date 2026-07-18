@@ -699,29 +699,6 @@ if [ -n "$TAG_NAME" ]; then
 fi
 ```
 
-### Blue-green (opt-in)
-
-Por defecto `sp compose release` usa **rolling**. Para blue-green:
-
-```bash
-export IMAGE_REF=ghcr.io/org/app:v1.2.3
-sp compose release --name myapp --service app \
-  --strategy blue-green \
-  --health-url /health \
-  --health-timeout 60s \
-  --drain 10s
-```
-
-Contenedor suelto con sitio Nginx gestionado:
-
-```bash
-sudo sp release --container myapi --image ghcr.io/org/api:v2 \
-  --strategy blue-green \
-  --health-url /health --drain 10s
-```
-
-Blue-green rechaza stacks/contenedores con mounts persistentes; usa `--strategy rolling` en ese caso.
-
 **Qué hace `sp compose release` (no lo reimplementes en bash):**
 
 ```
@@ -730,6 +707,49 @@ Blue-green rechaza stacks/contenedores con mounts persistentes; usa `--strategy 
 3. compose up -d --no-deps --no-build <service>
 4. Usa el manifiesto + override + serverpilot.env de la generación activa
 ```
+
+### Blue-green por servicio sobre red compartida
+
+El modo `--strategy blue-green` mantiene `rolling` como default y solo
+reemplaza el servicio indicado por `--service`. No inicia ni detiene las
+dependencias del proyecto Compose.
+
+El servicio candidato debe ser stateless y usar exclusivamente redes externas
+con nombre explícito. Esto permite que ambos colores resuelvan dependencias
+compartidas por los mismos hostnames:
+
+```yaml
+networks:
+  app-shared:
+    external: true
+    name: app-shared
+
+services:
+  app:
+    networks: [app-shared]
+```
+
+La red se crea fuera del ciclo de vida de Compose antes del bootstrap:
+
+```bash
+docker network create app-shared
+```
+
+Los puertos internos no cambian. ServerPilot reserva puertos host por color,
+espera salud y repunta únicamente los sitios Nginx de los endpoints publicados
+por el servicio objetivo:
+
+```bash
+sp compose release --name myapp --service app \
+  --strategy blue-green \
+  --health-url /ready \
+  --health-timeout 60s \
+  --drain 10s
+```
+
+Si cambió el manifiesto, primero ejecute un release rolling para reconciliarlo;
+ServerPilot rechaza blue-green en ese caso para evitar un `compose up` de todo
+el stack.
 
 ## C2. Variables que el SSH step DEBE exportar
 

@@ -213,6 +213,19 @@ func (r *Runner) UpServiceNoDeps(service, imageRef string) error {
 	return nil
 }
 
+// RemoveService stops and removes one service without affecting any other
+// services in the compose project.
+func (r *Runner) RemoveService(service string) error {
+	cmd, err := r.command("rm", "-s", "-f", service)
+	if err != nil {
+		return err
+	}
+	if err := runComposeCmd(cmd); err != nil {
+		return fmt.Errorf("compose remove service failed: %w", err)
+	}
+	return nil
+}
+
 func runComposeCmd(cmd *exec.Cmd) error {
 	var stderr bytes.Buffer
 	cmd.Stdout = os.Stdout

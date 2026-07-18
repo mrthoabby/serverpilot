@@ -48,15 +48,25 @@ type MountSpec struct {
 	Policy      VolumePolicy `json:"policy,omitempty"`
 }
 
+// NetworkSpec describes a Docker network attached to a compose service.
+// Blue-green candidates may only use named external networks so they can
+// resolve long-lived shared dependencies without creating a color-local network.
+type NetworkSpec struct {
+	Name        string `json:"name"`
+	RuntimeName string `json:"runtime_name"`
+	External    bool   `json:"external"`
+}
+
 // ServiceSpec is the normalized view of one compose service.
 type ServiceSpec struct {
-	Name         string      `json:"name"`
-	Image        string      `json:"image,omitempty"`
-	BuildContext string      `json:"build_context,omitempty"`
-	ExposedPorts []string    `json:"exposed_ports,omitempty"`
-	Endpoints    []Endpoint  `json:"endpoints,omitempty"`
-	Mounts       []MountSpec `json:"mounts,omitempty"`
-	InternalOnly bool        `json:"internal_only"`
+	Name         string        `json:"name"`
+	Image        string        `json:"image,omitempty"`
+	BuildContext string        `json:"build_context,omitempty"`
+	ExposedPorts []string      `json:"exposed_ports,omitempty"`
+	Endpoints    []Endpoint    `json:"endpoints,omitempty"`
+	Mounts       []MountSpec   `json:"mounts,omitempty"`
+	Networks     []NetworkSpec `json:"networks,omitempty"`
+	InternalOnly bool          `json:"internal_only"`
 }
 
 // AnalyzeResult is returned before any mutating compose operation.
