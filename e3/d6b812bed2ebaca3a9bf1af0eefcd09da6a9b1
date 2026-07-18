@@ -1,0 +1,34 @@
+internal/nginx/nginx_test.go
+  s_9d42ed75d09991::t_a7c317da02611d 81-105
+internal/web/templates/partials/panel-sites.html
+  s_9d42ed75d09991::t_8e9dc3e0022fb4 9-12
+internal/nginx/nginx.go
+  s_9d42ed75d09991::t_941821414bb38f 570-575,581-585
+internal/nginx/repair.go
+  s_9d42ed75d09991::t_1e3bc1978c7913 9
+  s_9d42ed75d09991::t_2a71c27566818a 302-303,305,310-314,319,322-346,348-356,359-360
+  s_9d42ed75d09991::t_4494d6d6f910a4 31-35,95-96,100-104,132-141,146,156,160-178
+  s_9d42ed75d09991::t_62848f48396c66 4,86-88,97-99,109-111,124-125,127-129,131
+  s_9d42ed75d09991::t_fd8d78f848886b 57-60,94,142-145,147-155,157-159
+  s_9d42ed75d09991::t_96acb2af17c7d1 66,84,108,112-113,126,130,282-283
+internal/web/static/js/modules/site-modals.js
+  s_9d42ed75d09991::t_0564f20b829c92 12
+internal/web/server.go
+  s_9d42ed75d09991::t_4123a16cb117dc 119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "e3d6b812bed2ebaca3a9bf1af0eefcd09da6a9b1",
+  "prompts": {},
+  "sessions": {
+    "s_9d42ed75d09991": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ca396ca0-92d0-4608-bd48-7db50cd50ae4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
