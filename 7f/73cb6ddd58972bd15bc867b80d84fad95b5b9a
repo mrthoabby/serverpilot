@@ -1,0 +1,32 @@
+internal/web/static/js/core.js
+  s_9d42ed75d09991::t_c983e9b8199654 157,166,185-186
+  s_9d42ed75d09991::t_861272baf349d9 183-184,187-188
+internal/web/handlers.go
+  s_9d42ed75d09991::t_25ad19bd8bb9d4 1436-1440,1446
+  s_9d42ed75d09991::t_1d6bf2648a0fe2 1441-1445
+internal/web/static/js/modules/site-modals.js
+  s_9d42ed75d09991::t_dfbd59416a4be4 126-132
+internal/web/static/containers-sites.js
+  s_9d42ed75d09991::t_c157cdfb2994ce 940-986,999,1001
+  s_9d42ed75d09991::t_836a2e0123e38d 1017
+internal/sites/service.go
+  s_9d42ed75d09991::t_0deee786401e7c 117,119-123
+internal/sites/errors.go
+  s_9d42ed75d09991::t_6f1bc4d87028e8 1-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "7f73cb6ddd58972bd15bc867b80d84fad95b5b9a",
+  "prompts": {},
+  "sessions": {
+    "s_9d42ed75d09991": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ca396ca0-92d0-4608-bd48-7db50cd50ae4",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
