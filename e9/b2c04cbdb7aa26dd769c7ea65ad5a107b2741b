@@ -1,0 +1,118 @@
+cmd/release.go
+  s_9d42ed75d09991::t_8dbcbf4212cb68 1-13,20-60
+  s_9d42ed75d09991::t_537123be247544 14-19
+internal/compose/release.go
+  s_9d42ed75d09991::t_37ec1b8d6e7c47 108
+  s_9d42ed75d09991::t_cb79aa1341eb8c 105-107
+  s_9d42ed75d09991::t_6e8b54ba6ce4af 9
+  s_9d42ed75d09991::t_0739b782ab6af9 22-25
+  s_9d42ed75d09991::t_a6ace602b32af9 191-202
+internal/deployhealth/health_test.go
+  s_9d42ed75d09991::t_dbf49eac7313a1 1-55
+internal/portalloc/batch_test.go
+  s_9d42ed75d09991::t_532ebddb8d2e44 34-46
+internal/portalloc/batch.go
+  s_9d42ed75d09991::t_70f9395e156466 86-106
+internal/web/templates/partials/modals.html
+  s_9d42ed75d09991::t_d1c8a7ff8af981 218-263
+internal/web/static/js/modules/modals.js
+  s_9d42ed75d09991::t_f8107f5f2ec9b8 295
+  s_9d42ed75d09991::t_3134eddff218ec 305-417
+internal/web/handlers_compose_test.go
+  s_9d42ed75d09991::t_bd3a3b1dbe42cd 25
+internal/web/handlers_containers_sites_test.go
+  s_9d42ed75d09991::t_cec9cfd199ed95 9-18
+internal/web/handlers_containers_sites.go
+  s_9d42ed75d09991::t_5dff7c9cde97a1 311
+  s_9d42ed75d09991::t_98040341b33e00 51-59
+  s_9d42ed75d09991::t_359624fd6a6b58 292-310,312-325
+  s_9d42ed75d09991::t_507e89af5a8593 9,11
+  s_9d42ed75d09991::t_118a461bf4337c 14
+  s_9d42ed75d09991::t_e2b8852d98d017 331-336,338
+internal/trafficswitch/switch.go
+  s_9d42ed75d09991::t_7cde5314246d9a 1-81
+internal/web/server.go
+  s_9d42ed75d09991::t_12919804ebe9a8 99
+  s_9d42ed75d09991::t_6110032cae509c 87
+internal/docker/bluegreen.go
+  s_9d42ed75d09991::t_e8bbd12b0a11e3 13
+  s_9d42ed75d09991::t_2f8830da53cce2 19-20
+  s_9d42ed75d09991::t_488fbb2aa3b6fa 1-12,14-18,21-57,59-108,113-176,178-181,231-252,254-260,263,266,268-270,273,275
+  s_9d42ed75d09991::t_09c406b69cb5fc 58,109-112
+  s_9d42ed75d09991::t_7566e3255ff0fb 177,182-230
+  s_9d42ed75d09991::t_72ec0263d99eef 253
+  s_9d42ed75d09991::t_c4f2e57dc6654d 261-262,264-265,267,271-272,274
+internal/web/static/containers-sites.js
+  s_9d42ed75d09991::t_99b8d547d5c238 740-743,747-761
+  s_9d42ed75d09991::t_7e7b147311492a 649-658
+internal/web/handlers.go
+  s_9d42ed75d09991::t_a3d92372382782 1390-1394
+internal/compose/socket.go
+  s_9d42ed75d09991::t_0e6a110864fd1f 35-38
+  s_9d42ed75d09991::t_2adf242ee5fcaa 131-134
+  s_9d42ed75d09991::t_0199cb0803e809 199-202
+internal/web/handlers_compose.go
+  s_9d42ed75d09991::t_0b3ffc65b8ac4a 111-120,122-144
+  s_9d42ed75d09991::t_8d5a5a7c54a8af 121
+  s_9d42ed75d09991::t_2e288af7197ff8 255-266
+  s_9d42ed75d09991::t_fe079788a3f2b4 8
+  s_9d42ed75d09991::t_88f16956f1e7e9 30-42
+  s_9d42ed75d09991::t_cfe80bc6084a06 7
+internal/docker/validate_site.go
+  s_9d42ed75d09991::t_d5f3add4e81d50 1-34
+internal/compose/models.go
+  s_9d42ed75d09991::t_006a429a8bf60a 81
+internal/sites/registry.go
+  s_9d42ed75d09991::t_c00ffa9ed5a44d 276-289
+docs/DEPLOY.md
+  s_9d42ed75d09991::t_5f1cf47ce6382e 702-724
+cmd/compose.go
+  s_9d42ed75d09991::t_4ac414d7fc58cf 23-26
+  s_9d42ed75d09991::t_74a00e2a57d9dd 248-251
+  s_9d42ed75d09991::t_4ef2cfd3a5bce6 8
+  s_9d42ed75d09991::t_373df0ce820c08 209-212
+internal/sites/repoint.go
+  s_9d42ed75d09991::t_abe1994e536328 175-196
+  s_9d42ed75d09991::t_9877f4f22d0d2f 1-10,19-70,72,105,122,134,139,159-174
+  s_c177bbfd0a6fe6::t_697e8564f2e985 11-18,71,73-104,106-121,123-133,135-138,140-158
+internal/compose/bluegreen.go
+  s_9d42ed75d09991::t_b3b6ce44b2b5a0 12
+  s_9d42ed75d09991::t_027bfae7e7f29d 6
+  s_9d42ed75d09991::t_7cfdd2a75e6418 78,83,95,105
+  s_9d42ed75d09991::t_e94f2225ecf0b6 1-5,7-11,13-59,61-64,66-77,79-82,84-94,96-104,106-110,112-116,123-234,237-273
+  s_9d42ed75d09991::t_2e64f03cc050bc 60,65
+  s_9d42ed75d09991::t_1c112bd31081fe 111,117-122
+  s_9d42ed75d09991::t_9bbc8a0508b84f 235-236
+internal/deployhealth/health.go
+  s_9d42ed75d09991::t_e4f62195e65541 1-120
+internal/compose/bluegreen_test.go
+  s_9d42ed75d09991::t_9eecea468cf230 6
+  s_9d42ed75d09991::t_4e120e52c4b67f 48
+  s_9d42ed75d09991::t_a1f62b57981c37 75
+  s_9d42ed75d09991::t_9ddcabd3bb59c6 1-5,7-10,17-47,49-74,76-78
+  s_9d42ed75d09991::t_537123be247544 11-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "e9b2c04cbdb7aa26dd769c7ea65ad5a107b2741b",
+  "prompts": {},
+  "sessions": {
+    "s_9d42ed75d09991": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ca396ca0-92d0-4608-bd48-7db50cd50ae4",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    },
+    "s_c177bbfd0a6fe6": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "dbcc124e-fe0d-4d26-9f1b-5251e0a0081a",
+        "model": "gpt-5.6-sol-medium"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
