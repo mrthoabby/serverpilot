@@ -195,6 +195,7 @@ func (s *Server) Start() error {
 	mux.Handle("/api/managed-apps/env/create", s.requireSecureReauth(http.HandlerFunc(s.handleEnvFileCreate)))
 	mux.Handle("/api/managed-apps/env/save", s.requireSecureReauth(http.HandlerFunc(s.handleEnvFileSave)))
 	mux.Handle("/api/managed-apps/env/delete", s.requireSecureReauth(http.HandlerFunc(s.handleEnvFileDelete)))
+	mux.Handle("/api/managed-apps/files", s.authMiddleware(http.HandlerFunc(s.handleManagedAppFiles)))
 
 	// Cases — operator notes/scenarios (public or private).
 	mux.Handle("/api/cases", s.authMiddleware(http.HandlerFunc(s.handleCasesList)))

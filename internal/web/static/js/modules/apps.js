@@ -258,40 +258,162 @@
 
     var cards = apps.map(function(app) {
       var envBadges = (app.env_files || []).map(function(f) {
-        return '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:6px;background:var(--bg-primary);border:1px solid var(--border);font-family:monospace;font-size:0.75rem;color:var(--text-secondary);cursor:pointer;" ' +
+        return '<span class="managed-app-env-badge" ' +
           'onclick="openEditEnvFile(\'' + escapeHtml(app.name) + '\',\'' + escapeHtml(f) + '\')" title="Click to edit">' +
           '<svg width="12" height="12" viewBox="0 0 16 16" fill="var(--accent)" style="flex-shrink:0;"><path d="M2 4a2 2 0 012-2h4.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V12a2 2 0 01-2 2H4a2 2 0 01-2-2V4z"/></svg>' +
           escapeHtml(f) +
-          '<button onclick="event.stopPropagation();deleteEnvFile(\'' + escapeHtml(app.name) + '\',\'' + escapeHtml(f) + '\')" ' +
-            'style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:0;margin-left:4px;font-size:0.875rem;line-height:1;" title="Delete file">&times;</button>' +
+          '<button onclick="event.stopPropagation();deleteEnvFile(\'' + escapeHtml(app.name) + '\',\'' + escapeHtml(f) + '\')" title="Delete file">&times;</button>' +
         '</span>';
       }).join(' ');
 
       var created = app.created_at ? new Date(app.created_at).toLocaleDateString() : '—';
 
-      return '<div style="padding:1rem 1.25rem;border-bottom:1px solid var(--border);">' +
-        '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">' +
-          '<div style="display:flex;align-items:center;gap:0.75rem;">' +
+      return '<div class="managed-app-card">' +
+        '<div class="managed-app-header">' +
+          '<div class="managed-app-identity">' +
             '<span style="font-size:1.25rem;">📂</span>' +
-            '<div>' +
-              '<div style="font-weight:600;color:var(--text-primary);">' + escapeHtml(app.name) + '</div>' +
-              '<div style="font-family:monospace;font-size:0.6875rem;color:var(--text-muted);">' + escapeHtml(app.path) + '</div>' +
+            '<div style="min-width:0;">' +
+              '<div class="managed-app-name">' + escapeHtml(app.name) + '</div>' +
+              '<div class="managed-app-path">' + escapeHtml(app.path) + '</div>' +
             '</div>' +
           '</div>' +
-          '<div style="display:flex;align-items:center;gap:0.5rem;">' +
-            '<span style="font-size:0.6875rem;color:var(--text-muted);">Created ' + escapeHtml(created) + '</span>' +
-            '<button class="btn btn-sm btn-outline" onclick="openCreateEnvFileModal(\'' + escapeHtml(app.name) + '\')" style="font-size:0.75rem;">+ .env</button>' +
-            '<button class="btn btn-sm btn-outline" onclick="openManagedAppPermsModal(\'' + escapeHtml(app.name) + '\')" style="font-size:0.75rem;">🔒 Permissions</button>' +
-            '<button class="btn btn-sm" style="background:var(--red);color:#fff;border:none;font-size:0.75rem;" onclick="openDeleteAppModal(\'' + escapeHtml(app.name) + '\')">Delete</button>' +
+          '<div class="managed-app-actions">' +
+            '<span class="managed-app-created">Created ' + escapeHtml(created) + '</span>' +
+            '<button class="btn btn-sm btn-outline" onclick="openCreateEnvFileModal(\'' + escapeHtml(app.name) + '\')">+ .env</button>' +
+            '<button class="btn btn-sm btn-outline" onclick="openAppDirModal(\'' + escapeHtml(app.name) + '\')">Ver directorio</button>' +
+            '<button class="btn btn-sm btn-outline" onclick="openManagedAppPermsModal(\'' + escapeHtml(app.name) + '\')">🔒 Permissions</button>' +
+            '<button class="btn btn-sm" style="background:var(--red);color:#fff;border:none;" onclick="openDeleteAppModal(\'' + escapeHtml(app.name) + '\')">Delete</button>' +
           '</div>' +
         '</div>' +
-        '<div style="display:flex;flex-wrap:wrap;gap:0.5rem;">' +
+        '<div class="managed-app-env-list">' +
           (envBadges || '<span style="font-size:0.75rem;color:var(--text-muted);font-style:italic;">No .env files</span>') +
         '</div>' +
       '</div>';
     }).join('');
 
     el.innerHTML = cards;
+  }
+
+  // ── App Directory Browser ──
+  var appDirState = { app: "", path: "" };
+
+  function formatDirSize(bytes) {
+    if (bytes == null || bytes < 0) return "—";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+    return (bytes / (1024 * 1024 * 1024)).toFixed(1) + " GB";
+  }
+
+  function formatDirType(type) {
+    if (type === "dir") return "Carpeta";
+    if (type === "file") return "Archivo";
+    if (type === "symlink") return "Enlace";
+    return "Otro";
+  }
+
+  function formatDirIcon(type) {
+    if (type === "dir") return "📁";
+    if (type === "symlink") return "🔗";
+    if (type === "file") return "📄";
+    return "•";
+  }
+
+  function renderAppDirBreadcrumb(appName, path) {
+    var el = document.getElementById("appDirBreadcrumb");
+    if (!el) return;
+    var parts = path ? path.split("/") : [];
+    var crumbs = ['<button type="button" onclick="loadAppDir(\'' + escapeHtml(appName) + '\', \'\')">/opt/' + escapeHtml(appName) + "</button>"];
+    var current = "";
+    parts.forEach(function(part, idx) {
+      current = current ? current + "/" + part : part;
+      var targetPath = current;
+      crumbs.push('<span style="color:var(--text-muted);">/</span>');
+      if (idx === parts.length - 1) {
+        crumbs.push('<span style="font-family:monospace;color:var(--text-primary);">' + escapeHtml(part) + "</span>");
+      } else {
+        crumbs.push('<button type="button" onclick="loadAppDir(\'' + escapeHtml(appName) + '\', \'' + escapeHtml(targetPath) + '\')">' + escapeHtml(part) + "</button>");
+      }
+    });
+    el.innerHTML = crumbs.join("");
+  }
+
+  function renderAppDirListing(data) {
+    var el = document.getElementById("appDirContent");
+    if (!el) return;
+    var entries = (data && data.entries) ? data.entries : [];
+    if (!entries.length) {
+      el.innerHTML = '<p style="padding:1rem;color:var(--text-muted);font-size:0.8125rem;">Este directorio está vacío.</p>';
+      return;
+    }
+
+    var rows = entries.map(function(entry) {
+      var modified = entry.modified ? new Date(entry.modified).toLocaleString() : "—";
+      var extra = entry.symlink_target ? ' <span style="color:var(--text-muted);">→ ' + escapeHtml(entry.symlink_target) + "</span>" : "";
+      var canOpen = entry.type === "dir" || entry.navigable;
+      var clickAttr = canOpen
+        ? ' class="app-dir-row" onclick="openAppDirEntry(\'' + escapeHtml(data.app) + '\', \'' + escapeHtml((data.path ? data.path + "/" : "") + entry.name) + '\')"'
+        : "";
+      return "<tr" + clickAttr + ">" +
+        '<td><span class="app-dir-name">' + formatDirIcon(entry.type) + " " + escapeHtml(entry.name) + extra + "</span></td>" +
+        '<td class="app-dir-meta">' + escapeHtml(formatDirType(entry.type)) + "</td>" +
+        '<td class="app-dir-meta">' + escapeHtml(formatDirSize(entry.size_bytes)) + "</td>" +
+        '<td class="app-dir-meta">' + escapeHtml(modified) + "</td>" +
+      "</tr>";
+    }).join("");
+
+    el.innerHTML =
+      '<div class="app-dir-table-wrap"><table class="app-dir-table">' +
+        "<thead><tr><th>Nombre</th><th>Tipo</th><th>Tamaño</th><th>Modificado</th></tr></thead>" +
+        "<tbody>" + rows + "</tbody>" +
+      "</table></div>";
+  }
+
+  async function loadAppDir(appName, path) {
+    appDirState.app = appName;
+    appDirState.path = path || "";
+    var content = document.getElementById("appDirContent");
+    var pathLabel = document.getElementById("appDirPathLabel");
+    if (pathLabel) {
+      pathLabel.textContent = "/opt/" + appName + (appDirState.path ? "/" + appDirState.path : "");
+    }
+    renderAppDirBreadcrumb(appName, appDirState.path);
+    if (content) {
+      content.innerHTML = '<div class="spinner"><div class="spinner-ring"></div>Loading directory...</div>';
+    }
+    try {
+      var url = "/api/managed-apps/files?app=" + encodeURIComponent(appName);
+      if (appDirState.path) {
+        url += "&path=" + encodeURIComponent(appDirState.path);
+      }
+      var resp = await apiFetch(url);
+      var data = (resp && resp.data) ? resp.data : resp;
+      renderAppDirListing(data);
+    } catch(err) {
+      if (content) {
+        content.innerHTML = '<p style="padding:1rem;color:var(--red);font-size:0.8125rem;">Error: ' + escapeHtml(err.message) + "</p>";
+      }
+    }
+  }
+
+  function openAppDirModal(appName) {
+    var modal = document.getElementById("appDirModal");
+    if (!modal) return;
+    document.getElementById("appDirTitle").textContent = "Directorio de " + appName;
+    modal.style.display = "flex";
+    loadAppDir(appName, "");
+  }
+
+  function closeAppDirModal() {
+    var modal = document.getElementById("appDirModal");
+    if (modal) modal.style.display = "none";
+    appDirState = { app: "", path: "" };
+    var content = document.getElementById("appDirContent");
+    if (content) content.innerHTML = "";
+  }
+
+  function openAppDirEntry(appName, path) {
+    loadAppDir(appName, path);
   }
 
   // ── Create App Modal ──
@@ -537,6 +659,12 @@
       if (e.target === this) closeEditEnvModal();
     });
   }
+  var appDirModalEl = document.getElementById("appDirModal");
+  if (appDirModalEl) {
+    appDirModalEl.addEventListener("click", function(e) {
+      if (e.target === this) closeAppDirModal();
+    });
+  }
 
   window.loadManagedApps      = loadManagedApps;
   window.openCreateAppModal   = openCreateAppModal;
@@ -548,6 +676,10 @@
   window.openEditEnvFile      = openEditEnvFile;
   window.closeEditEnvModal    = closeEditEnvModal;
   window.toggleEditEnvFullscreen = toggleEditEnvFullscreen;
+  window.openAppDirModal      = openAppDirModal;
+  window.closeAppDirModal     = closeAppDirModal;
+  window.loadAppDir           = loadAppDir;
+  window.openAppDirEntry      = openAppDirEntry;
   window.submitSaveEnvFile    = submitSaveEnvFile;
   window.deleteEnvFile        = deleteEnvFile;
   window.openDeleteAppModal   = openDeleteAppModal;

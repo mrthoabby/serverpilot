@@ -4572,6 +4572,30 @@ func (s *Server) handleManagedAppDelete(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, apiResponse{Success: true})
 }
 
+// handleManagedAppFiles lists one directory inside a managed application.
+func (s *Server) handleManagedAppFiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+
+	appName := strings.TrimSpace(r.URL.Query().Get("app"))
+	relPath := strings.TrimSpace(r.URL.Query().Get("path"))
+	if appName == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "app name is required"})
+		return
+	}
+
+	listing, err := apps.ListAppDirectory(appName, relPath)
+	if err != nil {
+		log.Printf("managed-app files: %v", err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "unable to list directory"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: listing})
+}
+
 type envFileCreateRequest struct {
 	App    string `json:"app"`
 	Prefix string `json:"prefix"` // optional; empty = ".env"

@@ -3,9 +3,9 @@
 
       <!-- ── Managed Applications ── -->
       <div class="card" style="margin-bottom:1.5rem;">
-        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+        <div class="card-header">
           <h2>Managed Applications</h2>
-          <div style="display:flex;gap:0.5rem;">
+          <div class="toolbar">
             <button class="btn btn-sm btn-outline" onclick="loadManagedApps()">&#x21bb; Refresh</button>
             <button class="btn btn-sm" style="background:var(--accent);color:#fff;border:none;" onclick="openCreateAppModal()">+ Create Application</button>
           </div>
@@ -20,8 +20,8 @@
       </div>
 
       <!-- Create App Modal -->
-      <div id="createAppModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
-        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:560px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+      <div id="createAppModal" class="sp-modal-overlay">
+        <div class="sp-modal-dialog sp-modal-dialog--md">
           <h3 style="margin:0 0 1rem 0;">Create Application</h3>
           <p style="color:var(--text-secondary);font-size:0.8125rem;margin-bottom:1rem;line-height:1.5;">
             Enter the application name. A directory will be created at <code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;">/opt/&lt;name&gt;</code> with a default <code>.env</code> file.
@@ -35,7 +35,7 @@
             <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.5rem;font-weight:600;">VARIABLES DE ENTORNO INICIALES (opcional)</label>
             <div id="createAppEnvEditorRoot"></div>
           </div>
-          <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
+          <div class="sp-modal-actions">
             <button class="btn btn-sm btn-outline" onclick="closeCreateAppModal()">Cancel</button>
             <button class="btn btn-sm" id="createAppBtn" style="background:var(--accent);color:#fff;border:none;" onclick="submitCreateApp()">Create</button>
           </div>
@@ -43,8 +43,8 @@
       </div>
 
       <!-- Create Env File Modal -->
-      <div id="createEnvModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
-        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:560px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+      <div id="createEnvModal" class="sp-modal-overlay">
+        <div class="sp-modal-dialog sp-modal-dialog--md">
           <h3 style="margin:0 0 1rem 0;">Add .env File</h3>
           <p style="color:var(--text-secondary);font-size:0.8125rem;margin-bottom:1rem;line-height:1.5;">
             Enter a prefix for the .env file name, or leave empty for the default <code>.env</code>.
@@ -62,7 +62,7 @@
             <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.5rem;font-weight:600;">CONTENIDO INICIAL (opcional)</label>
             <div id="createEnvFileEditorRoot"></div>
           </div>
-          <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
+          <div class="sp-modal-actions">
             <button class="btn btn-sm btn-outline" onclick="closeCreateEnvModal()">Cancel</button>
             <button class="btn btn-sm" id="createEnvBtn" style="background:var(--accent);color:#fff;border:none;" onclick="submitCreateEnvFile()">Create File</button>
           </div>
@@ -70,19 +70,20 @@
       </div>
 
       <!-- Edit Env File Modal -->
-      <div id="editEnvModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
-        <div id="editEnvModalDialog" class="env-edit-modal-dialog">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;gap:0.75rem;">
-            <div style="display:flex;align-items:center;gap:0.5rem;min-width:0;">
-              <h3 style="margin:0;" id="editEnvTitle">Edit .env</h3>
+      <div id="editEnvModal" class="sp-modal-overlay">
+        <div id="editEnvModalDialog" class="env-edit-modal-dialog sp-modal-dialog">
+          <button type="button" class="env-edit-modal-close" onclick="closeEditEnvModal()" title="Cerrar" aria-label="Cerrar">&times;</button>
+          <div class="env-edit-modal-header">
+            <div class="env-edit-modal-header-main">
+              <h3 id="editEnvTitle">Edit .env</h3>
               <button type="button" class="btn btn-sm btn-outline" id="editEnvFullscreenBtn" onclick="toggleEditEnvFullscreen()" title="Pantalla completa" aria-label="Pantalla completa">&#x26F6;</button>
             </div>
-            <div style="display:flex;align-items:center;gap:0.5rem;flex-shrink:0;">
+            <div class="env-edit-modal-badge">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="var(--green)"><path d="M8 16A8 8 0 108 0a8 8 0 000 16zm3.78-9.72a.75.75 0 00-1.06-1.06L7.25 8.69 5.28 6.72a.75.75 0 00-1.06 1.06l2.5 2.5a.75.75 0 001.06 0l4-4z"/></svg>
-              <span style="font-size:0.6875rem;color:var(--green);font-weight:600;">AES-256-GCM ENCRYPTED</span>
+              <span>AES-256-GCM ENCRYPTED</span>
             </div>
           </div>
-          <p style="color:var(--text-secondary);font-size:0.75rem;margin-bottom:0.75rem;">
+          <p class="env-edit-modal-meta">
             <span id="editEnvMeta"></span>
           </p>
           <input type="hidden" id="editEnvApp">
@@ -96,17 +97,34 @@
       </div>
 
       <!-- Delete App Confirmation Modal -->
-      <div id="deleteAppModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
-        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:2rem;max-width:480px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+      <div id="deleteAppModal" class="sp-modal-overlay">
+        <div class="sp-modal-dialog sp-modal-dialog--md">
           <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;">
             <svg width="24" height="24" viewBox="0 0 16 16" fill="var(--red)"><path d="M8.982 1.566a1.13 1.13 0 00-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 01-1.1 0L7.1 5.995A.905.905 0 018 5zm.002 6a1 1 0 110 2 1 1 0 010-2z"/></svg>
             <h3 style="margin:0;color:var(--red);">Delete Application</h3>
           </div>
           <p id="deleteAppDesc" style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1.5rem;line-height:1.5;"></p>
           <input type="hidden" id="deleteAppName">
-          <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
+          <div class="sp-modal-actions">
             <button class="btn btn-sm btn-outline" onclick="closeDeleteAppModal()">Cancel</button>
             <button class="btn btn-sm" id="deleteAppConfirmBtn" style="background:var(--red);color:#fff;border:none;" onclick="submitDeleteApp()">Yes, delete everything</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- App Directory Browser Modal -->
+      <div id="appDirModal" class="sp-modal-overlay">
+        <div id="appDirModalDialog" class="env-edit-modal-dialog sp-modal-dialog app-dir-modal-dialog">
+          <button type="button" class="env-edit-modal-close" onclick="closeAppDirModal()" title="Cerrar" aria-label="Cerrar">&times;</button>
+          <div class="app-dir-modal-header">
+            <div style="min-width:0;padding-right:1.75rem;">
+              <h3 style="margin:0;" id="appDirTitle">App directory</h3>
+              <p style="margin:0.35rem 0 0;color:var(--text-muted);font-family:monospace;font-size:0.75rem;word-break:break-all;" id="appDirPathLabel"></p>
+            </div>
+          </div>
+          <div class="app-dir-breadcrumb" id="appDirBreadcrumb"></div>
+          <div id="appDirContent" class="app-dir-content">
+            <div class="spinner"><div class="spinner-ring"></div>Loading directory...</div>
           </div>
         </div>
       </div>

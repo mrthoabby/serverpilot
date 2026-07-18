@@ -1,6 +1,10 @@
 /* Shared environment variable editor: plain textarea + optional friendly key/value rows. */
 (function(global) {
   var PREF_KEY = "sp.envEditor.friendly";
+  var KEY_COL_PREF = "sp.envEditor.keyColWidth";
+  var DEFAULT_KEY_COL = 280;
+  var MIN_KEY_COL = 140;
+  var MAX_KEY_COL = 560;
   var VALID_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
   function parseEnvText(text) {
@@ -166,10 +170,88 @@
     var friendlyPanel = document.createElement("div");
     friendlyPanel.className = "env-editor-friendly";
     friendlyPanel.style.display = "none";
+
+    var listWrap = document.createElement("div");
+    listWrap.className = "env-editor-list-wrap";
+
     var listEl = document.createElement("div");
     listEl.className = "env-editor-list";
-    listEl.style.cssText = "max-height:" + defaultListMaxHeight + ";overflow:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg-input);";
-    friendlyPanel.appendChild(listEl);
+    listEl.style.maxHeight = defaultListMaxHeight;
+
+    var resizer = document.createElement("div");
+    resizer.className = "env-editor-col-resizer";
+    resizer.title = "Arrastra para ajustar el ancho de KEY";
+    resizer.setAttribute("aria-label", "Ajustar ancho de columna KEY");
+    resizer.setAttribute("role", "separator");
+    resizer.setAttribute("aria-orientation", "vertical");
+
+    listWrap.appendChild(listEl);
+    listWrap.appendChild(resizer);
+    friendlyPanel.appendChild(listWrap);
+
+    var keyColWidth = DEFAULT_KEY_COL;
+    if (persistPreference) {
+      try {
+        var storedWidth = parseInt(localStorage.getItem(KEY_COL_PREF), 10);
+        if (storedWidth >= MIN_KEY_COL && storedWidth <= MAX_KEY_COL) {
+          keyColWidth = storedWidth;
+        }
+      } catch (e) {}
+    }
+
+    function applyKeyColWidth(px) {
+      keyColWidth = px;
+      listWrap.style.setProperty("--env-editor-key-col", px + "px");
+    }
+
+    function saveKeyColWidth() {
+      if (!persistPreference) return;
+      try { localStorage.setItem(KEY_COL_PREF, String(keyColWidth)); } catch (e) {}
+    }
+
+    applyKeyColWidth(keyColWidth);
+
+    var resizing = false;
+    function onResizeMove(e) {
+      if (!resizing) return;
+      var rect = listWrap.getBoundingClientRect();
+      var next = e.clientX - rect.left - 8;
+      next = Math.max(MIN_KEY_COL, Math.min(MAX_KEY_COL, next));
+      applyKeyColWidth(next);
+    }
+    function onTouchResizeMove(e) {
+      if (!resizing || !e.touches || !e.touches.length) return;
+      onResizeMove(e.touches[0]);
+      e.preventDefault();
+    }
+    function onResizeEnd() {
+      if (!resizing) return;
+      resizing = false;
+      resizer.classList.remove("is-dragging");
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      saveKeyColWidth();
+    }
+    resizer.addEventListener("mousedown", function(e) {
+      if (e.button !== 0) return;
+      resizing = true;
+      resizer.classList.add("is-dragging");
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      e.preventDefault();
+    });
+    resizer.addEventListener("touchstart", function(e) {
+      if (!e.touches || !e.touches.length) return;
+      resizing = true;
+      resizer.classList.add("is-dragging");
+      e.preventDefault();
+    }, { passive: false });
+    document.addEventListener("mousemove", onResizeMove);
+    document.addEventListener("mouseup", onResizeEnd);
+    document.addEventListener("touchmove", onTouchResizeMove, { passive: false });
+    document.addEventListener("touchend", onResizeEnd);
+    document.addEventListener("touchcancel", onResizeEnd);
+
     var addBtn = document.createElement("button");
     addBtn.type = "button";
     addBtn.className = "btn btn-sm btn-outline env-editor-add-btn";
@@ -191,13 +273,11 @@
       k.value = key || "";
       k.placeholder = "KEY";
       k.className = "env-editor-key";
-      k.style.cssText = "padding:0.35rem 0.5rem;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:0.8125rem;";
       var v = document.createElement("input");
       v.type = sensitive ? "password" : "text";
       v.value = value || "";
       v.placeholder = "value";
       v.className = "env-editor-value";
-      v.style.cssText = "padding:0.35rem 0.5rem;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:0.8125rem;";
 
       var copyBtn = document.createElement("button");
       copyBtn.type = "button";
@@ -260,6 +340,13 @@
         }
       });
 
+      var actions = document.createElement("div");
+      actions.className = "env-editor-row-actions";
+      actions.appendChild(copyBtn);
+      actions.appendChild(generateBtn);
+      actions.appendChild(toggleBtn);
+      actions.appendChild(removeBtn);
+
       v.addEventListener("input", function() {
         updateCopyBtnState(copyBtn, v, k);
       });
@@ -267,10 +354,7 @@
 
       row.appendChild(k);
       row.appendChild(v);
-      row.appendChild(copyBtn);
-      row.appendChild(generateBtn);
-      row.appendChild(toggleBtn);
-      row.appendChild(removeBtn);
+      row.appendChild(actions);
       return row;
     }
 
@@ -318,6 +402,14 @@
         textarea.style.height = defaultTextareaHeight;
         listEl.style.maxHeight = defaultListMaxHeight;
       }
+    }
+
+    function teardownResizeListeners() {
+      document.removeEventListener("mousemove", onResizeMove);
+      document.removeEventListener("mouseup", onResizeEnd);
+      document.removeEventListener("touchmove", onTouchResizeMove);
+      document.removeEventListener("touchend", onResizeEnd);
+      document.removeEventListener("touchcancel", onResizeEnd);
     }
 
     function syncToFriendly(showInfo) {
@@ -398,6 +490,7 @@
       destroy: function() {
         if (destroyed) return;
         destroyed = true;
+        teardownResizeListeners();
         textarea.value = "";
         listEl.innerHTML = "";
         rootEl.innerHTML = "";
