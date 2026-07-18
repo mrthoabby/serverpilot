@@ -9,7 +9,7 @@
   }
   onEl("redirectDelayed", "change", updateRedirectDelayOptions);
   onEl("repairNginxBtn", "click", async function() {
-    if (!window.confirm("Scan nginx configs, remove duplicate proxy directives, and reload nginx?")) return;
+    if (!window.confirm("Scan Nginx, repair known safe issues (including duplicate proxy directives and server name hash size), and reload Nginx?")) return;
     var btn = document.getElementById("repairNginxBtn");
     btn.disabled = true;
     try {

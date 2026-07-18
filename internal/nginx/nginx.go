@@ -567,12 +567,22 @@ func ReloadNginx() error {
 
 // TestConfig runs nginx -t to validate the configuration.
 func TestConfig() error {
+	return testConfigWithPath("")
+}
+
+// testConfigWithPath validates a trusted nginx main configuration file. An
+// empty path uses nginx's configured default.
+func testConfigWithPath(configPath string) error {
 	nginxBin, err := deps.NginxPath()
 	if err != nil {
 		return err
 	}
 
-	cmd := exec.Command(nginxBin, "-t")
+	args := []string{"-t"}
+	if configPath != "" {
+		args = append(args, "-c", configPath)
+	}
+	cmd := exec.Command(nginxBin, args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("nginx config test failed: %s", string(output))
 	}

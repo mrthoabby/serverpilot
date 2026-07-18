@@ -6,7 +6,10 @@
       <div class="card">
         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;">
           <h2>Nginx Sites</h2>
-          <button class="btn btn-sm btn-primary" id="createRedirectBtnLegacy" style="display:none;">Create Redirect</button>
+          <div style="display:flex;gap:0.5rem;align-items:center;">
+            <button class="btn btn-sm btn-outline" id="repairNginxBtn" title="Fix known safe Nginx configuration issues">Repair Nginx</button>
+            <button class="btn btn-sm btn-primary" id="createRedirectBtnLegacy" style="display:none;">Create Redirect</button>
+          </div>
         </div>
         <div id="sitesContent">
           <div class="spinner"><div class="spinner-ring"></div>Loading sites...</div>

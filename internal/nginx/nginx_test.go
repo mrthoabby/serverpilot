@@ -78,3 +78,28 @@ func TestSecurityCatchAllConfigUsesPlainNotFoundResponse(t *testing.T) {
 		t.Fatal("catch-all config must return the plain Site not found response")
 	}
 }
+
+func TestEnsureServerNamesHashBucketSizeAddsDirectiveToHTTPBlock(t *testing.T) {
+	input := "events {}\nhttp {\n    include mime.types;\n}\n"
+	got, changed := ensureServerNamesHashBucketSize(input)
+	if !changed {
+		t.Fatal("expected nginx hash directive to be added")
+	}
+	if !strings.Contains(got, "http {\n    server_names_hash_bucket_size 128;") {
+		t.Fatalf("missing directive in HTTP block:\n%s", got)
+	}
+}
+
+func TestEnsureServerNamesHashBucketSizeRaisesOnlySmallValue(t *testing.T) {
+	input := "http {\n  server_names_hash_bucket_size 64;\n}\n"
+	got, changed := ensureServerNamesHashBucketSize(input)
+	if !changed || !strings.Contains(got, "server_names_hash_bucket_size 128;") {
+		t.Fatalf("expected 64 to be raised, got:\n%s", got)
+	}
+
+	input = "http {\n  server_names_hash_bucket_size 256;\n}\n"
+	got, changed = ensureServerNamesHashBucketSize(input)
+	if changed || got != input {
+		t.Fatalf("must preserve sufficient configured value, got:\n%s", got)
+	}
+}
