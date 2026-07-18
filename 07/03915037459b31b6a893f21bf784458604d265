@@ -1,0 +1,28 @@
+internal/web/static/css/components.css
+  s_9d42ed75d09991::t_9debc099bee982 614-625
+internal/web/static/containers-sites.js
+  s_9d42ed75d09991::t_562293fd9df22d 854-857
+  s_9d42ed75d09991::t_3c04ce30f7d9c6 938-1030,1034-1061
+  s_9d42ed75d09991::t_1fdc8511fb5f2a 895-898
+  s_9d42ed75d09991::t_dcf932c589d894 816-820
+  s_9d42ed75d09991::t_c2519a7fbfd648 1031-1033
+  s_9d42ed75d09991::t_32c1c8d0921f34 1292-1297
+internal/web/templates/partials/modals.html
+  s_9d42ed75d09991::t_249672f692ba07 82-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "0703915037459b31b6a893f21bf784458604d265",
+  "prompts": {},
+  "sessions": {
+    "s_9d42ed75d09991": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ca396ca0-92d0-4608-bd48-7db50cd50ae4",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
