@@ -950,6 +950,45 @@
     return data;
   }
 
+  function nginxDiagFromApiError(err) {
+    if (!err || !err.data) return null;
+    var data = err.data;
+    if (data.nginx) return mergeNginxDiagPayload(data.nginx, data.hidden_configs);
+    if (data.detail || (data.issues && data.issues.length) || data.ok === false) {
+      return mergeNginxDiagPayload(data, data.hidden_configs);
+    }
+    return null;
+  }
+
+  function nginxErrorSummary(diagData, fallback) {
+    if (!diagData) return fallback;
+    var issue = diagData.issues && diagData.issues[0];
+    if (issue && issue.message) {
+      var loc = issue.file ? (" (" + issue.file + (issue.line ? ":" + issue.line : "") + ")") : "";
+      return issue.message + loc;
+    }
+    if (diagData.detail) {
+      var firstLine = diagData.detail.split("\n").filter(function(line) { return line.trim(); })[0];
+      if (firstLine) return firstLine;
+    }
+    return fallback;
+  }
+
+  async function presentNginxCreateFailure(err, fallbackMsg) {
+    var diagData = nginxDiagFromApiError(err);
+    if (diagData) {
+      showAssociateNginxRepairFromData(diagData);
+      if (typeof window.renderNginxDiagnostics === "function") {
+        window.renderNginxDiagnostics(diagData, { showRepair: true });
+      }
+      return nginxErrorSummary(diagData, fallbackMsg);
+    }
+    if (isNginxSiteCreateError(fallbackMsg)) {
+      await showAssociateNginxRepair();
+    }
+    return fallbackMsg;
+  }
+
   function showAssociateNginxRepairFromData(data) {
     var box = document.getElementById("assocNginxRepair");
     var message = document.getElementById("assocNginxRepairMessage");
@@ -1003,6 +1042,41 @@
   }
 
   var assocNginxRepairBtn = document.getElementById("assocNginxRepairBtn");
+  async function showAssocNginxTestOutput() {
+    var box = document.getElementById("assocNginxRepair");
+    var detail = document.getElementById("assocNginxRepairDetail");
+    if (box) box.style.display = "block";
+    if (detail) {
+      detail.style.display = "block";
+      detail.textContent = "Ejecutando nginx -t...";
+    }
+    var resp = await apiFetch("/api/nginx/test");
+    var data = (resp && resp.data) || {};
+    if (detail) {
+      detail.textContent = data.output || "(sin salida)";
+      detail.style.display = "block";
+    }
+    return data;
+  }
+
+  var assocNginxTestBtn = document.getElementById("assocNginxTestBtn");
+  if (assocNginxTestBtn) {
+    assocNginxTestBtn.addEventListener("click", async function() {
+      assocNginxTestBtn.disabled = true;
+      try {
+        await showAssocNginxTestOutput();
+      } catch (err) {
+        var detail = document.getElementById("assocNginxRepairDetail");
+        if (detail) {
+          detail.style.display = "block";
+          detail.textContent = (err && err.message) || "no se pudo ejecutar nginx -t";
+        }
+      } finally {
+        assocNginxTestBtn.disabled = false;
+      }
+    });
+  }
+
   if (assocNginxRepairBtn) {
     assocNginxRepairBtn.addEventListener("click", async function() {
       assocNginxRepairBtn.disabled = true;
@@ -1101,19 +1175,12 @@
             document.getElementById("associateModal").classList.remove("show");
             showToast("Site created", "success");
             await refreshContainerView();
-          } catch (err2) { showToast("Failed: " + err2.message, "error"); }
-        } else {
-          var nginxPayload = err.data && err.data.nginx;
-          if (nginxPayload) {
-            var diagData = mergeNginxDiagPayload(nginxPayload, err.data.hidden_configs);
-            showAssociateNginxRepairFromData(diagData);
-            if (typeof renderNginxDiagnostics === "function") {
-              renderNginxDiagnostics(diagData, { showRepair: true });
-            }
-          } else if (isNginxSiteCreateError(msg)) {
-            await showAssociateNginxRepair();
+          } catch (err2) {
+            var msg2 = (err2 && err2.message) || "error";
+            showToast("Failed: " + (await presentNginxCreateFailure(err2, msg2)), "error");
           }
-          showToast("Failed: " + msg, "error");
+        } else {
+          showToast("Failed: " + (await presentNginxCreateFailure(err, msg)), "error");
         }
       } finally {
         btn.disabled = false;

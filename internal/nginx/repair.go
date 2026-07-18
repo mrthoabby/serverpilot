@@ -41,16 +41,16 @@ const minimumServerNamesHashBucketSize = 128
 
 // Diagnose runs nginx -t and parses common failure patterns.
 func Diagnose() RepairReport {
-	err := TestConfig()
-	if err == nil {
-		return RepairReport{OK: true}
+	ok, output := TestConfigOutput()
+	if ok {
+		return RepairReport{OK: true, Detail: output}
 	}
-	raw := err.Error()
+	wrapped := "nginx config test failed: " + output
 	return RepairReport{
 		OK:             false,
-		Issues:         parseNginxTestIssues(raw),
-		RemainingError: sanitizeNginxError(raw),
-		Detail:         nginxErrorDetail(raw),
+		Issues:         parseNginxTestIssues(wrapped),
+		RemainingError: sanitizeNginxError(wrapped),
+		Detail:         output,
 	}
 }
 

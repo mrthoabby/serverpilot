@@ -116,6 +116,7 @@ func (s *Server) Start() error {
 	mux.Handle("/api/sites/update-domain", s.requireSecureReauth(http.HandlerFunc(s.handleSiteUpdateDomain)))
 	mux.Handle("/api/sites/delete", s.requireSecureReauth(http.HandlerFunc(s.handleSiteDelete)))
 	mux.Handle("/api/nginx/diagnose", s.authMiddleware(http.HandlerFunc(s.handleNginxDiagnose)))
+	mux.Handle("/api/nginx/test", s.authMiddleware(http.HandlerFunc(s.handleNginxTest)))
 	mux.Handle("/api/nginx/repair", s.requireSecureReauth(http.HandlerFunc(s.handleNginxRepair)))
 	mux.Handle("/api/system", s.authMiddleware(http.HandlerFunc(s.handleSystem)))
 	mux.Handle("/api/system/memory-detail", s.authMiddleware(http.HandlerFunc(s.handleMemoryDetail)))

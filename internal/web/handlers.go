@@ -1435,11 +1435,16 @@ func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
 			}
 			if nginxErr, ok := err.(*sites.NginxActivationError); ok {
 				hidden, _ := nginx.ListHiddenSiteConfigs()
+				report := nginxErr.Report
 				writeJSON(w, status, apiResponse{
 					Error: clientErr,
 					Data: map[string]interface{}{
-						"nginx":          nginxErr.Report,
-						"hidden_configs": hidden,
+						"nginx":           report,
+						"ok":              report.OK,
+						"issues":          report.Issues,
+						"detail":          report.Detail,
+						"remaining_error": report.RemainingError,
+						"hidden_configs":  hidden,
 					},
 				})
 				return
@@ -1513,6 +1518,19 @@ func (s *Server) handleNginxDiagnose(w http.ResponseWriter, r *http.Request) {
 		"remaining_error": report.RemainingError,
 		"detail":          report.Detail,
 		"hidden_configs":  hidden,
+	}})
+}
+
+// handleNginxTest runs nginx -t and returns the raw command output.
+func (s *Server) handleNginxTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	ok, output := nginx.TestConfigOutput()
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]interface{}{
+		"ok":     ok,
+		"output": output,
 	}})
 }
 

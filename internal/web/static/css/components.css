@@ -190,6 +190,10 @@
   max-width: 820px;
 }
 
+#nginxDiagModal.modal-overlay {
+  z-index: 320;
+}
+
 .nginx-diag-fixed {
   background: rgba(63, 185, 80, 0.08);
   border: 1px solid rgba(63, 185, 80, 0.25);

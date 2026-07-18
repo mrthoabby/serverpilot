@@ -570,6 +570,27 @@ func TestConfig() error {
 	return testConfigWithPath("")
 }
 
+// TestConfigOutput runs nginx -t and returns whether it passed plus the raw output.
+func TestConfigOutput() (bool, string) {
+	nginxBin, err := deps.NginxPath()
+	if err != nil {
+		return false, err.Error()
+	}
+	cmd := exec.Command(nginxBin, "-t")
+	output, err := cmd.CombinedOutput()
+	out := strings.TrimSpace(string(output))
+	if err != nil {
+		if out == "" {
+			return false, err.Error()
+		}
+		return false, out
+	}
+	if out == "" {
+		out = "nginx: configuration test is successful"
+	}
+	return true, out
+}
+
 // testConfigWithPath validates a trusted nginx main configuration file. An
 // empty path uses nginx's configured default.
 func testConfigWithPath(configPath string) error {
