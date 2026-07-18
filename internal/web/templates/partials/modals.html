@@ -133,7 +133,11 @@
       </div>
       <div id="assocNginxRepair" style="display:none;border:1px solid var(--yellow);border-radius:6px;padding:10px;margin:0 0 12px;background:rgba(210,153,34,0.08);">
         <div id="assocNginxRepairMessage" style="font-size:0.76rem;color:var(--text-secondary);line-height:1.45;"></div>
-        <button type="button" id="assocNginxRepairBtn" class="btn btn-sm btn-outline" style="margin-top:8px;">Repair Nginx</button>
+        <pre id="assocNginxRepairDetail" class="nginx-diag-detail-mini" style="display:none;"></pre>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" id="assocNginxRepairBtn" class="btn btn-sm btn-outline">Repair Nginx</button>
+          <button type="button" id="assocNginxDiagBtn" class="btn btn-sm btn-outline">View diagnostics</button>
+        </div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-outline" id="assocCancelBtn">Cancel</button>
@@ -273,6 +277,26 @@
     <div class="modal-actions">
       <button type="button" class="btn btn-outline" id="confirmCancelBtn">Cancel</button>
       <button type="button" class="btn btn-primary" id="confirmOkBtn">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Nginx Diagnostics Modal -->
+<div class="modal-overlay" id="nginxDiagModal">
+  <div class="modal nginx-diag-modal">
+    <h3>Nginx Diagnostics</h3>
+    <p class="modal-sub" id="nginxDiagStatus"></p>
+    <div id="nginxDiagFixed" class="nginx-diag-fixed" style="display:none;"></div>
+    <div id="nginxDiagIssues" class="nginx-diag-issues"></div>
+    <div id="nginxDiagHidden" class="nginx-diag-hidden" style="display:none;">
+      <h4>Configs the dashboard cannot parse</h4>
+      <ul id="nginxDiagHiddenList" class="nginx-diag-hidden-list"></ul>
+    </div>
+    <h4 class="nginx-diag-detail-title">nginx -t output</h4>
+    <pre class="nginx-diag-detail" id="nginxDiagDetail"></pre>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-outline" id="nginxDiagCloseBtn">Close</button>
+      <button type="button" class="btn btn-primary" id="nginxDiagRepairBtn" style="display:none;">Repair Nginx</button>
     </div>
   </div>
 </div>

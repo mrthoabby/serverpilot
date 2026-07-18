@@ -924,24 +924,46 @@
 
   initBodySizeSelect();
 
+  var lastAssocNginxDiag = null;
+
   function hideAssociateNginxRepair() {
     var box = document.getElementById("assocNginxRepair");
     if (box) box.style.display = "none";
+    var detail = document.getElementById("assocNginxRepairDetail");
+    if (detail) {
+      detail.style.display = "none";
+      detail.textContent = "";
+    }
+    lastAssocNginxDiag = null;
   }
 
   async function showAssociateNginxRepair() {
     var box = document.getElementById("assocNginxRepair");
     var message = document.getElementById("assocNginxRepairMessage");
+    var detail = document.getElementById("assocNginxRepairDetail");
     if (!box || !message) return;
-    message.textContent = "Nginx rejected the site configuration. No site was kept. Repair Nginx, then create the site again.";
+    message.textContent = "Nginx rejected the site configuration. No site was kept. Repair Nginx or open diagnostics to see the exact error.";
+    if (detail) {
+      detail.style.display = "none";
+      detail.textContent = "";
+    }
     try {
       var resp = await apiFetch("/api/nginx/diagnose");
       var data = (resp && resp.data) || {};
+      lastAssocNginxDiag = data;
       var issue = data.issues && data.issues[0];
       if (issue && issue.message) {
-        message.textContent = "Nginx needs repair: " + issue.message + ". No site was kept; repair Nginx, then create the site again.";
-      } else if (data.remaining_error) {
-        message.textContent = "Nginx needs repair: " + data.remaining_error + " No site was kept; repair Nginx, then create the site again.";
+        var loc = issue.file ? (" in " + issue.file + (issue.line ? ":" + issue.line : "")) : "";
+        message.textContent = "Nginx needs repair: " + issue.message + loc + ". No site was kept.";
+        if (issue.suggestion) {
+          message.textContent += " " + issue.suggestion;
+        }
+      } else if (data.detail) {
+        message.textContent = "Nginx needs repair. No site was kept. Open diagnostics for the full nginx -t output.";
+      }
+      if (detail && data.detail) {
+        detail.textContent = data.detail;
+        detail.style.display = "block";
       }
     } catch (_) {
       // Keep the generic message when diagnostics are unavailable.
@@ -959,8 +981,13 @@
         }
         var resp = await apiFetch("/api/nginx/repair", { method: "POST" });
         var data = (resp && resp.data) || {};
+        lastAssocNginxDiag = data;
         if (!data.ok) {
-          showToast("Nginx repair incomplete: " + (data.remaining_error || "check server logs"), "error");
+          await showAssociateNginxRepair();
+          if (typeof renderNginxDiagnostics === "function") {
+            renderNginxDiagnostics(data, { showRepair: true });
+          }
+          showToast("Nginx repair incomplete — review diagnostics for remaining issues", "error");
           return;
         }
         hideAssociateNginxRepair();
@@ -969,6 +996,28 @@
         showToast("Nginx repair failed: " + ((err && err.message) || "error"), "error");
       } finally {
         assocNginxRepairBtn.disabled = false;
+      }
+    });
+  }
+
+  var assocNginxDiagBtn = document.getElementById("assocNginxDiagBtn");
+  if (assocNginxDiagBtn) {
+    assocNginxDiagBtn.addEventListener("click", async function() {
+      try {
+        if (lastAssocNginxDiag) {
+          if (typeof renderNginxDiagnostics === "function") {
+            renderNginxDiagnostics(lastAssocNginxDiag, { showRepair: true });
+            return;
+          }
+        }
+        var resp = await apiFetch("/api/nginx/diagnose");
+        var data = (resp && resp.data) || {};
+        lastAssocNginxDiag = data;
+        if (typeof renderNginxDiagnostics === "function") {
+          renderNginxDiagnostics(data, { showRepair: true });
+        }
+      } catch (err) {
+        showToast("Failed to load diagnostics: " + ((err && err.message) || "error"), "error");
       }
     });
   }

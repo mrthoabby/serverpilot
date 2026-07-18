@@ -1500,6 +1500,7 @@ func (s *Server) handleNginxDiagnose(w http.ResponseWriter, r *http.Request) {
 		"ok":              report.OK,
 		"issues":          report.Issues,
 		"remaining_error": report.RemainingError,
+		"detail":          report.Detail,
 		"hidden_configs":  hidden,
 	}})
 }
@@ -1522,6 +1523,7 @@ func (s *Server) handleNginxRepair(w http.ResponseWriter, r *http.Request) {
 		"issues":          report.Issues,
 		"fixed":           report.Fixed,
 		"remaining_error": report.RemainingError,
+		"detail":          report.Detail,
 		"hidden_configs":  hidden,
 	}})
 }

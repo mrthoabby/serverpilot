@@ -8,22 +8,183 @@
     redirectDelayOptions.style.display = redirectDelayed.checked ? "block" : "none";
   }
   onEl("redirectDelayed", "change", updateRedirectDelayOptions);
+
+  function bindNginxDiagConfigActions(root) {
+    if (!root) return;
+    root.querySelectorAll(".nginx-diag-edit").forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        var configName = btn.getAttribute("data-config");
+        if (configName) openConfigEditor(configName, configName);
+      });
+    });
+    root.querySelectorAll(".nginx-diag-delete").forEach(function(btn) {
+      btn.addEventListener("click", async function() {
+        var configName = btn.getAttribute("data-config");
+        if (!configName) return;
+        if (!window.confirm("Delete nginx config " + configName + "? This removes sites-enabled and sites-available entries.")) return;
+        try {
+          await runStreamedOperation("/api/sites/delete", { domain: configName, config_name: configName }, "Deleting Config", configName);
+          await loadSites();
+          showToast("Config deleted", "success");
+        } catch (err) {
+          showToast("Delete failed: " + ((err && err.message) || "error"), "error");
+        }
+      });
+    });
+  }
+
+  function renderNginxIssueHtml(issue) {
+    var loc = "";
+    if (issue.file) {
+      loc = issue.file + (issue.line ? ":" + issue.line : "");
+    }
+    var badge = issue.auto_fixable
+      ? "<span class=\"nginx-diag-badge nginx-diag-badge-auto\">Auto-fix</span>"
+      : "<span class=\"nginx-diag-badge nginx-diag-badge-manual\">Manual</span>";
+    var actions = "";
+    if (issue.file) {
+      actions = "<div class=\"nginx-diag-actions\">" +
+        "<button type=\"button\" class=\"btn btn-sm btn-outline nginx-diag-edit\" data-config=\"" + escapeHtml(issue.file) + "\">Edit config</button>" +
+        "<button type=\"button\" class=\"btn btn-sm btn-outline nginx-diag-delete\" data-config=\"" + escapeHtml(issue.file) + "\">Delete config</button>" +
+        "</div>";
+    }
+    return "<div class=\"nginx-diag-issue\">" +
+      "<div class=\"nginx-diag-issue-head\">" + (loc ? "<code>" + escapeHtml(loc) + "</code> " : "") + badge + "</div>" +
+      "<div class=\"nginx-diag-issue-msg\">" + escapeHtml(issue.message || "") + "</div>" +
+      (issue.suggestion ? "<div class=\"nginx-diag-issue-suggestion\">" + escapeHtml(issue.suggestion) + "</div>" : "") +
+      actions +
+      "</div>";
+  }
+
+  function renderNginxDiagnostics(data, options) {
+    options = options || {};
+    data = data || {};
+    var modal = document.getElementById("nginxDiagModal");
+    if (!modal) {
+      showToast("Nginx diagnostics unavailable — hard-refresh the dashboard (Ctrl+Shift+R)", "error");
+      return;
+    }
+
+    var status = document.getElementById("nginxDiagStatus");
+    var fixedBox = document.getElementById("nginxDiagFixed");
+    var issuesBox = document.getElementById("nginxDiagIssues");
+    var hiddenBox = document.getElementById("nginxDiagHidden");
+    var hiddenList = document.getElementById("nginxDiagHiddenList");
+    var detail = document.getElementById("nginxDiagDetail");
+    var repairBtn = document.getElementById("nginxDiagRepairBtn");
+
+    if (data.ok) {
+      setText(status, data.fixed && data.fixed.length ? "Nginx is valid after repair." : "Nginx configuration is valid.");
+    } else {
+      setText(status, "Nginx configuration test failed. Review the issues below and take manual action where needed.");
+    }
+
+    if (fixedBox) {
+      var fixed = data.fixed || [];
+      if (fixed.length) {
+        fixedBox.style.display = "block";
+        fixedBox.innerHTML = "<strong>Fixed automatically:</strong><ul>" + fixed.map(function(item) {
+          return "<li>" + escapeHtml(item) + "</li>";
+        }).join("") + "</ul>";
+      } else {
+        fixedBox.style.display = "none";
+        fixedBox.innerHTML = "";
+      }
+    }
+
+    if (issuesBox) {
+      var issues = data.issues || [];
+      if (!issues.length && !data.ok) {
+        issuesBox.innerHTML = "<div class=\"nginx-diag-issue\"><div class=\"nginx-diag-issue-msg\">" +
+          escapeHtml(data.remaining_error || "nginx configuration test failed") + "</div></div>";
+      } else {
+        issuesBox.innerHTML = issues.map(renderNginxIssueHtml).join("");
+        bindNginxDiagConfigActions(issuesBox);
+      }
+    }
+
+    if (hiddenBox && hiddenList) {
+      var hidden = data.hidden_configs || [];
+      if (hidden.length) {
+        hiddenBox.style.display = "block";
+        hiddenList.innerHTML = hidden.map(function(name) {
+          return "<li class=\"nginx-diag-hidden-item\">" +
+            "<code>" + escapeHtml(name) + "</code>" +
+            "<span class=\"nginx-diag-actions\">" +
+            "<button type=\"button\" class=\"btn btn-sm btn-outline nginx-diag-edit\" data-config=\"" + escapeHtml(name) + "\">Edit</button>" +
+            "<button type=\"button\" class=\"btn btn-sm btn-outline nginx-diag-delete\" data-config=\"" + escapeHtml(name) + "\">Delete</button>" +
+            "</span></li>";
+        }).join("");
+        bindNginxDiagConfigActions(hiddenList);
+      } else {
+        hiddenBox.style.display = "none";
+        hiddenList.innerHTML = "";
+      }
+    }
+
+    if (detail) {
+      detail.textContent = data.detail || data.remaining_error || "(no diagnostic output available)";
+    }
+
+    if (repairBtn) {
+      var hasAutoFixable = (data.issues || []).some(function(issue) { return issue.auto_fixable; });
+      repairBtn.style.display = (!data.ok && (hasAutoFixable || options.showRepair)) ? "inline-flex" : "none";
+    }
+
+    modal.classList.add("show");
+  }
+
+  async function openNginxDiagnostics(fromRepair) {
+    try {
+      var resp;
+      if (fromRepair) {
+        if (typeof ensureRecentReauth === "function") {
+          await ensureRecentReauth();
+        }
+        resp = await apiFetch("/api/nginx/repair", { method: "POST" });
+      } else {
+        resp = await apiFetch("/api/nginx/diagnose");
+      }
+      var data = (resp && resp.data) || {};
+      renderNginxDiagnostics(data, { showRepair: !fromRepair });
+      if (fromRepair) {
+        if (data.ok) {
+          var fixed = data.fixed || [];
+          showToast(fixed.length ? ("Nginx repaired: " + fixed.join("; ")) : "Nginx config is valid", "success");
+          await loadSites();
+        } else {
+          showToast("Nginx repair incomplete — review diagnostics for remaining issues", "error");
+        }
+      }
+    } catch (err) {
+      showToast("Failed to load nginx diagnostics: " + ((err && err.message) || "error"), "error");
+    }
+  }
+
+  onEl("nginxDiagCloseBtn", "click", function() {
+    var modal = document.getElementById("nginxDiagModal");
+    if (modal) modal.classList.remove("show");
+  });
+  onEl("nginxDiagModal", "click", function(e) {
+    var modal = document.getElementById("nginxDiagModal");
+    if (e.target === modal) modal.classList.remove("show");
+  });
+  onEl("nginxDiagRepairBtn", "click", async function() {
+    var btn = document.getElementById("nginxDiagRepairBtn");
+    if (btn) btn.disabled = true;
+    try {
+      await openNginxDiagnostics(true);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
   onEl("repairNginxBtn", "click", async function() {
     if (!window.confirm("Scan Nginx, repair known safe issues (including duplicate proxy directives and server name hash size), and reload Nginx?")) return;
     var btn = document.getElementById("repairNginxBtn");
     btn.disabled = true;
     try {
-      var resp = await apiFetch("/api/nginx/repair", { method: "POST" });
-      var data = (resp && resp.data) ? resp.data : {};
-      var fixed = data.fixed || [];
-      if (data.ok) {
-        showToast(fixed.length ? ("Nginx repaired: " + fixed.join("; ")) : "Nginx config is valid", "success");
-      } else {
-        showToast("Repair incomplete: " + (data.remaining_error || "nginx test still failing"), "error");
-      }
-      await loadSites();
-    } catch (err) {
-      showToast("Repair failed: " + ((err && err.message) || "error"), "error");
+      await openNginxDiagnostics(true);
     } finally {
       btn.disabled = false;
     }

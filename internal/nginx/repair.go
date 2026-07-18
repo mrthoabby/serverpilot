@@ -12,10 +12,13 @@ import (
 
 // RepairIssue is a single nginx problem detected before repair.
 type RepairIssue struct {
-	File    string `json:"file"`
-	Line    int    `json:"line,omitempty"`
-	Kind    string `json:"kind"`
-	Message string `json:"message"`
+	File        string `json:"file"`
+	Line        int    `json:"line,omitempty"`
+	Kind        string `json:"kind"`
+	Message     string `json:"message"`
+	Detail      string `json:"detail,omitempty"`
+	AutoFixable bool   `json:"auto_fixable"`
+	Suggestion  string `json:"suggestion,omitempty"`
 }
 
 // RepairReport summarizes nginx diagnosis and automatic fixes.
@@ -25,9 +28,11 @@ type RepairReport struct {
 	Fixed          []string      `json:"fixed,omitempty"`
 	RemovedConfigs []string      `json:"removed_configs,omitempty"`
 	RemainingError string        `json:"remaining_error,omitempty"`
+	Detail         string        `json:"detail,omitempty"`
 }
 
-var nginxTestErrorLine = regexp.MustCompile(`(?m)in (/etc/nginx/[^:]+):(\d+)`)
+var nginxTestErrorLine = regexp.MustCompile(`in (/etc/nginx/[^:]+):(\d+)`)
+var nginxLogLine = regexp.MustCompile(`nginx:\s*\[(emerg|warn|error|alert|crit)\]\s*(.+)`)
 var serverNamesHashBucketSize = regexp.MustCompile(`(?m)^(\s*)server_names_hash_bucket_size\s+(\d+)\s*;`)
 var nginxHTTPBlock = regexp.MustCompile(`(?m)^(\s*http\s*\{)`)
 
@@ -36,14 +41,16 @@ const minimumServerNamesHashBucketSize = 128
 
 // Diagnose runs nginx -t and parses common failure patterns.
 func Diagnose() RepairReport {
-	if err := TestConfig(); err == nil {
+	err := TestConfig()
+	if err == nil {
 		return RepairReport{OK: true}
-	} else {
-		return RepairReport{
-			OK:             false,
-			Issues:         parseNginxTestIssues(err.Error()),
-			RemainingError: sanitizeNginxError(err.Error()),
-		}
+	}
+	raw := err.Error()
+	return RepairReport{
+		OK:             false,
+		Issues:         parseNginxTestIssues(raw),
+		RemainingError: sanitizeNginxError(raw),
+		Detail:         nginxErrorDetail(raw),
 	}
 }
 
@@ -263,46 +270,124 @@ func isValidConfigFileName(name string) bool {
 func parseNginxTestIssues(output string) []RepairIssue {
 	var issues []RepairIssue
 	seen := map[string]bool{}
-	for _, match := range nginxTestErrorLine.FindAllStringSubmatch(output, -1) {
+	for _, match := range nginxLogLine.FindAllStringSubmatch(output, -1) {
 		if len(match) < 3 {
 			continue
 		}
-		key := match[1] + ":" + match[2]
+		level := match[1]
+		if level != "emerg" && level != "error" && level != "crit" && level != "alert" {
+			continue
+		}
+		msg := strings.TrimSpace(match[2])
+		if msg == "" {
+			continue
+		}
+		key := level + ":" + msg
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
-		line := 0
-		fmt.Sscanf(match[2], "%d", &line)
-		kind := "nginx_config"
-		msg := sanitizeNginxError(output)
-		if strings.Contains(output, "could not build server_names_hash") {
-			kind = "server_names_hash"
-			msg = "server name hash bucket is too small"
-		} else if strings.Contains(output, "duplicate") {
-			kind = "duplicate_directive"
-			msg = "duplicate nginx directive"
+		issues = append(issues, classifyNginxIssue(msg))
+	}
+	if len(issues) == 0 {
+		for _, match := range nginxTestErrorLine.FindAllStringSubmatch(output, -1) {
+			if len(match) < 3 {
+				continue
+			}
+			key := match[1] + ":" + match[2]
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			line := 0
+			fmt.Sscanf(match[2], "%d", &line)
+			issues = append(issues, classifyNginxIssueWithLocation(
+				"nginx configuration error in "+filepath.Base(match[1]),
+				filepath.Base(match[1]),
+				line,
+				output,
+			))
 		}
-		issues = append(issues, RepairIssue{
-			File:    filepath.Base(match[1]),
-			Line:    line,
-			Kind:    kind,
-			Message: msg,
-		})
 	}
 	if len(issues) == 0 && strings.TrimSpace(output) != "" {
-		kind := "nginx_config"
-		message := sanitizeNginxError(output)
-		if strings.Contains(output, "could not build server_names_hash") {
-			kind = "server_names_hash"
-			message = "server name hash bucket is too small"
-		}
-		issues = append(issues, RepairIssue{
-			Kind:    kind,
-			Message: message,
-		})
+		issues = append(issues, classifyNginxIssue(strings.TrimSpace(strings.TrimPrefix(output, "nginx config test failed:"))))
 	}
 	return issues
+}
+
+func classifyNginxIssue(message string) RepairIssue {
+	file := ""
+	line := 0
+	if match := nginxTestErrorLine.FindStringSubmatch(message); len(match) >= 3 {
+		file = filepath.Base(match[1])
+		fmt.Sscanf(match[2], "%d", &line)
+		message = strings.TrimSpace(strings.TrimSuffix(message, " in "+match[1]+":"+match[2]))
+	}
+	return classifyNginxIssueWithLocation(message, file, line, message)
+}
+
+func classifyNginxIssueWithLocation(message, file string, line int, detail string) RepairIssue {
+	lower := strings.ToLower(message)
+	kind := "nginx_config"
+	autoFixable := false
+	suggestion := "Edit or delete the affected config, then run Repair Nginx or use Save & Reload in the config editor."
+
+	switch {
+	case strings.Contains(lower, "could not build server_names_hash") || strings.Contains(lower, "server_names_hash_bucket_size"):
+		kind = "server_names_hash"
+		autoFixable = true
+		suggestion = "Run Repair Nginx to increase server_names_hash_bucket_size in nginx.conf automatically."
+	case strings.Contains(lower, "duplicate"):
+		kind = "duplicate_directive"
+		autoFixable = true
+		if file != "" {
+			suggestion = "Run Repair Nginx to remove duplicate proxy directives in " + file + ", or edit/delete that config manually."
+		} else {
+			suggestion = "Run Repair Nginx to remove duplicate proxy directives in site configs, or edit/delete the config manually."
+		}
+	case file != "":
+		suggestion = "Edit or delete " + file + ", then run Repair Nginx or use Save & Reload in the config editor."
+	}
+
+	return RepairIssue{
+		File:        file,
+		Line:        line,
+		Kind:        kind,
+		Message:     message,
+		Detail:      detail,
+		AutoFixable: autoFixable,
+		Suggestion:  suggestion,
+	}
+}
+
+func nginxErrorDetail(output string) string {
+	var lines []string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		include := strings.Contains(line, "[emerg]") ||
+			strings.Contains(line, "[warn]") ||
+			strings.Contains(line, "[error]") ||
+			strings.Contains(line, "[alert]") ||
+			strings.Contains(line, "[crit]") ||
+			(strings.Contains(line, "configuration file") && strings.Contains(line, "test failed"))
+		if !include {
+			continue
+		}
+		if seen[line] {
+			continue
+		}
+		seen[line] = true
+		lines = append(lines, line)
+	}
+	if len(lines) > 0 {
+		return strings.Join(lines, "\n")
+	}
+	trimmed := strings.TrimSpace(strings.TrimPrefix(output, "nginx config test failed:"))
+	return strings.TrimSpace(trimmed)
 }
 
 func sanitizeNginxError(msg string) string {
