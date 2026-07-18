@@ -1,0 +1,36 @@
+internal/web/server.go
+  s_9d42ed75d09991::t_0add96c5b1abdc 119
+internal/web/static/containers-sites.js
+  s_9d42ed75d09991::t_4fae212a25bc52 1045-1079
+  s_9d42ed75d09991::t_bec5666fc95f8e 1180,1183
+  s_9d42ed75d09991::t_bc39cb2734b3e3 953-976,978-986,988-991
+  s_9d42ed75d09991::t_0297dd8a35f55a 1178-1179,1182
+  s_9d42ed75d09991::t_85cf8394e1db70 977,987
+internal/web/templates/partials/modals.html
+  s_9d42ed75d09991::t_be6c3c99b02ce4 138,140
+internal/nginx/nginx.go
+  s_9d42ed75d09991::t_d96c7bbbeb986d 573-593
+internal/web/handlers.go
+  s_9d42ed75d09991::t_bb0df8ba13dcf6 1524-1536
+  s_9d42ed75d09991::t_1d6bf2648a0fe2 1438,1442-1447
+internal/nginx/repair.go
+  s_9d42ed75d09991::t_bbcdd7c2328b12 44-46,48,51-53
+internal/web/static/css/components.css
+  s_9d42ed75d09991::t_a6a36d6018492c 193-196
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "5d94ab30f7eab00a7604bd7abbaae9e89fd0d588",
+  "prompts": {},
+  "sessions": {
+    "s_9d42ed75d09991": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ca396ca0-92d0-4608-bd48-7db50cd50ae4",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
