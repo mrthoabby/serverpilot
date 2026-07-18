@@ -6,9 +6,12 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/mrthoabby/serverpilot/internal/compose"
 	"github.com/mrthoabby/serverpilot/internal/docker"
 	"github.com/mrthoabby/serverpilot/internal/portalloc"
+	"github.com/mrthoabby/serverpilot/internal/replicas"
 	"github.com/mrthoabby/serverpilot/internal/sites"
 	"github.com/mrthoabby/serverpilot/internal/templates"
 )
@@ -43,6 +46,15 @@ type portReserveRequest struct {
 	ContainerID   string `json:"container_id"`
 	ContainerPort string `json:"container_port"`
 	Protocol      string `json:"protocol"`
+}
+
+type containerReleaseRequest struct {
+	Container     string `json:"container"`
+	Image         string `json:"image"`
+	Strategy      string `json:"strategy,omitempty"`
+	HealthURL     string `json:"health_url,omitempty"`
+	HealthTimeout string `json:"health_timeout,omitempty"`
+	Drain         string `json:"drain,omitempty"`
 }
 
 type redirectActivateRequest struct {
@@ -277,13 +289,53 @@ func (s *Server) handleSiteRedirectDeactivate(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{"message": "redirect deactivated"}})
 }
 
+func (s *Server) handleContainerRelease(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+	var req containerReleaseRequest
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	container := strings.TrimSpace(req.Container)
+	if container == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "container is required"})
+		return
+	}
+	if compose.ParseStrategy(req.Strategy) != compose.StrategyBlueGreen {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "only blue-green strategy is supported for container release"})
+		return
+	}
+	s.streamReplicaOperation(w, "container-release", "Container release", func(progress replicas.Progress) (interface{}, error) {
+		err := docker.ReleaseBlueGreenProgress(docker.BlueGreenRequest{
+			Container:     container,
+			Image:         strings.TrimSpace(req.Image),
+			HealthURL:     strings.TrimSpace(req.HealthURL),
+			HealthTimeout: parseWebDuration(req.HealthTimeout, 60*time.Second),
+			Drain:         parseWebDuration(req.Drain, 10*time.Second),
+		}, progress)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]bool{"success": true}, nil
+	})
+}
+
 func createSiteFromRequest(req siteCreateRequestV2) (sites.SiteRecord, error) {
 	tmplType := templates.TemplateType(strings.ToLower(strings.TrimSpace(req.TemplateType)))
 	if !templates.ValidTemplateType(tmplType) {
 		return sites.SiteRecord{}, fmt.Errorf("invalid template type")
 	}
+	containerID := strings.TrimSpace(req.ContainerID)
+	if containerID != "" {
+		if err := docker.ValidateSiteHostPort(containerID, req.Port, req.ContainerPort); err != nil {
+			return sites.SiteRecord{}, err
+		}
+	}
 	return sites.Create(sites.CreateRequest{
-		ContainerID:         strings.TrimSpace(req.ContainerID),
+		ContainerID:         containerID,
 		ContainerName:       strings.TrimSpace(req.ContainerName),
 		HostPort:            req.Port,
 		ContainerPort:       req.ContainerPort,

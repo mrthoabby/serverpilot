@@ -4,13 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/mrthoabby/serverpilot/internal/docker"
 	"github.com/mrthoabby/serverpilot/internal/nginx"
-	"github.com/mrthoabby/serverpilot/internal/portalloc"
 	"github.com/mrthoabby/serverpilot/internal/templates"
 )
 
@@ -39,10 +36,6 @@ func Create(req CreateRequest) (SiteRecord, error) {
 	}
 	if !templates.ValidTemplateType(req.Template) {
 		return SiteRecord{}, fmt.Errorf("invalid template type")
-	}
-
-	if err := validateContainerPort(req.ContainerID, req.HostPort, req.ContainerPort); err != nil {
-		return SiteRecord{}, err
 	}
 
 	existing, err := SitesOnHostPort(req.HostPort)
@@ -142,31 +135,6 @@ func Create(req CreateRequest) (SiteRecord, error) {
 		return rec, fmt.Errorf("site created but registry update failed")
 	}
 	return rec, nil
-}
-
-func validateContainerPort(containerID string, hostPort, containerPort int) error {
-	if _, err := docker.GetContainerDetails(containerID); err != nil {
-		return fmt.Errorf("container not found")
-	}
-	allPorts, err := docker.InspectAllPortMappings(containerID)
-	if err != nil {
-		return fmt.Errorf("failed to inspect container ports")
-	}
-	hostStr := strconv.Itoa(hostPort)
-	for _, p := range allPorts {
-		if p.HostPort == hostStr && p.Protocol == "tcp" {
-			return nil
-		}
-	}
-	if containerPort > 0 {
-		owner, err := docker.PortReservationOwner(containerID, strconv.Itoa(containerPort), "tcp")
-		if err == nil {
-			if reserved, ok := portalloc.PortForOwner(owner); ok && reserved == hostPort {
-				return nil
-			}
-		}
-	}
-	return fmt.Errorf("host port does not belong to container")
 }
 
 func deleteByDomain(domain string) error {

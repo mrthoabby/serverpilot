@@ -78,6 +78,7 @@ type Generation struct {
 	ID             string         `json:"id"`
 	Number         int            `json:"number"`
 	ComposeProject string         `json:"compose_project"`
+	Color          string         `json:"color,omitempty"`
 	Fingerprint    string         `json:"fingerprint"`
 	State          OperationState `json:"state"`
 	Endpoints      []Endpoint     `json:"endpoints"`

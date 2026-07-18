@@ -83,3 +83,24 @@ func DockerOwner(containerName, containerPort, protocol string) string {
 	}
 	return "docker:" + containerName + ":" + containerPort + "/" + protocol
 }
+
+// ComposeColorOwner builds a blue-green compose owner id scoped to a color slot.
+func ComposeColorOwner(project, color, service, containerPort, protocol string) string {
+	if protocol == "" {
+		protocol = "tcp"
+	}
+	return "compose:" + project + ":" + color + ":" + service + ":" + containerPort + "/" + protocol
+}
+
+// DockerColorOwner builds a blue-green docker owner id scoped to a color slot.
+func DockerColorOwner(containerName, color, containerPort, protocol string) string {
+	if protocol == "" {
+		protocol = "tcp"
+	}
+	return "docker:" + containerName + ":" + color + ":" + containerPort + "/" + protocol
+}
+
+// ReleaseColorOwners releases all owners for a compose project color prefix.
+func ReleaseColorOwners(project, color string) {
+	ReleaseOwnersByPrefix("compose:" + project + ":" + color + ":")
+}

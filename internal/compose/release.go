@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mrthoabby/serverpilot/internal/deps"
 )
@@ -18,6 +19,10 @@ type ReleaseRequest struct {
 	ImageRef      string
 	RegistryUser  string
 	RegistryToken string
+	Strategy      string
+	HealthURL     string
+	HealthTimeout time.Duration
+	Drain         time.Duration
 }
 
 // ReleaseService pulls IMAGE_REF and recreates only the target service.
@@ -95,6 +100,10 @@ func ReleaseService(req ReleaseRequest, progress Progress) error {
 
 	if analysis.Fingerprint != gen.Fingerprint {
 		return reconcileReleaseStack(req, rec, gen, analysis, progress)
+	}
+
+	if ParseStrategy(req.Strategy) == StrategyBlueGreen {
+		return ReleaseServiceBlueGreen(req, rec, gen, analysis, progress)
 	}
 
 	runner := Runner{
@@ -178,4 +187,16 @@ func ephemeralRegistryLogin(user, token string) (func(), error) {
 		_ = os.RemoveAll(cfgDir)
 	}
 	return cleanup, nil
+}
+
+func parseDurationOrDefault(raw string, fallback time.Duration) time.Duration {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return fallback
+	}
+	return d
 }

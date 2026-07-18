@@ -1387,6 +1387,11 @@ func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.ContainerID != "" {
+		if err := docker.ValidateSiteHostPort(req.ContainerID, req.Port, req.ContainerPort); err != nil {
+			log.Printf("Error validating site port %s: %v", req.Domain, err)
+			writeJSON(w, http.StatusBadRequest, apiResponse{Error: siteCreateErrorForClient(err)})
+			return
+		}
 		rec, err := sites.Create(sites.CreateRequest{
 			ContainerID:         req.ContainerID,
 			ContainerName:       req.ContainerName,

@@ -646,6 +646,16 @@
         tdAct.appendChild(reloadEnvBtn);
       }
 
+      if (typeof openContainerReleaseModal === "function" && !c.compose && linked.length > 0) {
+        var releaseBtn = document.createElement("button");
+        releaseBtn.className = "btn btn-sm btn-outline";
+        releaseBtn.style.marginRight = "0.35rem";
+        setText(releaseBtn, "Release");
+        releaseBtn.title = "Blue-green image release (requires linked nginx site)";
+        releaseBtn.addEventListener("click", function() { openContainerReleaseModal(c); });
+        tdAct.appendChild(releaseBtn);
+      }
+
       if (!isReplica && typeof openReplicaModal === "function") {
         var reps = replicasByParentName()[c.name] || [];
         var replicaBtn = document.createElement("button");
@@ -727,9 +737,28 @@
       header.className = "compose-group-row";
       var td = document.createElement("td");
       td.colSpan = 6;
+      td.style.display = "flex";
+      td.style.alignItems = "center";
+      td.style.justifyContent = "space-between";
+      td.style.gap = "0.75rem";
       var strong = document.createElement("strong");
       setText(strong, "Compose stack: " + project);
       td.appendChild(strong);
+      if (typeof openComposeReleaseModal === "function") {
+        var relBtn = document.createElement("button");
+        relBtn.className = "btn btn-sm btn-outline";
+        setText(relBtn, "Release");
+        relBtn.title = "Deploy new image (rolling or blue-green)";
+        relBtn.addEventListener("click", function() {
+          var svc = "app";
+          var group = composeGroups[project];
+          if (group && group[0] && group[0].compose && group[0].compose.service) {
+            svc = group[0].compose.service;
+          }
+          openComposeReleaseModal(project, svc);
+        });
+        td.appendChild(relBtn);
+      }
       header.appendChild(td);
       tbody.appendChild(header);
       composeGroups[project].forEach(function(c) { renderRow(c); });

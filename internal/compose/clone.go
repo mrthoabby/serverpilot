@@ -77,7 +77,7 @@ func Clone(req CloneRequest, progress Progress) (*ProjectRecord, error) {
 	}
 	composeProject := req.CloneName
 	progress("Reserving clone ports...")
-	ownerPorts, endpoints, owners, err := reserveEndpoints(req.CloneName, genID, analysis.Endpoints)
+	ownerPorts, endpoints, owners, err := reserveEndpoints(req.CloneName, analysis.Endpoints)
 	if err != nil {
 		portalloc.ReleaseOwners(owners)
 		return nil, err

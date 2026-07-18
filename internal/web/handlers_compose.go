@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/mrthoabby/serverpilot/internal/compose"
 	"github.com/mrthoabby/serverpilot/internal/deps"
@@ -23,6 +25,19 @@ type composeDeployRequest struct {
 	AppImageRef   string `json:"app_image_ref,omitempty"`
 	RegistryUser  string `json:"registry_user,omitempty"`
 	RegistryToken string `json:"registry_token,omitempty"`
+}
+
+type composeReleaseRequest struct {
+	Name          string `json:"name"`
+	Service       string `json:"service"`
+	ComposeFile   string `json:"compose_file,omitempty"`
+	AppImageRef   string `json:"app_image_ref"`
+	RegistryUser  string `json:"registry_user,omitempty"`
+	RegistryToken string `json:"registry_token,omitempty"`
+	Strategy      string `json:"strategy,omitempty"`
+	HealthURL     string `json:"health_url,omitempty"`
+	HealthTimeout string `json:"health_timeout,omitempty"`
+	Drain         string `json:"drain,omitempty"`
 }
 
 type composeCloneRequest struct {
@@ -90,6 +105,40 @@ func (s *Server) handleComposeDeploy(w http.ResponseWriter, r *http.Request) {
 			RegistryUser:  req.RegistryUser,
 			RegistryToken: req.RegistryToken,
 		}, progress)
+	})
+}
+
+func (s *Server) handleComposeRelease(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+	var req composeReleaseRequest
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	if strings.TrimSpace(req.AppImageRef) == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "app_image_ref is required"})
+		return
+	}
+	s.streamComposeOperation(w, "compose-release", func(progress compose.Progress) (interface{}, error) {
+		err := compose.ReleaseService(compose.ReleaseRequest{
+			Name:          req.Name,
+			Service:       req.Service,
+			ComposeFile:   req.ComposeFile,
+			ImageRef:      req.AppImageRef,
+			RegistryUser:  req.RegistryUser,
+			RegistryToken: req.RegistryToken,
+			Strategy:      req.Strategy,
+			HealthURL:     req.HealthURL,
+			HealthTimeout: parseWebDuration(req.HealthTimeout, 60*time.Second),
+			Drain:         parseWebDuration(req.Drain, 10*time.Second),
+		}, progress)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]bool{"success": true}, nil
 	})
 }
 
@@ -202,4 +251,16 @@ func (s *Server) streamComposeOperation(w http.ResponseWriter, stage string, run
 func jsonString(v interface{}) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+func parseWebDuration(raw string, fallback time.Duration) time.Duration {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return fallback
+	}
+	return d
 }

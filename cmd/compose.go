@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/mrthoabby/serverpilot/internal/compose"
 	"github.com/spf13/cobra"
@@ -19,6 +20,10 @@ var (
 	composeParent         string
 	composeShareConfirm   bool
 	composeReleaseService string
+	composeStrategy       string
+	composeHealthURL      string
+	composeHealthWait     time.Duration
+	composeDrain          time.Duration
 )
 
 var composeCmd = &cobra.Command{
@@ -201,6 +206,10 @@ Example:
 			ImageRef:      os.Getenv("IMAGE_REF"),
 			RegistryUser:  os.Getenv("REGISTRY_USER"),
 			RegistryToken: os.Getenv("REGISTRY_TOKEN"),
+			Strategy:      composeStrategy,
+			HealthURL:     composeHealthURL,
+			HealthTimeout: composeHealthWait,
+			Drain:         composeDrain,
 		}, composeProgress())
 	},
 }
@@ -236,6 +245,10 @@ func init() {
 	composeCmd.PersistentFlags().StringVar(&composeParent, "parent", "", "Parent compose project for clone/sync")
 	composeCmd.PersistentFlags().BoolVar(&composeShareConfirm, "share-confirm", false, "Confirm writable shared volumes")
 	composeReleaseCmd.Flags().StringVar(&composeReleaseService, "service", "app", "Compose service to update")
+	composeReleaseCmd.Flags().StringVar(&composeStrategy, "strategy", compose.StrategyRolling, "Deployment strategy: rolling or blue-green")
+	composeReleaseCmd.Flags().StringVar(&composeHealthURL, "health-url", "", "Optional HTTP health check path (e.g. /health)")
+	composeReleaseCmd.Flags().DurationVar(&composeHealthWait, "health-timeout", 60*time.Second, "Health check timeout")
+	composeReleaseCmd.Flags().DurationVar(&composeDrain, "drain", 10*time.Second, "Drain period before removing old color")
 
 	composeCmd.AddCommand(composeValidateCmd, composeDeployCmd, composeListCmd, composeStatusCmd, composeCloneCmd, composeSyncCmd, composeReleaseCmd, composeDeleteCmd)
 	rootCmd.AddCommand(composeCmd)

@@ -699,6 +699,29 @@ if [ -n "$TAG_NAME" ]; then
 fi
 ```
 
+### Blue-green (opt-in)
+
+Por defecto `sp compose release` usa **rolling**. Para blue-green:
+
+```bash
+export IMAGE_REF=ghcr.io/org/app:v1.2.3
+sp compose release --name myapp --service app \
+  --strategy blue-green \
+  --health-url /health \
+  --health-timeout 60s \
+  --drain 10s
+```
+
+Contenedor suelto con sitio Nginx gestionado:
+
+```bash
+sudo sp release --container myapi --image ghcr.io/org/api:v2 \
+  --strategy blue-green \
+  --health-url /health --drain 10s
+```
+
+Blue-green rechaza stacks/contenedores con mounts persistentes; usa `--strategy rolling` en ese caso.
+
 **Qué hace `sp compose release` (no lo reimplementes en bash):**
 
 ```

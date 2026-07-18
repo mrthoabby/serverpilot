@@ -292,7 +292,7 @@
       try {
         var result = JSON.parse(data);
         finishProgress(result.success !== false, result.error || result.message || "", result.dependency_missing || null);
-        if (result.success !== false && lastStreamedUrl && (lastStreamedUrl.indexOf("/api/container-replicas/") === 0 || lastStreamedUrl.indexOf("/api/sites/") === 0 || lastStreamedUrl.indexOf("/api/ssl/") === 0)) {
+        if (result.success !== false && lastStreamedUrl && (lastStreamedUrl.indexOf("/api/container-replicas/") === 0 || lastStreamedUrl.indexOf("/api/sites/") === 0 || lastStreamedUrl.indexOf("/api/ssl/") === 0 || lastStreamedUrl.indexOf("/api/compose/") === 0 || lastStreamedUrl.indexOf("/api/containers/release") === 0)) {
           refreshCoreTabsAfterMutation();
         }
       } catch(e) {
@@ -301,6 +301,119 @@
       if (window.SP && SP.jobs && SP.jobs.refresh) SP.jobs.refresh();
     }
   }
+
+  // ── Release Modal (compose + container) ──
+  var releaseModal = document.getElementById("releaseModal");
+
+  function releaseStrategyStorageKey(kind, target) {
+    return "sp-release-strategy:" + kind + ":" + target;
+  }
+
+  function toggleReleaseAdvancedFields() {
+    var strategy = document.getElementById("releaseStrategy");
+    var isBG = strategy && strategy.value === "blue-green";
+    var healthGroup = document.getElementById("releaseHealthGroup");
+    var timingGroup = document.getElementById("releaseTimingGroup");
+    if (healthGroup) healthGroup.style.display = isBG ? "block" : "none";
+    if (timingGroup) timingGroup.style.display = isBG ? "grid" : "none";
+  }
+
+  function openReleaseModal(opts) {
+    if (!releaseModal) return;
+    opts = opts || {};
+    var kind = opts.kind || "container";
+    var target = opts.target || "";
+    document.getElementById("releaseKind").value = kind;
+    document.getElementById("releaseTarget").value = target;
+    document.getElementById("releaseService").value = opts.service || "app";
+    document.getElementById("releaseImage").value = opts.image || "";
+    var strategyEl = document.getElementById("releaseStrategy");
+    var saved = "";
+    try { saved = localStorage.getItem(releaseStrategyStorageKey(kind, target)) || ""; } catch (_) {}
+    if (strategyEl) strategyEl.value = saved || opts.strategy || "rolling";
+    document.getElementById("releaseHealthURL").value = opts.healthURL || "";
+    document.getElementById("releaseHealthTimeout").value = opts.healthTimeout || "60s";
+    document.getElementById("releaseDrain").value = opts.drain || "10s";
+    setText(document.getElementById("releaseModalTitle"), kind === "compose" ? "Compose release" : "Container release");
+    setText(document.getElementById("releaseModalSub"),
+      kind === "compose"
+        ? ("Update image for compose project \"" + target + "\" (service: " + (opts.service || "app") + ").")
+        : ("Blue-green or rolling release for container \"" + target + "\"."));
+    toggleReleaseAdvancedFields();
+    releaseModal.classList.add("show");
+  }
+
+  window.openComposeReleaseModal = function(project, service) {
+    openReleaseModal({ kind: "compose", target: project, service: service || "app" });
+  };
+
+  window.openContainerReleaseModal = function(container) {
+    if (!container) return;
+    openReleaseModal({ kind: "container", target: container.name || container.id || "", image: container.image || "" });
+  };
+
+  onEl("releaseStrategy", "change", toggleReleaseAdvancedFields);
+
+  onEl("releaseCancelBtn", "click", function() {
+    if (releaseModal) releaseModal.classList.remove("show");
+  });
+
+  onEl("releaseModal", "click", function(e) {
+    if (e.target === releaseModal) releaseModal.classList.remove("show");
+  });
+
+  onEl("releaseForm", "submit", function(e) {
+    e.preventDefault();
+    var kind = document.getElementById("releaseKind").value;
+    var target = document.getElementById("releaseTarget").value.trim();
+    var image = document.getElementById("releaseImage").value.trim();
+    var strategy = document.getElementById("releaseStrategy").value;
+    var healthURL = document.getElementById("releaseHealthURL").value.trim();
+    var healthTimeout = document.getElementById("releaseHealthTimeout").value.trim() || "60s";
+    var drain = document.getElementById("releaseDrain").value.trim() || "10s";
+    if (!target || !image) {
+      showToast("Image and target are required", "error");
+      return;
+    }
+    try { localStorage.setItem(releaseStrategyStorageKey(kind, target), strategy); } catch (_) {}
+    releaseModal.classList.remove("show");
+
+    if (kind === "compose") {
+      runStreamedOperation(
+        "/api/compose/release",
+        {
+          name: target,
+          service: document.getElementById("releaseService").value || "app",
+          app_image_ref: image,
+          strategy: strategy,
+          health_url: healthURL,
+          health_timeout: healthTimeout,
+          drain: drain
+        },
+        "Compose release",
+        target + " — " + strategy
+      );
+      return;
+    }
+
+    if (strategy !== "blue-green") {
+      showToast("Standalone container release supports blue-green strategy only (use rolling via image pull/recreate).", "warning");
+      return;
+    }
+    runStreamedOperation(
+      "/api/containers/release",
+      {
+        container: target,
+        image: image,
+        strategy: strategy,
+        health_url: healthURL,
+        health_timeout: healthTimeout,
+        drain: drain
+      },
+      "Container release",
+      target + " — blue-green"
+    );
+  });
 
   // ── Confirm Modal ──
   var confirmModal = document.getElementById("confirmModal");

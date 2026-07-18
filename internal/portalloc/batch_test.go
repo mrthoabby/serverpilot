@@ -31,6 +31,19 @@ func TestReserveOwnersAtomicRollback(t *testing.T) {
 	}
 }
 
+func TestComposeAndDockerColorOwners(t *testing.T) {
+	owner := ComposeColorOwner("shop", "blue", "app", "8080", "tcp")
+	want := "compose:shop:blue:app:8080/tcp"
+	if owner != want {
+		t.Fatalf("ComposeColorOwner = %q, want %q", owner, want)
+	}
+	dockerOwner := DockerColorOwner("api", "green", "3000", "tcp")
+	wantDocker := "docker:api:green:3000/tcp"
+	if dockerOwner != wantDocker {
+		t.Fatalf("DockerColorOwner = %q, want %q", dockerOwner, wantDocker)
+	}
+}
+
 func setRegistryRootForTests(t *testing.T, root string) {
 	t.Helper()
 	oldBase := baseDir

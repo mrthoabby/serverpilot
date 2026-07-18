@@ -273,6 +273,20 @@ func DeleteByConfigName(name string) error {
 	})
 }
 
+// SitesForComposeProject returns records linked to a compose project name.
+func SitesForComposeProject(project string) ([]SiteRecord, error) {
+	var out []SiteRecord
+	err := withRegistryLock(func(reg *registry) error {
+		for _, s := range reg.Sites {
+			if s.ComposeProject == project {
+				out = append(out, s)
+			}
+		}
+		return nil
+	})
+	return out, err
+}
+
 // SitesForContainer returns all records bound to a container name or ID.
 func SitesForContainer(containerID, containerName string) ([]SiteRecord, error) {
 	var out []SiteRecord

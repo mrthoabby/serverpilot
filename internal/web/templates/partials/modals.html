@@ -215,6 +215,52 @@
   </div>
 </div>
 
+<!-- Release Modal (Compose + standalone containers) -->
+<div class="modal-overlay" id="releaseModal">
+  <div class="modal" style="max-width: 560px;">
+    <h3 id="releaseModalTitle">Release</h3>
+    <p class="modal-sub" id="releaseModalSub">Update image with optional blue-green deployment.</p>
+    <form id="releaseForm">
+      <input type="hidden" id="releaseKind">
+      <input type="hidden" id="releaseTarget">
+      <input type="hidden" id="releaseService">
+      <div class="form-group">
+        <label for="releaseImage">Image reference</label>
+        <input type="text" id="releaseImage" required placeholder="ghcr.io/org/app:v1.2.3">
+      </div>
+      <div class="form-group">
+        <label for="releaseStrategy">Deployment strategy</label>
+        <select id="releaseStrategy">
+          <option value="rolling">Rolling (default)</option>
+          <option value="blue-green">Blue-green (parallel + nginx switch)</option>
+        </select>
+        <div style="font-size:0.7rem;color:var(--text-muted);margin-top:4px;line-height:1.4;">
+          Blue-green requires stateless services/containers. Stateful stacks are rejected with a clear error.
+        </div>
+      </div>
+      <div class="form-group" id="releaseHealthGroup" style="display:none;">
+        <label for="releaseHealthURL">Health URL (optional)</label>
+        <input type="text" id="releaseHealthURL" placeholder="/health">
+        <div style="font-size:0.7rem;color:var(--text-muted);margin-top:4px;">If empty, uses Docker HEALTHCHECK then TCP only.</div>
+      </div>
+      <div class="form-grid-2" id="releaseTimingGroup" style="display:none;">
+        <div class="form-group">
+          <label for="releaseHealthTimeout">Health timeout</label>
+          <input type="text" id="releaseHealthTimeout" placeholder="60s" value="60s">
+        </div>
+        <div class="form-group">
+          <label for="releaseDrain">Drain before old teardown</label>
+          <input type="text" id="releaseDrain" placeholder="10s" value="10s">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="releaseCancelBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="releaseSubmitBtn">Release</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Confirm Modal -->
 <div class="modal-overlay" id="confirmModal">
   <div class="modal">

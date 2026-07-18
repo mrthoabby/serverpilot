@@ -32,6 +32,10 @@ type composeSocketRequest struct {
 	ImageRef      string `json:"image_ref"`
 	RegistryUser  string `json:"registry_user,omitempty"`
 	RegistryToken string `json:"registry_token,omitempty"`
+	Strategy      string `json:"strategy,omitempty"`
+	HealthURL     string `json:"health_url,omitempty"`
+	HealthTimeout string `json:"health_timeout,omitempty"`
+	Drain         string `json:"drain,omitempty"`
 }
 
 type composeSocketResponse struct {
@@ -124,6 +128,10 @@ func dispatchComposeSocketRequest(req composeSocketRequest) composeSocketRespons
 		ImageRef:      req.ImageRef,
 		RegistryUser:  req.RegistryUser,
 		RegistryToken: req.RegistryToken,
+		Strategy:      req.Strategy,
+		HealthURL:     req.HealthURL,
+		HealthTimeout: parseDurationOrDefault(req.HealthTimeout, defaultHealthWait),
+		Drain:         parseDurationOrDefault(req.Drain, defaultDrain),
 	}
 	if err := ReleaseService(releaseReq, progress); err != nil {
 		return composeSocketResponse{Error: err.Error(), Log: lines}
@@ -188,6 +196,10 @@ func releaseViaSocket(req ReleaseRequest) (*composeSocketResponse, error) {
 		ImageRef:      req.ImageRef,
 		RegistryUser:  req.RegistryUser,
 		RegistryToken: req.RegistryToken,
+		Strategy:      req.Strategy,
+		HealthURL:     req.HealthURL,
+		HealthTimeout: req.HealthTimeout.String(),
+		Drain:         req.Drain.String(),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), composeSocketDialTimeout)
