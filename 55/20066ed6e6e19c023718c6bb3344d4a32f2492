@@ -1,0 +1,19 @@
+internal/web/handlers.go
+  s_9d42ed75d09991::t_d367f86f06e5a3 814-819
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "5520066ed6e6e19c023718c6bb3344d4a32f2492",
+  "prompts": {},
+  "sessions": {
+    "s_9d42ed75d09991": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ca396ca0-92d0-4608-bd48-7db50cd50ae4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
