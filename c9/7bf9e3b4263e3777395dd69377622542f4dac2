@@ -1,0 +1,33 @@
+internal/web/static/js/modules/apps.js
+  s_9d42ed75d09991::t_d8aebcbd6ef34b 453
+  s_9d42ed75d09991::t_62ddc21d137a25 550
+  s_9d42ed75d09991::t_04a24a6bc06807 395-416,418
+  s_9d42ed75d09991::t_7896f103ac5a15 530,534-539
+internal/web/static/css/components.css
+  s_9d42ed75d09991::t_4d27080c138455 188-266
+internal/web/static/env-editor.js
+  s_9d42ed75d09991::t_f4afbc2c956b66 414-420
+  s_9d42ed75d09991::t_fdba971105158c 131-135
+  s_9d42ed75d09991::t_ebd833030497c4 171
+  s_9d42ed75d09991::t_90e04deef8ce4a 86-119
+  s_9d42ed75d09991::t_efe1d916ae863b 181-185,202-237,240,253,263-267,270-271
+  s_9d42ed75d09991::t_259fd0cc4a1088 311-322
+internal/web/templates/partials/panel-apps.html
+  s_9d42ed75d09991::t_d8748e278ba79b 74-80,91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "c97bf9e3b4263e3777395dd69377622542f4dac2",
+  "prompts": {},
+  "sessions": {
+    "s_9d42ed75d09991": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ca396ca0-92d0-4608-bd48-7db50cd50ae4",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
