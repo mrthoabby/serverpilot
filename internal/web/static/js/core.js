@@ -154,6 +154,7 @@ window.SP = window.SP || {};
     }
     if (!resp.ok) {
       var errText = "";
+      var errData = null;
       // Read body as text first; resp.json() on empty body throws
       // "Unexpected end of input" which we don't want propagating.
       try {
@@ -162,6 +163,7 @@ window.SP = window.SP || {};
           try {
             var j = JSON.parse(bodyText);
             errText = j.error || j.message || resp.statusText;
+            errData = j.data || null;
           } catch(e) {
             errText = resp.statusText || bodyText.slice(0, 200);
           }
@@ -178,7 +180,12 @@ window.SP = window.SP || {};
       if (resp.status === 403 && errText === "HTTPS is required for this sensitive action") {
         throw new Error("Esta acción requiere HTTPS. Abre el panel con https:// en la URL.");
       }
-      throw new Error(errText);
+      var apiErr = new Error(errText);
+      apiErr.status = resp.status;
+      if (errData) {
+        apiErr.data = errData;
+      }
+      throw apiErr;
     }
     var ct = resp.headers.get("content-type") || "";
     if (ct.includes("application/json")) {

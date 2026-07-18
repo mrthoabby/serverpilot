@@ -123,7 +123,13 @@
     }
 
     if (detail) {
-      detail.textContent = data.detail || data.remaining_error || "(no diagnostic output available)";
+      if (data.detail) {
+        detail.textContent = data.detail;
+      } else if (data.ok) {
+        detail.textContent = "nginx -t currently passes. If site creation just failed, the bad config was already rolled back — create the site again to capture the error here, or check server logs.";
+      } else {
+        detail.textContent = data.remaining_error || "(no diagnostic output available)";
+      }
     }
 
     if (repairBtn) {

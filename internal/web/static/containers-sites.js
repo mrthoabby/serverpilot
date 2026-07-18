@@ -937,7 +937,53 @@
     lastAssocNginxDiag = null;
   }
 
-  async function showAssociateNginxRepair() {
+  function isNginxSiteCreateError(msg) {
+    return msg.indexOf("nginx reload failed") >= 0 ||
+      msg.indexOf("nginx rejected the config") >= 0;
+  }
+
+  function mergeNginxDiagPayload(nginx, hidden) {
+    var data = nginx || {};
+    if (hidden && hidden.length && !data.hidden_configs) {
+      data = Object.assign({}, data, { hidden_configs: hidden });
+    }
+    return data;
+  }
+
+  function showAssociateNginxRepairFromData(data) {
+    var box = document.getElementById("assocNginxRepair");
+    var message = document.getElementById("assocNginxRepairMessage");
+    var detail = document.getElementById("assocNginxRepairDetail");
+    if (!box || !message) return;
+    data = data || {};
+    lastAssocNginxDiag = data;
+    message.textContent = "Nginx rejected the site configuration. No site was kept. Repair Nginx or open diagnostics to see the exact error.";
+    if (detail) {
+      detail.style.display = "none";
+      detail.textContent = "";
+    }
+    var issue = data.issues && data.issues[0];
+    if (issue && issue.message) {
+      var loc = issue.file ? (" in " + issue.file + (issue.line ? ":" + issue.line : "")) : "";
+      message.textContent = "Nginx rejected the new site config" + loc + ": " + issue.message + ". No site was kept.";
+      if (issue.suggestion) {
+        message.textContent += " " + issue.suggestion;
+      }
+    } else if (data.detail) {
+      message.textContent = "Nginx rejected the site configuration. No site was kept. See the nginx -t output below or open diagnostics.";
+    }
+    if (detail && data.detail) {
+      detail.textContent = data.detail;
+      detail.style.display = "block";
+    }
+    box.style.display = "block";
+  }
+
+  async function showAssociateNginxRepair(prefetched) {
+    if (prefetched) {
+      showAssociateNginxRepairFromData(prefetched);
+      return;
+    }
     var box = document.getElementById("assocNginxRepair");
     var message = document.getElementById("assocNginxRepairMessage");
     var detail = document.getElementById("assocNginxRepairDetail");
@@ -950,25 +996,10 @@
     try {
       var resp = await apiFetch("/api/nginx/diagnose");
       var data = (resp && resp.data) || {};
-      lastAssocNginxDiag = data;
-      var issue = data.issues && data.issues[0];
-      if (issue && issue.message) {
-        var loc = issue.file ? (" in " + issue.file + (issue.line ? ":" + issue.line : "")) : "";
-        message.textContent = "Nginx needs repair: " + issue.message + loc + ". No site was kept.";
-        if (issue.suggestion) {
-          message.textContent += " " + issue.suggestion;
-        }
-      } else if (data.detail) {
-        message.textContent = "Nginx needs repair. No site was kept. Open diagnostics for the full nginx -t output.";
-      }
-      if (detail && data.detail) {
-        detail.textContent = data.detail;
-        detail.style.display = "block";
-      }
+      showAssociateNginxRepairFromData(data);
     } catch (_) {
-      // Keep the generic message when diagnostics are unavailable.
+      box.style.display = "block";
     }
-    box.style.display = "block";
   }
 
   var assocNginxRepairBtn = document.getElementById("assocNginxRepairBtn");
@@ -983,7 +1014,7 @@
         var data = (resp && resp.data) || {};
         lastAssocNginxDiag = data;
         if (!data.ok) {
-          await showAssociateNginxRepair();
+          showAssociateNginxRepairFromData(data);
           if (typeof renderNginxDiagnostics === "function") {
             renderNginxDiagnostics(data, { showRepair: true });
           }
@@ -1072,7 +1103,14 @@
             await refreshContainerView();
           } catch (err2) { showToast("Failed: " + err2.message, "error"); }
         } else {
-          if (msg.indexOf("nginx reload failed") >= 0) {
+          var nginxPayload = err.data && err.data.nginx;
+          if (nginxPayload) {
+            var diagData = mergeNginxDiagPayload(nginxPayload, err.data.hidden_configs);
+            showAssociateNginxRepairFromData(diagData);
+            if (typeof renderNginxDiagnostics === "function") {
+              renderNginxDiagnostics(diagData, { showRepair: true });
+            }
+          } else if (isNginxSiteCreateError(msg)) {
             await showAssociateNginxRepair();
           }
           showToast("Failed: " + msg, "error");

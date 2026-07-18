@@ -114,8 +114,13 @@ func Create(req CreateRequest) (SiteRecord, error) {
 		return SiteRecord{}, fmt.Errorf("failed to enable site")
 	}
 	if err := nginx.ReloadNginx(); err != nil {
+		report := nginx.Diagnose()
 		cleanupCreatedSite(req.Domain, absPath)
-		return SiteRecord{}, fmt.Errorf("failed to reload nginx")
+		return SiteRecord{}, &NginxActivationError{
+			Message: "failed to reload nginx",
+			Report:  report,
+			Cause:   err,
+		}
 	}
 
 	rec := SiteRecord{

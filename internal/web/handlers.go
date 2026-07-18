@@ -1433,6 +1433,17 @@ func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
 				status = http.StatusBadRequest
 				clientErr = "container not found"
 			}
+			if nginxErr, ok := err.(*sites.NginxActivationError); ok {
+				hidden, _ := nginx.ListHiddenSiteConfigs()
+				writeJSON(w, status, apiResponse{
+					Error: clientErr,
+					Data: map[string]interface{}{
+						"nginx":          nginxErr.Report,
+						"hidden_configs": hidden,
+					},
+				})
+				return
+			}
 			writeJSON(w, status, apiResponse{Error: clientErr})
 			return
 		}
