@@ -924,6 +924,55 @@
 
   initBodySizeSelect();
 
+  function hideAssociateNginxRepair() {
+    var box = document.getElementById("assocNginxRepair");
+    if (box) box.style.display = "none";
+  }
+
+  async function showAssociateNginxRepair() {
+    var box = document.getElementById("assocNginxRepair");
+    var message = document.getElementById("assocNginxRepairMessage");
+    if (!box || !message) return;
+    message.textContent = "Nginx rejected the site configuration. No site was kept. Repair Nginx, then create the site again.";
+    try {
+      var resp = await apiFetch("/api/nginx/diagnose");
+      var data = (resp && resp.data) || {};
+      var issue = data.issues && data.issues[0];
+      if (issue && issue.message) {
+        message.textContent = "Nginx needs repair: " + issue.message + ". No site was kept; repair Nginx, then create the site again.";
+      } else if (data.remaining_error) {
+        message.textContent = "Nginx needs repair: " + data.remaining_error + " No site was kept; repair Nginx, then create the site again.";
+      }
+    } catch (_) {
+      // Keep the generic message when diagnostics are unavailable.
+    }
+    box.style.display = "block";
+  }
+
+  var assocNginxRepairBtn = document.getElementById("assocNginxRepairBtn");
+  if (assocNginxRepairBtn) {
+    assocNginxRepairBtn.addEventListener("click", async function() {
+      assocNginxRepairBtn.disabled = true;
+      try {
+        if (typeof ensureRecentReauth === "function") {
+          await ensureRecentReauth();
+        }
+        var resp = await apiFetch("/api/nginx/repair", { method: "POST" });
+        var data = (resp && resp.data) || {};
+        if (!data.ok) {
+          showToast("Nginx repair incomplete: " + (data.remaining_error || "check server logs"), "error");
+          return;
+        }
+        hideAssociateNginxRepair();
+        showToast("Nginx repaired. Create the site again.", "success");
+      } catch (err) {
+        showToast("Nginx repair failed: " + ((err && err.message) || "error"), "error");
+      } finally {
+        assocNginxRepairBtn.disabled = false;
+      }
+    });
+  }
+
   var assocForm = document.getElementById("associateForm");
   if (assocForm) {
     assocForm.addEventListener("submit", async function(e) {
@@ -952,6 +1001,7 @@
         }
       };
       try {
+        hideAssociateNginxRepair();
         if (typeof ensureRecentReauth === "function") {
           await ensureRecentReauth();
         }
@@ -973,6 +1023,9 @@
             await refreshContainerView();
           } catch (err2) { showToast("Failed: " + err2.message, "error"); }
         } else {
+          if (msg.indexOf("nginx reload failed") >= 0) {
+            await showAssociateNginxRepair();
+          }
           showToast("Failed: " + msg, "error");
         }
       } finally {

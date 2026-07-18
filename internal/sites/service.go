@@ -114,6 +114,7 @@ func Create(req CreateRequest) (SiteRecord, error) {
 		return SiteRecord{}, fmt.Errorf("failed to enable site")
 	}
 	if err := nginx.ReloadNginx(); err != nil {
+		cleanupCreatedSite(req.Domain, absPath)
 		return SiteRecord{}, fmt.Errorf("failed to reload nginx")
 	}
 
@@ -132,9 +133,18 @@ func Create(req CreateRequest) (SiteRecord, error) {
 		UpdatedAt:     time.Now().UTC(),
 	}
 	if err := Upsert(rec); err != nil {
+		cleanupCreatedSite(req.Domain, absPath)
 		return rec, fmt.Errorf("site created but registry update failed")
 	}
 	return rec, nil
+}
+
+// cleanupCreatedSite removes only the files created by this request after a
+// failed activation so a retry cannot be blocked by a partial site.
+func cleanupCreatedSite(domain, configPath string) {
+	_ = nginx.DisableSite(domain)
+	_ = os.Remove(configPath)
+	_ = nginx.ReloadNginx()
 }
 
 func deleteByDomain(domain string) error {

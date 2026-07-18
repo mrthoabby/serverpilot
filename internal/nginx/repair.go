@@ -275,12 +275,13 @@ func parseNginxTestIssues(output string) []RepairIssue {
 		line := 0
 		fmt.Sscanf(match[2], "%d", &line)
 		kind := "nginx_config"
-		msg := output
-		if strings.Contains(output, "duplicate") {
+		msg := sanitizeNginxError(output)
+		if strings.Contains(output, "could not build server_names_hash") {
+			kind = "server_names_hash"
+			msg = "server name hash bucket is too small"
+		} else if strings.Contains(output, "duplicate") {
 			kind = "duplicate_directive"
 			msg = "duplicate nginx directive"
-		} else {
-			msg = sanitizeNginxError(output)
 		}
 		issues = append(issues, RepairIssue{
 			File:    filepath.Base(match[1]),
@@ -290,9 +291,15 @@ func parseNginxTestIssues(output string) []RepairIssue {
 		})
 	}
 	if len(issues) == 0 && strings.TrimSpace(output) != "" {
+		kind := "nginx_config"
+		message := sanitizeNginxError(output)
+		if strings.Contains(output, "could not build server_names_hash") {
+			kind = "server_names_hash"
+			message = "server name hash bucket is too small"
+		}
 		issues = append(issues, RepairIssue{
-			Kind:    "nginx_config",
-			Message: sanitizeNginxError(output),
+			Kind:    kind,
+			Message: message,
 		})
 	}
 	return issues
