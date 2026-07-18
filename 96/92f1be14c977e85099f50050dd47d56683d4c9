@@ -1,0 +1,62 @@
+internal/web/templates/partials/panel-apps.html
+  s_9d42ed75d09991::t_5d837367943932 23-24
+  s_9d42ed75d09991::t_3a8dd3a388ca4f 100-101
+  s_9d42ed75d09991::t_abfbd13c7a7eaf 75
+  s_9d42ed75d09991::t_72d9e38ab9e417 65,73-74,76-78,81,83,86
+  s_9d42ed75d09991::t_de40dbcc208fc3 6,8
+  s_9d42ed75d09991::t_f0e9fc1405ad94 38,46-47
+  s_9d42ed75d09991::t_7b0f0fdbfb9b0f 108,116-120,122
+  s_9d42ed75d09991::t_1b0011088057fe 115,121,123-131
+internal/web/static/css/components.css
+  s_9d42ed75d09991::t_fbce264987fc95 768-776
+  s_9d42ed75d09991::t_35421b7777db74 209-240,243,249-264
+  s_9d42ed75d09991::t_9a271d49b621a6 412-657,666-767,777-830
+  s_9d42ed75d09991::t_3fbf5f6ea726fd 305-308
+  s_9d42ed75d09991::t_108e016ea3a737 283-302
+  s_9d42ed75d09991::t_6f96c665bb2231 334-411
+  s_9d42ed75d09991::t_5ef77a6208bc26 658-665
+internal/web/handlers.go
+  s_9d42ed75d09991::t_356ded32dfba28 4575-4598
+internal/apps/files.go
+  s_9d42ed75d09991::t_0455d6999fee30 179-187
+  s_9d42ed75d09991::t_5169046ba6e546 18
+  s_9d42ed75d09991::t_72c53d8ec7ea97 1-17,19-178,188-223,233-234,236-243
+  s_9d42ed75d09991::t_7902f555b0c656 224-232,235
+internal/web/server.go
+  s_9d42ed75d09991::t_a76143a48f911e 198
+internal/apps/files_test.go
+  s_9d42ed75d09991::t_8dfcf2eff01464 1-74,79-82,85-86
+internal/web/static/js/modules/apps.js
+  s_9d42ed75d09991::t_10d6e59495acd4 353
+  s_9d42ed75d09991::t_a029864bafa948 679-682
+  s_9d42ed75d09991::t_0e43c06be3f1b1 261,265,271-273,275-277,280-285,288
+  s_9d42ed75d09991::t_e70dd3083427c3 297-352,354-365,367-368,370-418
+  s_9d42ed75d09991::t_1ab1b3e6c2d85f 366,369
+  s_9d42ed75d09991::t_61a474ef964f31 662-667
+internal/web/static/env-editor.js
+  s_9d42ed75d09991::t_352597a8d668c8 411-412
+  s_9d42ed75d09991::t_44c666f553822c 343-349,357
+  s_9d42ed75d09991::t_30526ea70b5036 243-248,252-253
+  s_9d42ed75d09991::t_5154b7d20292f5 493
+  s_9d42ed75d09991::t_48212667f922d6 222-226,251
+  s_9d42ed75d09991::t_56e926f85fa1a7 407-409,413-414
+  s_9d42ed75d09991::t_a9af03ad438aeb 4-7
+  s_9d42ed75d09991::t_bdc91ab87b763b 410
+  s_9d42ed75d09991::t_b9e3ea1cd2379d 173-176,179-221,227-242,249-250,254
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "9692f1be14c977e85099f50050dd47d56683d4c9",
+  "prompts": {},
+  "sessions": {
+    "s_9d42ed75d09991": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ca396ca0-92d0-4608-bd48-7db50cd50ae4",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
