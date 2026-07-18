@@ -811,6 +811,12 @@ func (s *Server) handleSSLEnable(w http.ResponseWriter, r *http.Request) {
 	w, job = s.wrapSSE(w, flusher, "ssl-enable", "Enabling SSL", req.Domain)
 	defer job.finishIfAbandoned()
 
+	if report := nginx.Diagnose(); !report.OK {
+		sseWriteLog(w, flusher, "ERROR: Nginx configuration is invalid. Repair Nginx before requesting SSL.")
+		sseWriteEvent(w, flusher, "done", `{"success":false,"error":"nginx configuration is invalid — repair Nginx before enabling SSL"}`)
+		return
+	}
+
 	sseWriteLog(w, flusher, "[Step 1/3] Requesting SSL certificate for "+req.Domain+"...")
 
 	certbotBin, err := findCertbot()
