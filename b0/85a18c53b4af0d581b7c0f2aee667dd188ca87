@@ -1,0 +1,43 @@
+internal/compose/analyze.go
+  s_9d42ed75d09991::t_527fdbb14c995e 20-25,44,107,125,185-196,204-221
+internal/compose/bluegreen_test.go
+  s_9d42ed75d09991::t_6bea83dfda869f 47-48,54,59-102
+internal/compose/release_lock.go
+  s_9d42ed75d09991::t_cd0633fd8f6e29 1-32
+docs/DEPLOY.md
+  s_9d42ed75d09991::t_574442cb6f1360 711-729,732,735,738-740,742-747,749-752
+internal/compose/analyze_test.go
+  s_9d42ed75d09991::t_a62950e1bfaaaf 63-98
+internal/trafficswitch/switch.go
+  s_9d42ed75d09991::t_9bacc30444bf21 17-23,26,29,37,42-49
+  s_9d42ed75d09991::t_1d492599fb574f 28,36,41
+internal/web/templates/partials/modals.html
+  s_9d42ed75d09991::t_1edf76aff1f875 238
+internal/compose/exec.go
+  s_9d42ed75d09991::t_22526f31b50adb 216-228
+internal/compose/bluegreen.go
+  s_9d42ed75d09991::t_089a875e0fc657 37-44,60,88-89,101,111,128,141,214-215,220,226-268
+  s_9d42ed75d09991::t_a9c4126dec384f 126-127,149-151,154-168
+internal/compose/release.go
+  s_9d42ed75d09991::t_e431c56b0b7c66 37-41,107-109
+internal/compose/models.go
+  s_9d42ed75d09991::t_a9a01251464698 51-59,62-68
+internal/compose/release_test.go
+  s_9d42ed75d09991::t_2a5184ae21fe8e 4,36-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "b085a18c53b4af0d581b7c0f2aee667dd188ca87",
+  "prompts": {},
+  "sessions": {
+    "s_9d42ed75d09991": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ca396ca0-92d0-4608-bd48-7db50cd50ae4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
