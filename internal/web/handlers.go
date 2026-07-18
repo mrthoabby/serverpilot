@@ -4751,7 +4751,7 @@ func (s *Server) handlePortAllocate(w http.ResponseWriter, r *http.Request) {
 
 	// List mode.
 	if r.URL.Query().Get("list") == "true" {
-		writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: portalloc.ListReservations()})
+		writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: portalloc.ListReservationInfos()})
 		return
 	}
 

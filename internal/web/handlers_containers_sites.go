@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/mrthoabby/serverpilot/internal/docker"
+	"github.com/mrthoabby/serverpilot/internal/portalloc"
 	"github.com/mrthoabby/serverpilot/internal/sites"
 	"github.com/mrthoabby/serverpilot/internal/templates"
 )
@@ -36,6 +37,12 @@ type portPublishRequest struct {
 	ContainerPort string `json:"container_port"`
 	Protocol      string `json:"protocol"`
 	PreviewToken  string `json:"preview_token"`
+}
+
+type portReserveRequest struct {
+	ContainerID   string `json:"container_id"`
+	ContainerPort string `json:"container_port"`
+	Protocol      string `json:"protocol"`
 }
 
 type redirectActivateRequest struct {
@@ -101,31 +108,116 @@ func (s *Server) handleContainerPublishPort(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
 		return
 	}
-	if strings.TrimSpace(req.ContainerID) == "" {
+	containerID := strings.TrimSpace(req.ContainerID)
+	if containerID == "" {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "container_id required"})
 		return
 	}
-	if err := composeContainerBlocked(req.ContainerID); err != nil {
+	if err := composeContainerBlocked(containerID); err != nil {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "compose containers use stack deploy for port changes"})
 		return
 	}
-	if req.HostPort < 1 || req.HostPort > 65535 {
-		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid host port"})
+	containerPort := strings.TrimSpace(req.ContainerPort)
+	if containerPort == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "container_port required"})
 		return
 	}
+	protocol := strings.TrimSpace(req.Protocol)
+	if protocol == "" {
+		protocol = "tcp"
+	}
+
+	owner, err := docker.PortReservationOwner(containerID, containerPort, protocol)
+	if err != nil {
+		log.Printf("publish port owner failed: %v", err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "failed to resolve container port owner"})
+		return
+	}
+
+	hostPort := req.HostPort
+	created := false
+	if hostPort < 1 {
+		result, reserveErr := portalloc.ReserveOwnerWithMeta(owner, portalloc.DefaultMinPort, portalloc.DefaultMaxPort)
+		if reserveErr != nil {
+			log.Printf("publish port reserve failed: %v", reserveErr)
+			writeJSON(w, http.StatusServiceUnavailable, apiResponse{Error: "failed to reserve host port"})
+			return
+		}
+		hostPort = result.Port
+		created = result.Created
+	} else if hostPort > 65535 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid host port"})
+		return
+	} else if err := portalloc.AssignOwnerPort(owner, hostPort); err != nil {
+		log.Printf("publish port assign failed: %v", err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "failed to reserve host port"})
+		return
+	}
+
 	if err := docker.PublishPort(docker.PublishPortRequest{
-		ContainerID:   req.ContainerID,
-		HostPort:      req.HostPort,
-		ContainerPort: req.ContainerPort,
-		Protocol:      req.Protocol,
+		ContainerID:   containerID,
+		HostPort:      hostPort,
+		ContainerPort: containerPort,
+		Protocol:      protocol,
 	}); err != nil {
+		if created {
+			_ = portalloc.ReleaseOwner(owner)
+		}
 		log.Printf("publish port failed: %v", err)
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "failed to publish port"})
 		return
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
 		"message": "port published",
-		"port":    strconv.Itoa(req.HostPort),
+		"port":    strconv.Itoa(hostPort),
+	}})
+}
+
+func (s *Server) handleContainerReservePort(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+	var req portReserveRequest
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	containerID := strings.TrimSpace(req.ContainerID)
+	if containerID == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "container_id required"})
+		return
+	}
+	containerPort := strings.TrimSpace(req.ContainerPort)
+	if containerPort == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "container_port required"})
+		return
+	}
+	protocol := strings.TrimSpace(req.Protocol)
+	if protocol == "" {
+		protocol = "tcp"
+	}
+	if err := composeContainerBlocked(containerID); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "compose containers use stack deploy for port changes"})
+		return
+	}
+
+	owner, err := docker.PortReservationOwner(containerID, containerPort, protocol)
+	if err != nil {
+		log.Printf("reserve port owner failed: %v", err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "failed to resolve container port owner"})
+		return
+	}
+	result, err := portalloc.ReserveOwnerWithMeta(owner, portalloc.DefaultMinPort, portalloc.DefaultMaxPort)
+	if err != nil {
+		log.Printf("reserve port failed: %v", err)
+		writeJSON(w, http.StatusServiceUnavailable, apiResponse{Error: "failed to reserve host port"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]interface{}{
+		"port":           result.Port,
+		"container_port": containerPort,
+		"protocol":       protocol,
 	}})
 }
 

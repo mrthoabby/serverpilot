@@ -25,7 +25,9 @@ var portCmd = &cobra.Command{
 Before allocating, ServerPilot refreshes its registry from Docker and Nginx
 so ports used by stopped/restarting containers with existing sites remain
 blocked. Anonymous allocations are locked for 1 minute so concurrent callers
-never receive the same port.
+never receive the same port. Permanent owner reservations stay assigned
+across restarts and are held for 14 days after the endpoint stops listening
+before the port can be reassigned.
 
 Examples:
   sp port                  # returns a port in 3000-3999
@@ -34,7 +36,7 @@ Examples:
 
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if portList {
-			reservations, err := portalloc.SyncAndListCLI(portMin, portMax)
+			reservations, err := portalloc.SyncAndListInfosCLI(portMin, portMax)
 			if err != nil {
 				return fmt.Errorf("port registry sync failed: %w", err)
 			}
@@ -45,10 +47,14 @@ Examples:
 			fmt.Fprintf(os.Stderr, "Active reservations (%d):\n", len(reservations))
 			for _, r := range reservations {
 				if r.Owner != "" {
-					fmt.Fprintf(os.Stderr, "  port %-5d  reserved for %s\n", r.Port, r.Owner)
+					line := fmt.Sprintf("  port %-5d  reserved for %s (%s)", r.Port, r.Owner, r.Status)
+					if r.ReleaseAt != nil {
+						line += fmt.Sprintf(", release after %s", r.ReleaseAt.Format("2006-01-02 15:04"))
+					}
+					fmt.Fprintln(os.Stderr, line)
 					continue
 				}
-				fmt.Fprintf(os.Stderr, "  port %-5d  locked until %s\n", r.Port, r.ExpiresAt.Format("15:04:05"))
+				fmt.Fprintf(os.Stderr, "  port %-5d  locked until %s (%s)\n", r.Port, r.ExpiresAt.Format("15:04:05"), r.Status)
 			}
 			return nil
 		}

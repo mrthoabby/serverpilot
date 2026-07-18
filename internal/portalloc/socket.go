@@ -30,10 +30,10 @@ type socketRequest struct {
 }
 
 type socketResponse struct {
-	OK           bool          `json:"ok"`
-	Port         int           `json:"port,omitempty"`
-	Error        string        `json:"error,omitempty"`
-	Reservations []Reservation `json:"reservations,omitempty"`
+	OK           bool              `json:"ok"`
+	Port         int               `json:"port,omitempty"`
+	Error        string            `json:"error,omitempty"`
+	Reservations []ReservationInfo `json:"reservations,omitempty"`
 }
 
 // StartPortSocket listens for local port-allocation requests. Only root
@@ -119,7 +119,7 @@ func dispatchSocketRequest(req socketRequest) socketResponse {
 		if err := SyncDetectedPorts(minPort, maxPort); err != nil {
 			return socketResponse{Error: err.Error()}
 		}
-		return socketResponse{OK: true, Reservations: ListReservations()}
+		return socketResponse{OK: true, Reservations: ListReservationInfos()}
 	default:
 		return socketResponse{Error: "unknown op"}
 	}
@@ -147,13 +147,26 @@ func AllocateCLI(minPort, maxPort int) (int, error) {
 // SyncAndListCLI refreshes detected ports and returns active reservations,
 // preferring the daemon socket when available.
 func SyncAndListCLI(minPort, maxPort int) ([]Reservation, error) {
-	if reservations, err := listViaSocket(minPort, maxPort); err == nil {
+	infos, err := SyncAndListInfosCLI(minPort, maxPort)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Reservation, 0, len(infos))
+	for _, info := range infos {
+		out = append(out, info.Reservation)
+	}
+	return out, nil
+}
+
+// SyncAndListInfosCLI refreshes detected ports and returns reservation metadata.
+func SyncAndListInfosCLI(minPort, maxPort int) ([]ReservationInfo, error) {
+	if reservations, err := listInfosViaSocket(minPort, maxPort); err == nil {
 		return reservations, nil
 	}
 	if err := SyncDetectedPorts(minPort, maxPort); err != nil {
 		return nil, err
 	}
-	return ListReservations(), nil
+	return ListReservationInfos(), nil
 }
 
 func allocateViaSocket(minPort, maxPort int) (int, error) {
@@ -173,7 +186,7 @@ func allocateViaSocket(minPort, maxPort int) (int, error) {
 	return resp.Port, nil
 }
 
-func listViaSocket(minPort, maxPort int) ([]Reservation, error) {
+func listInfosViaSocket(minPort, maxPort int) ([]ReservationInfo, error) {
 	resp, err := roundTripSocket(socketRequest{Op: "list", Min: minPort, Max: maxPort})
 	if err != nil {
 		return nil, err

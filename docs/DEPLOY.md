@@ -551,7 +551,13 @@ PUERTO = puerto interno del container (8080, 3000, etc.)
 6. Ejecuta compose up de todo el stack
 ```
 
-**`release.sh` NO toca puertos.** Solo actualiza la imagen del servicio CI. Los `SP_COMPOSE_PORT_*` quedan fijos desde el bootstrap.
+**`release.sh` NO asigna puertos directamente.** `sp compose release` compara el
+fingerprint del manifiesto con la generación activa:
+
+- si no cambió, solo actualiza la imagen del servicio CI con `--no-deps`;
+- si cambió, reconcilia el stack completo, levanta servicios nuevos y conserva
+  los host ports de endpoints existentes; ServerPilot reserva puertos únicamente
+  para endpoints públicos nuevos.
 
 ### Manifiesto — varios servicios públicos (ejemplo)
 

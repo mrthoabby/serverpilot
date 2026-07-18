@@ -71,6 +71,13 @@ func ReleaseService(req ReleaseRequest, progress Progress) error {
 	if !hasGen {
 		return fmt.Errorf("compose project %q has no active generation", req.Name)
 	}
+	analysis, err := AnalyzeProjectStrict(req.Name, rec.RootDir, rec.ComposeFile)
+	if err != nil {
+		return fmt.Errorf("release manifest analysis failed: %w", err)
+	}
+	if !analysis.CanDeploy {
+		return fmt.Errorf("release manifest failed policy checks")
+	}
 	genDir, err := GenerationDir(req.Name, gen.ID)
 	if err != nil {
 		return err
@@ -84,6 +91,10 @@ func ReleaseService(req ReleaseRequest, progress Progress) error {
 	}
 	if cleanupLogin != nil {
 		defer cleanupLogin()
+	}
+
+	if analysis.Fingerprint != gen.Fingerprint {
+		return reconcileReleaseStack(req, rec, gen, analysis, progress)
 	}
 
 	runner := Runner{

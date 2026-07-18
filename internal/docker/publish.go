@@ -75,17 +75,36 @@ func InspectAllPortMappings(id string) ([]PortMapping, error) {
 			})
 		}
 	}
+	exposedKeys := make([]string, 0, len(runtime.Config.ExposedPorts))
+	for k := range runtime.Config.ExposedPorts {
+		exposedKeys = append(exposedKeys, k)
+	}
+	sort.Strings(exposedKeys)
+	for _, containerPort := range exposedKeys {
+		parts := strings.Split(containerPort, "/")
+		cPort := parts[0]
+		proto := "tcp"
+		if len(parts) > 1 {
+			proto = parts[1]
+		}
+		key := ":" + cPort + "/" + proto
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		ports = append(ports, PortMapping{ContainerPort: cPort, Protocol: proto})
+	}
 	return ports, nil
 }
 
 // PublishAnalysis describes whether ServerPilot can safely add a host port binding.
 type PublishAnalysis struct {
-	CanAutoPublish bool     `json:"can_auto_publish"`
-	Reasons        []string `json:"reasons,omitempty"`
-	NetworkMode    string   `json:"network_mode"`
+	CanAutoPublish bool          `json:"can_auto_publish"`
+	Reasons        []string      `json:"reasons,omitempty"`
+	NetworkMode    string        `json:"network_mode"`
 	ExposedPorts   []PortMapping `json:"exposed_ports"`
 	PublishedPorts []PortMapping `json:"published_ports"`
-	ManualCommand  string   `json:"manual_command,omitempty"`
+	ManualCommand  string        `json:"manual_command,omitempty"`
 }
 
 // AnalyzePortPublish inspects a container and reports if auto-publish is safe.

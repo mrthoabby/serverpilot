@@ -207,6 +207,7 @@ func SyncDetectedPorts(minPort, maxPort int) error {
 
 	reg := loadRegistry()
 	syncDetectedPortsLocked(reg, minPort, maxPort)
+	pruneReservationsLocked(reg, time.Now())
 	return saveRegistry(reg)
 }
 
@@ -278,10 +279,12 @@ func lookupDeployGID() (int, error) {
 
 // Reservation is a single port lock entry persisted to disk.
 type Reservation struct {
-	Port      int       `json:"port"`
-	LockedAt  time.Time `json:"locked_at"`
-	ExpiresAt time.Time `json:"expires_at"`
-	Owner     string    `json:"owner,omitempty"`
+	Port          int       `json:"port"`
+	LockedAt      time.Time `json:"locked_at"`
+	ExpiresAt     time.Time `json:"expires_at"`
+	Owner         string    `json:"owner,omitempty"`
+	LastActiveAt  time.Time `json:"last_active_at,omitempty"`
+	InactiveSince time.Time `json:"inactive_since,omitempty"`
 }
 
 // registry holds all active Reservations.
@@ -320,20 +323,18 @@ func Allocate(minPort, maxPort int) (int, error) {
 
 	reg := loadRegistry()
 	syncDetectedPortsLocked(reg, minPort, maxPort)
+	now := time.Now()
+	pruneReservationsLocked(reg, now)
 	if err := saveRegistry(reg); err != nil {
 		return 0, fmt.Errorf("failed to persist detected ports: %w", err)
 	}
-	now := time.Now()
 
 	reserved := make(map[int]bool, len(reg.Reservations))
-	var alive []Reservation
 	for _, r := range reg.Reservations {
 		if r.Owner != "" || now.Before(r.ExpiresAt) {
 			reserved[r.Port] = true
-			alive = append(alive, r)
 		}
 	}
-	reg.Reservations = alive
 
 	for port := minPort; port <= maxPort; port++ {
 		if reserved[port] {
@@ -357,83 +358,14 @@ func Allocate(minPort, maxPort int) (int, error) {
 	return 0, fmt.Errorf("no available port in range %d-%d", minPort, maxPort)
 }
 
-// ReserveOwner returns a port permanently assigned to owner. If owner already
-// has a reservation and the port is not bound, the same port is returned. This
-// is intended for managed resources such as container replicas, where the port
-// must remain reserved across restarts or brief downtime.
+// ReserveOwner returns a port permanently assigned to owner. An existing owner
+// always receives the same port, even when it is currently listening.
 func ReserveOwner(owner string, minPort, maxPort int) (int, error) {
-	if owner == "" || len(owner) > 128 {
-		return 0, fmt.Errorf("invalid reservation owner")
-	}
-	if minPort < 1 || maxPort < minPort || maxPort > 65535 {
-		return 0, fmt.Errorf("invalid port range %d-%d", minPort, maxPort)
-	}
-	if err := ensureBaseDir(); err != nil {
+	result, err := ReserveOwnerWithMeta(owner, minPort, maxPort)
+	if err != nil {
 		return 0, err
 	}
-
-	fileMu.Lock()
-	defer fileMu.Unlock()
-
-	unlock, err := lockFile(lockPath())
-	if err != nil {
-		return 0, fmt.Errorf("cannot acquire lock: %w", err)
-	}
-	defer unlock()
-
-	reg := loadRegistry()
-	syncDetectedPortsLocked(reg, minPort, maxPort)
-	if err := saveRegistry(reg); err != nil {
-		return 0, fmt.Errorf("failed to persist detected ports: %w", err)
-	}
-	now := time.Now()
-	reserved := make(map[int]string, len(reg.Reservations))
-	var alive []Reservation
-	ownerIdx := -1
-	for _, r := range reg.Reservations {
-		if r.Owner != "" || now.Before(r.ExpiresAt) {
-			if r.Owner == owner {
-				ownerIdx = len(alive)
-			}
-			reserved[r.Port] = r.Owner
-			alive = append(alive, r)
-		}
-	}
-	reg.Reservations = alive
-	if ownerIdx >= 0 {
-		r := reg.Reservations[ownerIdx]
-		if isPortFree(r.Port) {
-			r.LockedAt = now
-			r.ExpiresAt = time.Time{}
-			reg.Reservations[ownerIdx] = r
-			if err := saveRegistry(reg); err != nil {
-				return 0, fmt.Errorf("failed to persist reservation: %w", err)
-			}
-			return r.Port, nil
-		}
-		reg.Reservations = append(reg.Reservations[:ownerIdx], reg.Reservations[ownerIdx+1:]...)
-		delete(reserved, r.Port)
-	}
-
-	for port := minPort; port <= maxPort; port++ {
-		if _, ok := reserved[port]; ok {
-			continue
-		}
-		if !isPortFree(port) {
-			continue
-		}
-		reg.Reservations = append(reg.Reservations, Reservation{
-			Port:      port,
-			LockedAt:  now,
-			ExpiresAt: time.Time{},
-			Owner:     owner,
-		})
-		if err := saveRegistry(reg); err != nil {
-			return 0, fmt.Errorf("failed to persist reservation: %w", err)
-		}
-		return port, nil
-	}
-	return 0, fmt.Errorf("no available port in range %d-%d", minPort, maxPort)
+	return result.Port, nil
 }
 
 func ReleaseOwner(owner string) error {
@@ -500,10 +432,11 @@ func AssignOwnerPort(owner string, port int) error {
 		next = append(next, r)
 	}
 	reg.Reservations = append(next, Reservation{
-		Port:      port,
-		LockedAt:  now,
-		ExpiresAt: time.Time{},
-		Owner:     owner,
+		Port:         port,
+		LockedAt:     now,
+		ExpiresAt:    time.Time{},
+		Owner:        owner,
+		LastActiveAt: now,
 	})
 	return saveRegistry(reg)
 }
@@ -525,13 +458,9 @@ func ListReservations() []Reservation {
 
 	reg := loadRegistry()
 	now := time.Now()
-	var alive []Reservation
-	for _, r := range reg.Reservations {
-		if r.Owner != "" || now.Before(r.ExpiresAt) {
-			alive = append(alive, r)
-		}
-	}
-	return alive
+	pruneReservationsLocked(reg, now)
+	_ = saveRegistry(reg)
+	return append([]Reservation(nil), reg.Reservations...)
 }
 
 func syncDetectedPortsLocked(reg *registry, minPort, maxPort int) {
@@ -597,7 +526,10 @@ func detectedOwnerWasRefreshed(owner string, refreshedPrefixes []string) bool {
 }
 
 type dockerInspectPortData struct {
-	Name       string `json:"Name"`
+	Name  string `json:"Name"`
+	State struct {
+		Status string `json:"Status"`
+	} `json:"State"`
 	HostConfig struct {
 		PortBindings map[string][]struct {
 			HostIP   string `json:"HostIp"`
@@ -621,7 +553,7 @@ func detectDockerPorts() (map[int]string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	psOut, err := exec.CommandContext(ctx, dockerBin, "ps", "-aq", "--no-trunc").Output()
+	psOut, err := exec.CommandContext(ctx, dockerBin, "ps", "-q", "--no-trunc").Output()
 	if err != nil {
 		return out, false
 	}
@@ -640,6 +572,9 @@ func detectDockerPorts() (map[int]string, bool) {
 		return out, false
 	}
 	for _, c := range containers {
+		if !strings.EqualFold(strings.TrimSpace(c.State.Status), "running") {
+			continue
+		}
 		name := strings.TrimPrefix(c.Name, "/")
 		if name == "" {
 			name = "container"

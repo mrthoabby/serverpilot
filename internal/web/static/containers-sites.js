@@ -57,11 +57,16 @@
 
   function exposedOnlyTCPPorts(container) {
     var out = [];
-    (container.ports || []).forEach(function(p) {
-      if (!p.host_port && p.container_port && (p.protocol || "tcp") === "tcp") {
-        out.push(p);
-      }
-    });
+    var seen = {};
+    function addMapping(p) {
+      if (!p || p.host_port || !p.container_port || (p.protocol || "tcp") !== "tcp") return;
+      var key = p.container_port + "/" + (p.protocol || "tcp");
+      if (seen[key]) return;
+      seen[key] = true;
+      out.push(p);
+    }
+    (container.ports || []).forEach(addMapping);
+    (container.exposed_ports || []).forEach(addMapping);
     return out;
   }
 
@@ -403,19 +408,18 @@
       if (data.can_auto_publish) {
         msg = "ServerPilot can recreate this container with port 127.0.0.1:<host>:" + portMapping.container_port + ". Continue?";
         if (!window.confirm(msg)) return;
-        var portResp = await apiFetch("/api/system/port");
-        var hostPort = (portResp && portResp.data && portResp.data.port) || 0;
-        if (!hostPort) throw new Error("no port allocated");
-        await apiFetch("/api/containers/publish-port", {
+        var publishResp = await apiFetch("/api/containers/publish-port", {
           method: "POST",
           body: {
             container_id: container.id,
-            host_port: hostPort,
+            host_port: 0,
             container_port: portMapping.container_port,
             protocol: portMapping.protocol || "tcp"
           }
         });
-        showToast("Port published on " + hostPort, "success");
+        var publishData = (publishResp && publishResp.data) || {};
+        var publishedPort = publishData.port || "";
+        showToast("Port published" + (publishedPort ? " on " + publishedPort : ""), "success");
         await refreshContainerView();
       } else {
         msg = (data.reasons || []).join("\n") || "Automatic publish is not safe.";
@@ -578,17 +582,24 @@
       tr.appendChild(tdStatus);
 
       var tdPorts = document.createElement("td");
-      (c.ports || []).concat(c.exposed_ports || []).forEach(function(p) {
+      var published = c.ports || [];
+      var exposed = c.exposed_ports || [];
+      published.forEach(function(p) {
         var ptag = document.createElement("span");
         ptag.className = "port-tag";
-        if (p.host_port) setText(ptag, p.host_port + ":" + p.container_port + "/" + (p.protocol || "tcp"));
-        else {
-          ptag.style.color = "#d29922";
-          setText(ptag, "exposed " + p.container_port + "/" + (p.protocol || "tcp"));
-        }
+        setText(ptag, p.host_port + " \u2192 " + p.container_port + "/" + (p.protocol || "tcp"));
         tdPorts.appendChild(ptag);
       });
-      if (!c.ports || !c.ports.length) setText(tdPorts, "None");
+      exposed.forEach(function(p) {
+        var ptag = document.createElement("span");
+        ptag.className = "port-tag";
+        ptag.style.color = "#d29922";
+        setText(ptag, "Interno " + p.container_port + "/" + (p.protocol || "tcp"));
+        tdPorts.appendChild(ptag);
+      });
+      if (!published.length && !exposed.length) {
+        setText(tdPorts, "Sin puertos declarados");
+      }
       tr.appendChild(tdPorts);
 
       var tdAct = document.createElement("td");
@@ -768,12 +779,13 @@
     published.forEach(function(p, idx) {
       var opt = document.createElement("option");
       opt.value = JSON.stringify({ host: p.host_port, container: p.container_port });
-      setText(opt, p.host_port + " → " + p.container_port + "/" + (p.protocol || "tcp"));
+      setText(opt, p.host_port + " \u2192 " + p.container_port + "/" + (p.protocol || "tcp"));
       portSelect.appendChild(opt);
       if (idx === 0) portSelect.value = opt.value;
     });
+    var exposed = exposedOnlyTCPPorts(container);
     if (portWrap) portWrap.style.display = published.length ? "block" : "none";
-    if (allocate) allocate.style.display = published.length ? "none" : "block";
+    if (allocate) allocate.style.display = (!published.length && exposed.length) ? "block" : "none";
     submitBtn.disabled = !published.length;
     modal.classList.add("show");
   };
@@ -788,23 +800,25 @@
     if (!btn || !msg || !portSelect) return;
     btn.disabled = true;
     msg.style.color = "var(--text-muted)";
-    msg.textContent = "Allocating from sp port range…";
+    msg.textContent = "Reserving stable host port…";
     try {
-      var resp = await apiFetch("/api/system/port");
+      var exposed = _assocPendingContainer ? exposedOnlyTCPPorts(_assocPendingContainer) : [];
+      var internal = exposed.length && exposed[0].container_port ? String(exposed[0].container_port) : "";
+      if (!internal) throw new Error("container has no internal TCP port to publish");
+      var resp = await apiFetch("/api/containers/reserve-port", {
+        method: "POST",
+        body: {
+          container_id: document.getElementById("assocContainerId").value,
+          container_port: internal,
+          protocol: "tcp"
+        }
+      });
       var data = (resp && resp.data) || {};
       var port = data.port;
       if (!port) throw new Error("no port returned");
-      var internal = "<internal>";
-      var exposed = _assocPendingContainer ? exposedOnlyTCPPorts(_assocPendingContainer) : [];
-      if (exposed.length && exposed[0].container_port) {
-        internal = String(exposed[0].container_port);
-      } else if (_assocPendingContainer && _assocPendingContainer.ports && _assocPendingContainer.ports.length) {
-        var p = _assocPendingContainer.ports[0];
-        if (p && p.container_port) internal = String(p.container_port);
-      }
       var opt = document.createElement("option");
-      opt.value = JSON.stringify({ host: port, container: internal === "<internal>" ? 0 : internal });
-      setText(opt, port + " → " + internal + "/tcp (allocated)");
+      opt.value = JSON.stringify({ host: port, container: internal });
+      setText(opt, port + " \u2192 " + internal + "/tcp (reserved)");
       portSelect.innerHTML = "";
       portSelect.appendChild(opt);
       portSelect.value = opt.value;
@@ -813,11 +827,11 @@
       if (submitBtn) submitBtn.disabled = false;
       msg.style.color = "#3fb950";
       msg.innerHTML =
-        '✓ Port <strong>' + port + '</strong> reserved for ~60s. Redeploy the container with:<br>' +
+        '✓ Port <strong>' + port + '</strong> reserved for this container. Redeploy the container with:<br>' +
         '<code style="display:inline-block;margin-top:4px;padding:3px 6px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;font-size:0.72rem;">' +
           'docker run … -p ' + port + ':' + escapeHtml(internal) + ' …' +
         '</code><br>' +
-        '<span style="font-size:0.66rem;color:var(--text-muted);">After the new container is up, click <strong>Create Site</strong>. If you don\'t finish within 60s, click Allocate again to extend.</span>';
+        '<span style="font-size:0.66rem;color:var(--text-muted);">After the new container is up, click <strong>Create Site</strong>. The port stays reserved while the container is inactive for up to 14 days.</span>';
     } catch (err) {
       msg.style.color = "#f85149";
       msg.textContent = "Failed: " + ((err && err.message) || "error");

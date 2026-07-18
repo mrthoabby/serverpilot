@@ -52,27 +52,31 @@ func Deploy(req DeployRequest, progress Progress) (*ProjectRecord, error) {
 		}
 	}
 
+	if hasProject {
+		migrateComposePortOwners(req.Name, existing)
+	}
+
 	progress("Reserving host ports...")
-	ownerPorts, endpoints, owners, err := reserveEndpoints(req.Name, genID, analysis.Endpoints)
+	ownerPorts, endpoints, createdOwners, err := reserveEndpoints(req.Name, analysis.Endpoints)
 	if err != nil {
-		portalloc.ReleaseOwners(owners)
+		portalloc.ReleaseOwners(createdOwners)
 		return nil, err
 	}
 
 	genDir, err := GenerationDir(req.Name, genID)
 	if err != nil {
-		portalloc.ReleaseOwners(owners)
+		portalloc.ReleaseOwners(createdOwners)
 		return nil, err
 	}
 	envPath, err := writeDeployEnv(genDir, ownerPorts)
 	if err != nil {
-		portalloc.ReleaseOwners(owners)
+		portalloc.ReleaseOwners(createdOwners)
 		return nil, err
 	}
 	overrideContent := RenderPortOverrideYAML(endpoints)
 	overridePath, err := WriteOverride(genDir, "serverpilot.override.yml", overrideContent)
 	if err != nil {
-		portalloc.ReleaseOwners(owners)
+		portalloc.ReleaseOwners(createdOwners)
 		return nil, err
 	}
 
@@ -86,7 +90,7 @@ func Deploy(req DeployRequest, progress Progress) (*ProjectRecord, error) {
 	}
 	cleanupLogin, err := ephemeralRegistryLogin(req.RegistryUser, req.RegistryToken)
 	if err != nil {
-		portalloc.ReleaseOwners(owners)
+		portalloc.ReleaseOwners(createdOwners)
 		return nil, err
 	}
 	if cleanupLogin != nil {
@@ -95,7 +99,7 @@ func Deploy(req DeployRequest, progress Progress) (*ProjectRecord, error) {
 	progress("Starting compose stack...")
 	if err := runner.Up(req.AppImageRef); err != nil {
 		_ = runner.Down(false)
-		portalloc.ReleaseOwners(owners)
+		portalloc.ReleaseOwners(createdOwners)
 		return nil, err
 	}
 
@@ -132,35 +136,51 @@ func Deploy(req DeployRequest, progress Progress) (*ProjectRecord, error) {
 	}
 	if err := UpsertProject(rec); err != nil {
 		_ = runner.Down(false)
-		portalloc.ReleaseOwners(owners)
+		portalloc.ReleaseOwners(createdOwners)
 		return nil, err
 	}
 	progress("Compose project deployed.")
 	return &rec, nil
 }
 
-func reserveEndpoints(project, generation string, endpoints []Endpoint) (map[string]int, []Endpoint, []string, error) {
+func reserveEndpoints(project string, endpoints []Endpoint) (map[string]int, []Endpoint, []string, error) {
 	requests := make([]portalloc.PortOwnerRequest, 0, len(endpoints))
 	for _, ep := range endpoints {
-		owner := portalloc.ComposeOwner(project, generation, ep.Service, ep.ContainerPort)
+		owner := portalloc.ComposeStableOwner(project, ep.Service, ep.ContainerPort, ep.Protocol)
 		requests = append(requests, portalloc.PortOwnerRequest{Owner: owner})
 	}
-	ports, err := portalloc.ReserveOwners(requests, portalloc.DefaultMinPort, portalloc.DefaultMaxPort)
+	ports, createdOwners, err := portalloc.ReserveOwnersTracked(requests, portalloc.DefaultMinPort, portalloc.DefaultMaxPort)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	owners := make([]string, 0, len(requests))
 	out := make([]Endpoint, 0, len(endpoints))
 	envMap := map[string]int{}
 	for _, ep := range endpoints {
-		owner := portalloc.ComposeOwner(project, generation, ep.Service, ep.ContainerPort)
-		owners = append(owners, owner)
+		owner := portalloc.ComposeStableOwner(project, ep.Service, ep.ContainerPort, ep.Protocol)
 		port := ports[owner]
 		ep.HostPort = port
 		out = append(out, ep)
 		envMap[ep.EnvVar] = port
 	}
-	return envMap, out, owners, nil
+	return envMap, out, createdOwners, nil
+}
+
+func migrateComposePortOwners(project string, rec ProjectRecord) {
+	migrated := make(map[string]struct{})
+	for _, gen := range rec.Generations {
+		for _, ep := range gen.Endpoints {
+			stable := portalloc.ComposeStableOwner(project, ep.Service, ep.ContainerPort, ep.Protocol)
+			if _, ok := migrated[stable]; ok {
+				continue
+			}
+			migrated[stable] = struct{}{}
+			legacy := portalloc.ComposeOwner(project, gen.ID, ep.Service, ep.ContainerPort)
+			_ = portalloc.TransferOwner(legacy, stable)
+			if ep.HostPort > 0 {
+				_ = portalloc.AssignOwnerPort(stable, ep.HostPort)
+			}
+		}
+	}
 }
 
 func writeDeployEnv(dir string, ports map[string]int) (string, error) {
@@ -275,9 +295,7 @@ func DeleteProjectStack(name string, progress Progress) error {
 		}
 		progress("Stopping compose stack...")
 		_ = runner.Down(true)
-		for _, ep := range gen.Endpoints {
-			_ = portalloc.ReleaseOwner(portalloc.ComposeOwner(name, gen.ID, ep.Service, ep.ContainerPort))
-		}
 	}
+	portalloc.ReleaseOwnersByPrefix("compose:" + name + ":")
 	return DeleteProject(name)
 }

@@ -380,13 +380,14 @@ type containerRuntimeInspect struct {
 	Image  string `json:"Image"`
 	Name   string `json:"Name"`
 	Config struct {
-		Image      string            `json:"Image"`
-		Env        []string          `json:"Env"`
-		Cmd        []string          `json:"Cmd"`
-		Entrypoint []string          `json:"Entrypoint"`
-		WorkingDir string            `json:"WorkingDir"`
-		User       string            `json:"User"`
-		Labels     map[string]string `json:"Labels"`
+		Image        string              `json:"Image"`
+		Env          []string            `json:"Env"`
+		Cmd          []string            `json:"Cmd"`
+		Entrypoint   []string            `json:"Entrypoint"`
+		WorkingDir   string              `json:"WorkingDir"`
+		User         string              `json:"User"`
+		Labels       map[string]string   `json:"Labels"`
+		ExposedPorts map[string]struct{} `json:"ExposedPorts"`
 	} `json:"Config"`
 	HostConfig struct {
 		NetworkMode   string `json:"NetworkMode"`
