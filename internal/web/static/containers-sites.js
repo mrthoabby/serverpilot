@@ -813,6 +813,11 @@
     setText(document.getElementById("associateModalSub"), actionText + " for \"" + (container.name || "") + "\"");
 
     if (domainEl) domainEl.value = "";
+    var domainHint = document.getElementById("assocDomainHint");
+    if (domainHint) {
+      domainHint.style.display = "none";
+      domainHint.textContent = "";
+    }
     var includeWWW = document.getElementById("assocIncludeWWW");
     if (includeWWW) includeWWW.checked = false;
     var enableSSL = document.getElementById("assocEnableSSL");
@@ -846,7 +851,10 @@
     var exposed = exposedOnlyTCPPorts(container);
     if (portWrap) portWrap.style.display = published.length ? "block" : "none";
     if (allocate) allocate.style.display = (!published.length && exposed.length) ? "block" : "none";
-    submitBtn.disabled = !published.length;
+    if (!published.length) submitBtn.dataset.portBlocked = "1";
+    else delete submitBtn.dataset.portBlocked;
+    updateAssocDomainHint();
+    checkAssocNginxDomainReadiness();
     modal.classList.add("show");
   };
 
@@ -884,7 +892,10 @@
       portSelect.value = opt.value;
       if (portWrap) portWrap.style.display = "block";
       if (allocate) allocate.style.display = "none";
-      if (submitBtn) submitBtn.disabled = false;
+      if (submitBtn) {
+        delete submitBtn.dataset.portBlocked;
+        updateAssocDomainHint();
+      }
       msg.style.color = "#3fb950";
       msg.innerHTML =
         '✓ Puerto <strong>' + port + '</strong> reservado para este contenedor.<br>' +
@@ -923,6 +934,130 @@
   };
 
   initBodySizeSelect();
+
+  var DNS_DOMAIN_MAX = 253;
+  var DNS_LABEL_MAX = 63;
+  var NGINX_DOMAIN_WARN_LEN = 48;
+  var assocDomainPattern = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+  var assocNginxDomainIssue = null;
+
+  function effectiveAssocDomain(domain, includeWWW) {
+    domain = (domain || "").trim().toLowerCase();
+    if (!domain) return "";
+    return includeWWW ? ("www." + domain) : domain;
+  }
+
+  function validateAssocDomainInput(domain, includeWWW) {
+    domain = (domain || "").trim().toLowerCase();
+    var issues = [];
+    if (!domain) {
+      return { ok: false, issues: [{ level: "muted", text: "Escribe el dominio del sitio." }] };
+    }
+    if (domain.length > DNS_DOMAIN_MAX) {
+      issues.push({ level: "error", text: "Demasiado largo: máximo " + DNS_DOMAIN_MAX + " caracteres (tiene " + domain.length + ")." });
+    }
+    var labels = domain.split(".");
+    for (var i = 0; i < labels.length; i++) {
+      if (!labels[i]) {
+        issues.push({ level: "error", text: "Formato inválido: no puede empezar o terminar con punto." });
+        break;
+      }
+      if (labels[i].length > DNS_LABEL_MAX) {
+        issues.push({ level: "error", text: "Cada parte entre puntos admite máximo " + DNS_LABEL_MAX + " caracteres." });
+        break;
+      }
+    }
+    if (!assocDomainPattern.test(domain)) {
+      issues.push({ level: "error", text: "Formato inválido. Usa algo como app.ejemplo.com (solo letras, números y guiones)." });
+    }
+    var effective = effectiveAssocDomain(domain, includeWWW);
+    if (effective.length > NGINX_DOMAIN_WARN_LEN) {
+      issues.push({
+        level: "warn",
+        text: "Dominio largo (" + effective.length + " caracteres" + (includeWWW ? ", con www" : "") + "). Con muchos sitios en el servidor puede fallar Nginx por server_names_hash_bucket_size."
+      });
+    } else if (domain.length > 0) {
+      issues.push({ level: "ok", text: domain.length + " / " + DNS_DOMAIN_MAX + " caracteres" + (includeWWW ? " (www incluido: " + effective.length + ")" : "") + "." });
+    }
+    var hasError = issues.some(function(item) { return item.level === "error"; });
+    return { ok: !hasError, issues: issues };
+  }
+
+  function renderAssocDomainHint(issues) {
+    var hint = document.getElementById("assocDomainHint");
+    if (!hint) return;
+    if (!issues.length) {
+      hint.style.display = "none";
+      hint.className = "form-hint domain-hint";
+      hint.textContent = "";
+      return;
+    }
+    var worst = "ok";
+    issues.forEach(function(item) {
+      if (item.level === "error") worst = "error";
+      else if (item.level === "warn" && worst !== "error") worst = "warn";
+      else if (item.level === "muted" && worst === "ok") worst = "muted";
+    });
+    hint.className = "form-hint domain-hint domain-hint-" + worst;
+    hint.innerHTML = issues.map(function(item) {
+      return "<div>" + escapeHtml(item.text) + "</div>";
+    }).join("");
+    hint.style.display = "block";
+  }
+
+  function updateAssocDomainHint() {
+    var domainEl = document.getElementById("assocDomain");
+    var includeWWW = document.getElementById("assocIncludeWWW");
+    var submitBtn = document.getElementById("assocSubmitBtn");
+    var domain = domainEl ? domainEl.value : "";
+    var withWWW = includeWWW ? includeWWW.checked : false;
+    var result = validateAssocDomainInput(domain, withWWW);
+    var issues = result.issues.slice();
+
+    if (assocNginxDomainIssue && !assocNginxDomainIssue.ok) {
+      var nginxIssue = assocNginxDomainIssue.issues && assocNginxDomainIssue.issues[0];
+      var nginxText = nginxIssue && nginxIssue.message
+        ? nginxIssue.message
+        : "La configuración global de Nginx no es válida. Repárala antes de crear el sitio.";
+      issues.unshift({ level: "error", text: nginxText });
+      if (nginxIssue && nginxIssue.suggestion) {
+        issues.splice(1, 0, { level: "warn", text: nginxIssue.suggestion });
+      }
+      result.ok = false;
+    }
+
+    renderAssocDomainHint(issues);
+
+    if (submitBtn) {
+      var portBlocked = submitBtn.dataset.portBlocked === "1";
+      submitBtn.disabled = portBlocked || !result.ok;
+    }
+    return result.ok;
+  }
+
+  async function checkAssocNginxDomainReadiness() {
+    assocNginxDomainIssue = null;
+    try {
+      var resp = await apiFetch("/api/nginx/diagnose");
+      var data = (resp && resp.data) || {};
+      if (!data.ok) assocNginxDomainIssue = data;
+    } catch (_) {
+      assocNginxDomainIssue = null;
+    }
+    updateAssocDomainHint();
+  }
+
+  function initAssocDomainValidation() {
+    var domainEl = document.getElementById("assocDomain");
+    var includeWWW = document.getElementById("assocIncludeWWW");
+    if (!domainEl || domainEl.dataset.domainValidationBound) return;
+    domainEl.dataset.domainValidationBound = "1";
+    domainEl.addEventListener("input", updateAssocDomainHint);
+    domainEl.addEventListener("blur", updateAssocDomainHint);
+    if (includeWWW) includeWWW.addEventListener("change", updateAssocDomainHint);
+  }
+
+  initAssocDomainValidation();
 
   var lastAssocNginxDiag = null;
 
@@ -1154,6 +1289,12 @@
           body_size: bodySizeFromForm()
         }
       };
+      if (!updateAssocDomainHint()) {
+        showToast("Revisa el dominio antes de continuar", "error");
+        btn.disabled = false;
+        setText(btn, "Create Site");
+        return;
+      }
       try {
         hideAssociateNginxRepair();
         if (typeof ensureRecentReauth === "function") {

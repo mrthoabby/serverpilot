@@ -611,6 +611,18 @@
   line-height: 1.45;
 }
 
+.domain-hint.domain-hint-error {
+  color: var(--red);
+}
+
+.domain-hint.domain-hint-warn {
+  color: #d29922;
+}
+
+.domain-hint.domain-hint-ok {
+  color: #3fb950;
+}
+
 .assoc-body-size-group {
   margin-top: 0.5rem;
 }
