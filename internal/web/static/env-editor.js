@@ -83,6 +83,40 @@
     return errors;
   }
 
+  function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function(resolve, reject) {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      try { document.execCommand("copy") ? resolve() : reject(new Error("copy failed")); }
+      catch (e) { reject(e); }
+      finally { document.body.removeChild(ta); }
+    });
+  }
+
+  function generateSecret() {
+    var bytes = new Uint8Array(32);
+    if (global.crypto && global.crypto.getRandomValues) {
+      global.crypto.getRandomValues(bytes);
+    } else {
+      for (var i = 0; i < bytes.length; i++) {
+        bytes[i] = Math.floor(Math.random() * 256);
+      }
+    }
+    var bin = "";
+    for (var j = 0; j < bytes.length; j++) {
+      bin += String.fromCharCode(bytes[j]);
+    }
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
   function mount(rootEl, options) {
     options = options || {};
     var persistPreference = options.persistPreference !== false;
@@ -94,6 +128,11 @@
 
     var preserved = "";
     var destroyed = false;
+    var expanded = false;
+    var defaultTextareaHeight = "160px";
+    var defaultListMaxHeight = "220px";
+    var heightMatch = textareaStyle.match(/height:\s*([^;]+)/);
+    if (heightMatch) defaultTextareaHeight = heightMatch[1].trim();
 
     var friendly = !!options.defaultFriendly;
     if (persistPreference) {
@@ -129,7 +168,7 @@
     friendlyPanel.style.display = "none";
     var listEl = document.createElement("div");
     listEl.className = "env-editor-list";
-    listEl.style.cssText = "max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg-input);";
+    listEl.style.cssText = "max-height:" + defaultListMaxHeight + ";overflow:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg-input);";
     friendlyPanel.appendChild(listEl);
     var addBtn = document.createElement("button");
     addBtn.type = "button";
@@ -139,10 +178,14 @@
     friendlyPanel.appendChild(addBtn);
     rootEl.appendChild(friendlyPanel);
 
+    function updateCopyBtnState(copyBtn, valEl, keyEl) {
+      if (!copyBtn) return;
+      copyBtn.disabled = !(valEl && valEl.value);
+    }
+
     function makeRow(key, value, sensitive) {
       var row = document.createElement("div");
       row.className = "env-editor-row";
-      row.style.cssText = "display:grid;grid-template-columns:160px 1fr 64px 32px;gap:6px;margin-bottom:6px;align-items:center;";
       var k = document.createElement("input");
       k.type = "text";
       k.value = key || "";
@@ -156,9 +199,45 @@
       v.className = "env-editor-value";
       v.style.cssText = "padding:0.35rem 0.5rem;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:0.8125rem;";
 
+      var copyBtn = document.createElement("button");
+      copyBtn.type = "button";
+      copyBtn.className = "btn btn-sm btn-outline env-editor-row-btn";
+      copyBtn.textContent = "Copiar";
+      copyBtn.title = "Copiar valor";
+      copyBtn.addEventListener("click", function() {
+        if (!v.value) {
+          if (global.showToast) global.showToast("No hay valor para copiar", "error");
+          return;
+        }
+        copyToClipboard(v.value).then(function() {
+          var label = k.value.trim() ? k.value.trim() + " copiado" : "Valor copiado";
+          if (global.showToast) global.showToast(label, "success");
+        }).catch(function() {
+          if (global.showToast) global.showToast("No se pudo copiar", "error");
+        });
+      });
+
+      var generateBtn = document.createElement("button");
+      generateBtn.type = "button";
+      generateBtn.className = "btn btn-sm btn-outline env-editor-row-btn";
+      generateBtn.textContent = "Generar";
+      generateBtn.title = "Generar secreto fuerte";
+      generateBtn.addEventListener("click", function() {
+        var secret = generateSecret();
+        v.value = secret;
+        v.type = "password";
+        if (showSensitiveToggle) toggleBtn.textContent = "Show";
+        updateCopyBtnState(copyBtn, v, k);
+        copyToClipboard(secret).then(function() {
+          if (global.showToast) global.showToast("Secreto generado y copiado", "success");
+        }).catch(function() {
+          if (global.showToast) global.showToast("Secreto generado", "success");
+        });
+      });
+
       var toggleBtn = document.createElement("button");
       toggleBtn.type = "button";
-      toggleBtn.className = "btn btn-sm btn-outline";
+      toggleBtn.className = "btn btn-sm btn-outline env-editor-row-btn";
       if (showSensitiveToggle) {
         toggleBtn.textContent = sensitive ? "Show" : "Hide";
         toggleBtn.addEventListener("click", function() {
@@ -171,7 +250,7 @@
 
       var removeBtn = document.createElement("button");
       removeBtn.type = "button";
-      removeBtn.className = "btn btn-sm btn-outline";
+      removeBtn.className = "btn btn-sm btn-outline env-editor-row-btn env-editor-row-remove";
       removeBtn.textContent = "\u2715";
       removeBtn.title = "Eliminar";
       removeBtn.addEventListener("click", function() {
@@ -181,8 +260,15 @@
         }
       });
 
+      v.addEventListener("input", function() {
+        updateCopyBtnState(copyBtn, v, k);
+      });
+      updateCopyBtnState(copyBtn, v, k);
+
       row.appendChild(k);
       row.appendChild(v);
+      row.appendChild(copyBtn);
+      row.appendChild(generateBtn);
       row.appendChild(toggleBtn);
       row.appendChild(removeBtn);
       return row;
@@ -220,6 +306,18 @@
     function updateView() {
       plainPanel.style.display = checkbox.checked ? "none" : "block";
       friendlyPanel.style.display = checkbox.checked ? "block" : "none";
+    }
+
+    function applyExpandedLayout() {
+      if (expanded) {
+        rootEl.classList.add("env-editor-expanded");
+        textarea.style.height = "calc(96vh - 220px)";
+        listEl.style.maxHeight = "calc(96vh - 260px)";
+      } else {
+        rootEl.classList.remove("env-editor-expanded");
+        textarea.style.height = defaultTextareaHeight;
+        listEl.style.maxHeight = defaultListMaxHeight;
+      }
     }
 
     function syncToFriendly(showInfo) {
@@ -313,6 +411,13 @@
       isEmpty: function() {
         var text = this.getText();
         return !text || !text.trim();
+      },
+      setExpanded: function(isExpanded) {
+        expanded = !!isExpanded;
+        applyExpandedLayout();
+      },
+      isExpanded: function() {
+        return expanded;
       }
     };
   }

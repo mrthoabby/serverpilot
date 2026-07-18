@@ -392,7 +392,30 @@
   }
 
   // ── Edit Env File Modal ──
+  function setEditEnvFullscreen(expanded) {
+    var dialog = document.getElementById("editEnvModalDialog");
+    var btn = document.getElementById("editEnvFullscreenBtn");
+    if (dialog) {
+      dialog.classList.toggle("env-edit-modal-expanded", !!expanded);
+    }
+    if (btn) {
+      btn.textContent = expanded ? "\u2716" : "\u26F6";
+      btn.title = expanded ? "Salir de pantalla completa" : "Pantalla completa";
+      btn.setAttribute("aria-label", btn.title);
+    }
+    if (editEnvEditor && typeof editEnvEditor.setExpanded === "function") {
+      editEnvEditor.setExpanded(!!expanded);
+    }
+  }
+
+  function toggleEditEnvFullscreen() {
+    var dialog = document.getElementById("editEnvModalDialog");
+    var expanded = dialog ? dialog.classList.contains("env-edit-modal-expanded") : false;
+    setEditEnvFullscreen(!expanded);
+  }
+
   async function openEditEnvFile(appName, fileName) {
+    setEditEnvFullscreen(false);
     var modal = document.getElementById("editEnvModal");
     modal.style.display = "flex";
     document.getElementById("editEnvTitle").textContent = "Edit " + fileName;
@@ -427,6 +450,7 @@
 
   function closeEditEnvModal() {
     document.getElementById("editEnvModal").style.display = "none";
+    setEditEnvFullscreen(false);
     if (editEnvEditor) {
       editEnvEditor.setFromText(""); // clear sensitive data from DOM
     }
@@ -503,10 +527,16 @@
   }
 
   // Close managed app modals on backdrop click.
-  ["createAppModal", "createEnvModal", "editEnvModal", "deleteAppModal", "managedAppPermsModal", "systemAppPermsModal", "sshKeysModal"].forEach(function(id) {
+  ["createAppModal", "createEnvModal", "deleteAppModal", "managedAppPermsModal", "systemAppPermsModal", "sshKeysModal"].forEach(function(id) {
     var m = document.getElementById(id);
     if (m) m.addEventListener("click", function(e) { if (e.target === this) this.style.display = "none"; });
   });
+  var editEnvModalEl = document.getElementById("editEnvModal");
+  if (editEnvModalEl) {
+    editEnvModalEl.addEventListener("click", function(e) {
+      if (e.target === this) closeEditEnvModal();
+    });
+  }
 
   window.loadManagedApps      = loadManagedApps;
   window.openCreateAppModal   = openCreateAppModal;
@@ -517,6 +547,7 @@
   window.submitCreateEnvFile  = submitCreateEnvFile;
   window.openEditEnvFile      = openEditEnvFile;
   window.closeEditEnvModal    = closeEditEnvModal;
+  window.toggleEditEnvFullscreen = toggleEditEnvFullscreen;
   window.submitSaveEnvFile    = submitSaveEnvFile;
   window.deleteEnvFile        = deleteEnvFile;
   window.openDeleteAppModal   = openDeleteAppModal;
