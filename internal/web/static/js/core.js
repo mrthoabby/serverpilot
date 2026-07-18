@@ -127,6 +127,21 @@ window.SP = window.SP || {};
     finally { reauthInFlight = null; }
   }
 
+  async function ensureRecentReauth() {
+    try {
+      var resp = await apiFetchInternal("/api/session/reauth-status", {}, false);
+      var data = (resp && resp.data) || resp || {};
+      if (!data.recently_reauthenticated) {
+        await promptReauth();
+      }
+    } catch (_) {
+      await promptReauth();
+    }
+  }
+
+  window.ensureRecentReauth = ensureRecentReauth;
+  window.promptReauth = promptReauth;
+
   async function apiFetch(url, opts) {
     return apiFetchInternal(url, opts, true);
   }
@@ -159,6 +174,9 @@ window.SP = window.SP || {};
       if (resp.status === 403 && errText === "recent reauthentication required" && allowReauth) {
         await promptReauth();
         return apiFetchInternal(url, opts, false);
+      }
+      if (resp.status === 403 && errText === "HTTPS is required for this sensitive action") {
+        throw new Error("Esta acción requiere HTTPS. Abre el panel con https:// en la URL.");
       }
       throw new Error(errText);
     }

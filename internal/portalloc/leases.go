@@ -302,3 +302,16 @@ func markOwnerActive(r Reservation, now time.Time) Reservation {
 func isPortListening(port int) bool {
 	return !isPortFree(port)
 }
+
+// PortForOwner returns the host port reserved for owner, if any.
+func PortForOwner(owner string) (int, bool) {
+	if owner == "" {
+		return 0, false
+	}
+	for _, r := range ListReservations() {
+		if r.Owner == owner {
+			return r.Port, true
+		}
+	}
+	return 0, false
+}

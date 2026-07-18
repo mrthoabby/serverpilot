@@ -1412,7 +1412,15 @@ func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
 			}
 			if strings.Contains(err.Error(), "does not belong") {
 				status = http.StatusBadRequest
-				clientErr = "selected port does not belong to this container"
+				clientErr = "el puerto no está publicado en el contenedor — reserva/publica el puerto antes de crear el sitio"
+			}
+			if strings.Contains(err.Error(), "invalid body size") {
+				status = http.StatusBadRequest
+				clientErr = "tamaño de body inválido — usa valores como 1m, 50m o 0"
+			}
+			if strings.Contains(err.Error(), "container not found") {
+				status = http.StatusBadRequest
+				clientErr = "container not found"
 			}
 			writeJSON(w, status, apiResponse{Error: clientErr})
 			return

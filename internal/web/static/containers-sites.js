@@ -83,6 +83,29 @@
     return "api";
   }
 
+  function bodySizeFromForm() {
+    var sel = document.getElementById("optBodySize");
+    if (!sel) return "";
+    if (sel.value === "__custom__") {
+      var custom = document.getElementById("optBodySizeCustom");
+      return custom ? String(custom.value || "").trim() : "";
+    }
+    return sel.value || "";
+  }
+
+  function initBodySizeSelect() {
+    var sel = document.getElementById("optBodySize");
+    var custom = document.getElementById("optBodySizeCustom");
+    if (!sel || sel.dataset.bound === "1") return;
+    sel.dataset.bound = "1";
+    sel.addEventListener("change", function() {
+      if (!custom) return;
+      var show = sel.value === "__custom__";
+      custom.style.display = show ? "block" : "none";
+      if (show) custom.focus();
+    });
+  }
+
   function siteDomainFromItem(item) {
     if (!item) return "";
     return (item.site && item.site.domain) || (item.mapping && item.mapping.nginx_domain) || "";
@@ -728,6 +751,7 @@
   window.renderContainers = renderContainers;
 
   window.openAssociateModal = function(container, templateType) {
+    initBodySizeSelect();
     if (!container) return;
     if (container.compose && container.compose.is_compose && !publishedTCPPorts(container).length) {
       showToast("Compose service is internal-only. Publish via stack deploy before adding a site.", "warning");
@@ -767,6 +791,13 @@
     var allowShared = document.getElementById("assocAllowShared");
     if (allowShared) allowShared.checked = false;
     if (templateEl) templateEl.value = label;
+    var bodySizeSel = document.getElementById("optBodySize");
+    var bodySizeCustom = document.getElementById("optBodySizeCustom");
+    if (bodySizeSel) bodySizeSel.value = "";
+    if (bodySizeCustom) {
+      bodySizeCustom.value = "";
+      bodySizeCustom.style.display = "none";
+    }
 
     var allocateMsg = document.getElementById("assocAllocateMsg");
     if (allocateMsg) {
@@ -804,7 +835,7 @@
     try {
       var exposed = _assocPendingContainer ? exposedOnlyTCPPorts(_assocPendingContainer) : [];
       var internal = exposed.length && exposed[0].container_port ? String(exposed[0].container_port) : "";
-      if (!internal) throw new Error("container has no internal TCP port to publish");
+      if (!internal) throw new Error("el contenedor no declara un puerto TCP interno");
       var resp = await apiFetch("/api/containers/reserve-port", {
         method: "POST",
         body: {
@@ -827,11 +858,33 @@
       if (submitBtn) submitBtn.disabled = false;
       msg.style.color = "#3fb950";
       msg.innerHTML =
-        '✓ Port <strong>' + port + '</strong> reserved for this container. Redeploy the container with:<br>' +
+        '✓ Puerto <strong>' + port + '</strong> reservado para este contenedor.<br>' +
+        '<span style="font-size:0.72rem;">Si ServerPilot puede publicarlo automáticamente, usa <strong>Publicar puerto</strong> en la fila del contenedor. Si no, redepliega con:</span><br>' +
         '<code style="display:inline-block;margin-top:4px;padding:3px 6px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;font-size:0.72rem;">' +
           'docker run … -p ' + port + ':' + escapeHtml(internal) + ' …' +
         '</code><br>' +
-        '<span style="font-size:0.66rem;color:var(--text-muted);">After the new container is up, click <strong>Create Site</strong>. The port stays reserved while the container is inactive for up to 14 days.</span>';
+        '<span style="font-size:0.66rem;color:var(--text-muted);">Después de publicar el puerto en el contenedor, pulsa <strong>Create Site</strong>. El puerto se conserva hasta 14 días si el contenedor queda inactivo.</span>';
+
+      try {
+        var analysisResp = await apiFetch("/api/containers/port-analysis?container_id=" + encodeURIComponent(document.getElementById("assocContainerId").value));
+        var analysis = (analysisResp && analysisResp.data) || {};
+        if (analysis.can_auto_publish) {
+          if (window.confirm("¿Publicar automáticamente " + port + " → " + internal + " en este contenedor ahora?")) {
+            var publishResp = await apiFetch("/api/containers/publish-port", {
+              method: "POST",
+              body: {
+                container_id: document.getElementById("assocContainerId").value,
+                host_port: 0,
+                container_port: internal,
+                protocol: "tcp"
+              }
+            });
+            var published = ((publishResp && publishResp.data) || {}).port || port;
+            showToast("Puerto publicado en " + published, "success");
+            await refreshContainerView();
+          }
+        }
+      } catch (_) { /* optional auto-publish */ }
     } catch (err) {
       msg.style.color = "#f85149";
       msg.textContent = "Failed: " + ((err && err.message) || "error");
@@ -839,6 +892,8 @@
       btn.disabled = false;
     }
   };
+
+  initBodySizeSelect();
 
   var assocForm = document.getElementById("associateForm");
   if (assocForm) {
@@ -864,10 +919,13 @@
           rate_limit_enabled: document.getElementById("optRateLimit").checked,
           request_buffering_off: document.getElementById("optReqBufOff").checked,
           response_buffering_off: document.getElementById("optResBufOff").checked,
-          body_size: document.getElementById("optBodySize").value || ""
+          body_size: bodySizeFromForm()
         }
       };
       try {
+        if (typeof ensureRecentReauth === "function") {
+          await ensureRecentReauth();
+        }
         await apiFetch("/api/sites/create", { method: "POST", body: body });
         document.getElementById("associateModal").classList.remove("show");
         showToast("Site created", "success");

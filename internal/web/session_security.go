@@ -112,8 +112,8 @@ func (s *Server) requireSecureReauth(next http.Handler) http.Handler {
 
 func requestIsSecureEnough(r *http.Request) bool {
 	proto := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")))
-	if proto != "" {
-		return proto == "https"
+	if proto == "https" {
+		return true
 	}
 	if r.TLS != nil {
 		return true
@@ -122,5 +122,9 @@ func requestIsSecureEnough(r *http.Request) bool {
 	if err != nil {
 		host = r.RemoteAddr
 	}
-	return isLoopback(host)
+	// Nginx on the same host terminates TLS and proxies to ServerPilot over HTTP.
+	if isLoopback(host) {
+		return true
+	}
+	return false
 }

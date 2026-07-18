@@ -10,6 +10,7 @@ import (
 
 	"github.com/mrthoabby/serverpilot/internal/docker"
 	"github.com/mrthoabby/serverpilot/internal/nginx"
+	"github.com/mrthoabby/serverpilot/internal/portalloc"
 	"github.com/mrthoabby/serverpilot/internal/templates"
 )
 
@@ -40,7 +41,7 @@ func Create(req CreateRequest) (SiteRecord, error) {
 		return SiteRecord{}, fmt.Errorf("invalid template type")
 	}
 
-	if err := validateContainerPort(req.ContainerID, req.HostPort); err != nil {
+	if err := validateContainerPort(req.ContainerID, req.HostPort, req.ContainerPort); err != nil {
 		return SiteRecord{}, err
 	}
 
@@ -143,9 +144,8 @@ func Create(req CreateRequest) (SiteRecord, error) {
 	return rec, nil
 }
 
-func validateContainerPort(containerID string, hostPort int) error {
-	c, err := docker.GetContainerDetails(containerID)
-	if err != nil {
+func validateContainerPort(containerID string, hostPort, containerPort int) error {
+	if _, err := docker.GetContainerDetails(containerID); err != nil {
 		return fmt.Errorf("container not found")
 	}
 	allPorts, err := docker.InspectAllPortMappings(containerID)
@@ -158,7 +158,14 @@ func validateContainerPort(containerID string, hostPort int) error {
 			return nil
 		}
 	}
-	_ = c
+	if containerPort > 0 {
+		owner, err := docker.PortReservationOwner(containerID, strconv.Itoa(containerPort), "tcp")
+		if err == nil {
+			if reserved, ok := portalloc.PortForOwner(owner); ok && reserved == hostPort {
+				return nil
+			}
+		}
+	}
 	return fmt.Errorf("host port does not belong to container")
 }
 

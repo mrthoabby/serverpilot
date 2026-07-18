@@ -28,7 +28,7 @@
           </p>
           <div style="margin-bottom:1rem;">
             <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.25rem;font-weight:600;">APP NAME</label>
-            <input type="text" id="createAppName" placeholder="e.g. srp-api" style="width:100%;padding:0.5rem 0.75rem;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:0.875rem;box-sizing:border-box;" pattern="[a-z][a-z0-9_-]*" maxlength="64">
+            <input type="text" id="createAppName" placeholder="e.g. srp-api" style="width:100%;padding:0.5rem 0.75rem;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:0.875rem;box-sizing:border-box;" pattern="[a-z][a-z0-9_\-]*" maxlength="64">
             <div style="font-size:0.6875rem;color:var(--text-muted);margin-top:0.25rem;">Lowercase letters, numbers, hyphens, underscores. Must start with a letter.</div>
           </div>
           <div style="margin-bottom:1rem;">
@@ -53,7 +53,7 @@
           <div style="margin-bottom:1rem;">
             <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.25rem;font-weight:600;">FILE PREFIX (optional)</label>
             <div style="display:flex;align-items:center;gap:0.5rem;">
-              <input type="text" id="createEnvPrefix" placeholder="e.g. procs" style="flex:1;padding:0.5rem 0.75rem;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:0.875rem;" pattern="[a-z0-9_-]*" maxlength="32">
+              <input type="text" id="createEnvPrefix" placeholder="e.g. procs" style="flex:1;padding:0.5rem 0.75rem;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:0.875rem;" pattern="[a-z0-9_\-]*" maxlength="32">
               <span style="color:var(--text-secondary);font-family:monospace;font-size:0.875rem;">.env</span>
             </div>
             <div style="font-size:0.6875rem;color:var(--text-muted);margin-top:0.25rem;">Empty = <code>.env</code> &nbsp;|&nbsp; "procs" = <code>procs.env</code> &nbsp;|&nbsp; "staging" = <code>staging.env</code></div>

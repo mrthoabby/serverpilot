@@ -594,6 +594,9 @@
     var btn = document.getElementById("saveEnvBtn");
     btn.disabled = true; btn.textContent = "Encrypting & Saving...";
     try {
+      if (typeof ensureRecentReauth === "function") {
+        await ensureRecentReauth();
+      }
       await apiFetch("/api/managed-apps/env/save", {
         method: "POST",
         body: { app: appName, file_name: fileName, content: content }

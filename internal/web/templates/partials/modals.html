@@ -106,18 +106,28 @@
         <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8rem;"><input type="checkbox" id="optRateLimit" style="width:auto;"> Rate limiting</label>
         <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8rem;"><input type="checkbox" id="optReqBufOff" style="width:auto;"> Request buffering off</label>
         <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8rem;"><input type="checkbox" id="optResBufOff" style="width:auto;"> Response buffering off</label>
-        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8rem;margin-top:4px;">Body size <input type="text" id="optBodySize" placeholder="1m, 200m, 0" style="width:5rem;margin-left:4px;"></label>
+        <div class="form-group assoc-body-size-group" style="margin-top:8px;">
+          <label for="optBodySize" style="display:block;font-weight:600;margin-bottom:4px;">Tamaño máximo de subida</label>
+          <select id="optBodySize" class="sp-select-full">
+            <option value="">Predeterminado del template</option>
+            <option value="1m">1 MB — APIs pequeñas</option>
+            <option value="10m">10 MB — formularios medianos</option>
+            <option value="50m">50 MB — MCP / streaming</option>
+            <option value="200m">200 MB — uploads grandes</option>
+            <option value="0">Sin límite (0)</option>
+            <option value="__custom__">Personalizado…</option>
+          </select>
+          <input type="text" id="optBodySizeCustom" class="sp-select-full" placeholder="Ej: 64m" style="display:none;margin-top:6px;">
+          <div class="form-hint">Equivale a <code>client_max_body_size</code> en Nginx. Elige según el tipo de carga que subirá tu app.</div>
+        </div>
       </div>
       <div class="form-group" id="assocAllocate" style="display:none;">
           <div style="font-size:0.74rem;color:#d29922;line-height:1.45;margin-bottom:6px;">
-            ⚠ <strong>This container has no host port published.</strong>
-            Allocate a free port from the sp port range, then redeploy the
-            container with <code>-p &lt;allocated&gt;:&lt;internal&gt;</code> before
-            clicking Create Site.
+            Este contenedor no tiene un puerto TCP publicado en el host. Reserva un puerto estable y publícalo en el contenedor antes de crear el sitio.
           </div>
           <button type="button" id="assocAllocateBtn" onclick="allocatePortForAssoc()"
                   class="btn btn-sm" style="background:var(--accent);color:#fff;font-size:0.74rem;">
-            Allocate via sp port
+            Reservar puerto estable
           </button>
           <div id="assocAllocateMsg" style="font-size:0.7rem;color:var(--text-muted);margin-top:6px;line-height:1.4;"></div>
       </div>

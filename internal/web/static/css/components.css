@@ -451,6 +451,30 @@
   justify-content: center;
 }
 
+.sp-select-full {
+  width: 100%;
+  max-width: 100%;
+  min-height: var(--touch-min, 44px);
+  padding: 0.55rem 0.75rem;
+  background: var(--bg-input, var(--bg-secondary));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  box-sizing: border-box;
+}
+
+.form-hint {
+  margin-top: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.assoc-body-size-group {
+  margin-top: 0.5rem;
+}
+
 .env-edit-modal-header {
   display: flex;
   flex-direction: column;
