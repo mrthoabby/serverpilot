@@ -1,0 +1,96 @@
+internal/portalloc/socket.go
+  s_9d42ed75d09991::t_427a1b8f101458 33-36
+  s_9d42ed75d09991::t_bdba20c156f914 122
+  s_9d42ed75d09991::t_7cfd6a12b74489 150-163,169
+  s_9d42ed75d09991::t_ff594a7e1321b3 189
+internal/web/static/containers-sites.js
+  s_9d42ed75d09991::t_6a23f03cc92e30 60-69
+  s_9d42ed75d09991::t_5de886e7d3f64d 585-587,590-597,600-602
+  s_9d42ed75d09991::t_c60e273aac2e19 415
+  s_9d42ed75d09991::t_185417dfe6ab10 803,805-815,820
+  s_9d42ed75d09991::t_b6c9eb7f23a807 421-422
+  s_9d42ed75d09991::t_8451b9adfd05c5 411,420
+  s_9d42ed75d09991::t_09dac337fc0e3c 782,786,788
+internal/docker/publish.go
+  s_9d42ed75d09991::t_2aafb4f8750a8b 78-96
+  s_9d42ed75d09991::t_1cac106152781a 102-104,107
+internal/portalloc/leases_test.go
+  s_9d42ed75d09991::t_396774b81e699e 1-3,5-30,32-37,39,41-46,49-124,128-129,138,141-142
+  s_9d42ed75d09991::t_abfe87eef0c517 31,38,40,47-48
+  s_9d42ed75d09991::t_66e07eb31ca3ed 4
+  s_9d42ed75d09991::t_a6cb54baa72c34 125-127,130-137,139-140
+internal/compose/reconcile_test.go
+  s_fbc2cc4d5736e4::t_cc1d516216ffdc 1-49
+internal/compose/deploy.go
+  s_9d42ed75d09991::t_1d39fb577ef8eb 68
+  s_9d42ed75d09991::t_13e3ee4660bfc7 146,149,152,159,165-183
+  s_9d42ed75d09991::t_ad929ce0b3d417 79
+  s_9d42ed75d09991::t_6530153ced4bee 102
+  s_9d42ed75d09991::t_91e94700d49c88 55-58,60,62
+  s_9d42ed75d09991::t_2e053c3b0bd43c 299
+  s_9d42ed75d09991::t_0c390111dd7b2c 139
+  s_9d42ed75d09991::t_fa1aa36dd9bc72 73
+  s_9d42ed75d09991::t_4417516be89c46 93
+internal/web/server.go
+  s_9d42ed75d09991::t_ff39c602da1b32 85
+internal/compose/release.go
+  s_fbc2cc4d5736e4::t_5e28d374321789 74-80,96-97
+internal/portalloc/leases.go
+  s_9d42ed75d09991::t_2e0763e07406dc 1-234,236-304
+  s_9d42ed75d09991::t_e6648d5489af61 235
+internal/portalloc/portalloc.go
+  s_9d42ed75d09991::t_3a69b08b494f67 461-463
+  s_9d42ed75d09991::t_1cac106152781a 529-530
+  s_9d42ed75d09991::t_8c118ffb14f06e 210
+  s_9d42ed75d09991::t_18da822e7c6201 435-439
+  s_9d42ed75d09991::t_2b110818abe6f9 327
+  s_9d42ed75d09991::t_12b14fa4129726 556
+  s_9d42ed75d09991::t_a509bc7dbae8b1 361-362,364,366,368
+  s_9d42ed75d09991::t_343c3bedaa0a24 282-287
+  s_9d42ed75d09991::t_4d65edbbede263 531-532
+  s_9d42ed75d09991::t_8168882055617c 575-577
+internal/compose/reconcile.go
+  s_fbc2cc4d5736e4::t_9b43412372268f 200,203,205-230
+  s_fbc2cc4d5736e4::t_6f74d39d46bb0c 1-77,79-80,85-89,92-98,103,105,107,112-115,118-120,125-172,174-193,196-199,201-202,204,231
+  s_9d42ed75d09991::t_11c5a54841b6f5 78,81-84,90-91,99-102,104,106,108-111,116-117,121-124,173,194-195
+internal/docker/owners.go
+  s_9d42ed75d09991::t_c8856390557352 1-36
+internal/web/handlers_containers_sites.go
+  s_9d42ed75d09991::t_2bfcc0ec8edbb6 11
+  s_9d42ed75d09991::t_f1d853d315d321 42-47
+  s_9d42ed75d09991::t_3fe970ff929a2f 111-112,116,120-148,151-154,156,158-161,163-165,172-220
+internal/docker/docker.go
+  s_9d42ed75d09991::t_c08cb7e5b5be5e 390
+  s_9d42ed75d09991::t_1cac106152781a 383-389
+cmd/port.go
+  s_9d42ed75d09991::t_08124c76c057b6 39,50-54,57
+  s_9d42ed75d09991::t_67ecdbd74d3fbe 28-30
+internal/portalloc/batch.go
+  s_9d42ed75d09991::t_e96c7a0707f49a 10-11,13-19,21,26,29,35,40,46,48-52,55,65-66,70-84
+docs/DEPLOY.md
+  s_fbc2cc4d5736e4::t_23f869a75c5327 554-560
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "ea6dfd14884376deb33556bf1110ff0e84568f93",
+  "prompts": {},
+  "sessions": {
+    "s_9d42ed75d09991": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ca396ca0-92d0-4608-bd48-7db50cd50ae4",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    },
+    "s_fbc2cc4d5736e4": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "cf103de1-1d24-408e-beca-07f5d6ce3f94",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
