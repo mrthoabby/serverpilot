@@ -1,0 +1,27 @@
+internal/sites/service.go
+  s_9d42ed75d09991::t_bb8952a2dae987 117,136,142-147
+internal/nginx/repair.go
+  s_9d42ed75d09991::t_98bb2517654089 294-299,301-302
+  s_9d42ed75d09991::t_7604ddff9ba588 278-282
+internal/web/templates/partials/modals.html
+  s_9d42ed75d09991::t_269e85b808233b 134-137
+internal/web/static/containers-sites.js
+  s_9d42ed75d09991::t_214d02e74ea80b 940-943
+  s_9d42ed75d09991::t_0afbac0d7f006c 927-939,944-975,1004,1026-1028
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "c98ccfc10ffd925dc6a366ad1f7ab03007f956fa",
+  "prompts": {},
+  "sessions": {
+    "s_9d42ed75d09991": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ca396ca0-92d0-4608-bd48-7db50cd50ae4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
