@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mrthoabby/serverpilot/internal/auth"
 	"nhooyr.io/websocket"
 )
 
@@ -50,5 +51,27 @@ func TestLoggingMiddlewarePreservesWebSocketHijacker(t *testing.T) {
 	}
 	if got, want := string(data), "echo:ping"; got != want {
 		t.Fatalf("response = %q, want %q", got, want)
+	}
+}
+
+func TestSecurityMiddlewareSetsDashboardCSP(t *testing.T) {
+	srv := &Server{config: &auth.Config{}}
+	handler := srv.SecurityMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	csp := rec.Header().Get("Content-Security-Policy")
+	if csp == "" {
+		t.Fatal("expected Content-Security-Policy header")
+	}
+	if !strings.Contains(csp, "connect-src 'self'") {
+		t.Fatalf("CSP missing connect-src self: %q", csp)
+	}
+	if !strings.Contains(csp, "https://cdn.jsdelivr.net") {
+		t.Fatalf("CSP missing jsdelivr: %q", csp)
 	}
 }

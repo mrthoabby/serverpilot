@@ -388,6 +388,17 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// dashboardCSP allows the embedded dashboard scripts, API calls, terminal CDN
+// assets, and websocket connections. Nginx or Cloudflare must not send a
+// conflicting Content-Security-Policy-Report-Only header on top of this.
+const dashboardCSP = "default-src 'self'; " +
+	"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; " +
+	"style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
+	"img-src 'self' data: blob:; " +
+	"font-src 'self' data:; " +
+	"connect-src 'self' wss: ws:; " +
+	"worker-src 'self' blob:;"
+
 // SecurityMiddleware adds security headers to all responses.
 // When SSL is enabled, it enforces HSTS, prevents downgrade attacks, and blocks
 // the page from being framed. It also blocks requests that arrive over plain HTTP
@@ -400,6 +411,7 @@ func (s *Server) SecurityMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		w.Header().Set("Content-Security-Policy", dashboardCSP)
 
 		if s.config.SSLEnabled && s.config.Domain != "" {
 			// HSTS: tell browsers to always use HTTPS for 1 year, include subdomains.
