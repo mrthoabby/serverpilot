@@ -3,6 +3,7 @@ package compose
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -65,5 +66,64 @@ func TestDependencyServiceNamesExcludesTargetAndOneShot(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("got %v want %v", got, want)
 		}
+	}
+}
+
+func TestPlanDependencyEnsure(t *testing.T) {
+	states := []ServiceRuntimeState{
+		{Service: "healthy-service", State: "running", Health: "healthy"},
+		{Service: "unhealthy-service", State: "running", Health: "unhealthy"},
+		{Service: "stopped-service", State: "exited"},
+		{Service: "missing-service", State: "missing"},
+		{Service: "starting-service", State: "running", Health: "starting"},
+	}
+	healthy, start, recreate := planDependencyEnsure(states)
+	if len(healthy) != 1 || healthy[0] != "healthy-service" {
+		t.Fatalf("healthy: got %v", healthy)
+	}
+	if len(recreate) != 1 || recreate[0] != "unhealthy-service" {
+		t.Fatalf("recreate: got %v", recreate)
+	}
+	wantStart := []string{"stopped-service", "missing-service", "starting-service"}
+	if len(start) != len(wantStart) {
+		t.Fatalf("start: got %v want %v", start, wantStart)
+	}
+	for i := range wantStart {
+		if start[i] != wantStart[i] {
+			t.Fatalf("start: got %v want %v", start, wantStart)
+		}
+	}
+}
+
+func TestFormatDependencyEnsureFailureIsServiceAgnostic(t *testing.T) {
+	got := formatDependencyEnsureFailure([]ServiceRuntimeState{
+		{Service: "queue", State: "running", Health: "unhealthy"},
+		{Service: "worker", State: "exited"},
+		{Service: "api", State: "running", Health: "healthy"},
+	})
+	want := "queue(state=running, health=unhealthy), worker(state=exited, health=-)"
+	if !strings.Contains(got, want) {
+		t.Fatalf("got %q, expected it to contain %q", got, want)
+	}
+	if strings.Contains(strings.ToLower(got), "mongo") || strings.Contains(strings.ToLower(got), "redis") {
+		t.Fatalf("diagnostic must not assume service technology: %q", got)
+	}
+}
+
+func TestWorstRuntimeStateDoesNotHideUnhealthyReplica(t *testing.T) {
+	got := worstRuntimeState(
+		ServiceRuntimeState{Service: "api", State: "running", Health: "healthy"},
+		ServiceRuntimeState{Service: "api", State: "running", Health: "unhealthy"},
+	)
+	if got.State != "running" || got.Health != "unhealthy" {
+		t.Fatalf("got %#v", got)
+	}
+
+	got = worstRuntimeState(
+		ServiceRuntimeState{Service: "api", State: "running", Health: "healthy"},
+		ServiceRuntimeState{Service: "api", State: "exited"},
+	)
+	if got.State != "exited" {
+		t.Fatalf("got %#v", got)
 	}
 }

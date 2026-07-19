@@ -15,7 +15,10 @@ import (
 	"github.com/mrthoabby/serverpilot/internal/deps"
 )
 
-const defaultComposeTimeout = 15 * time.Minute
+const (
+	defaultComposeTimeout     = 15 * time.Minute
+	ensureServicesWaitTimeout = 5 * time.Minute
+)
 
 // Runner executes docker compose subcommands with hardened argv.
 type Runner struct {
@@ -213,12 +216,45 @@ type composePsStateRow struct {
 	Health  string `json:"Health"`
 }
 
+func worstRuntimeState(a, b ServiceRuntimeState) ServiceRuntimeState {
+	out := a
+	if runtimeStateSeverity(b.State) > runtimeStateSeverity(a.State) {
+		out.State = b.State
+	}
+	if healthSeverity(b.Health) > healthSeverity(a.Health) {
+		out.Health = b.Health
+	}
+	return out
+}
+
+func runtimeStateSeverity(state string) int {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "running":
+		return 0
+	case "":
+		return 1
+	default:
+		return 2
+	}
+}
+
+func healthSeverity(health string) int {
+	switch strings.ToLower(strings.TrimSpace(health)) {
+	case "", "healthy":
+		return 0
+	case "starting":
+		return 1
+	default:
+		return 2
+	}
+}
+
 // ServiceRuntimeStates returns compose ps state for the requested services.
 func (r *Runner) ServiceRuntimeStates(services []string) ([]ServiceRuntimeState, error) {
 	if len(services) == 0 {
 		return nil, nil
 	}
-	args := []string{"ps", "--format", "json"}
+	args := []string{"ps", "--all", "--format", "json"}
 	args = append(args, services...)
 	cmd, err := r.command(args...)
 	if err != nil {
@@ -243,11 +279,15 @@ func (r *Runner) ServiceRuntimeStates(services []string) ([]ServiceRuntimeState,
 		if svc == "" {
 			continue
 		}
-		byService[svc] = ServiceRuntimeState{
+		next := ServiceRuntimeState{
 			Service: svc,
 			State:   strings.TrimSpace(row.State),
 			Health:  strings.TrimSpace(row.Health),
 		}
+		if current, ok := byService[svc]; ok {
+			next = worstRuntimeState(current, next)
+		}
+		byService[svc] = next
 	}
 	outStates := make([]ServiceRuntimeState, 0, len(services))
 	for _, svc := range services {
@@ -261,11 +301,46 @@ func (r *Runner) ServiceRuntimeStates(services []string) ([]ServiceRuntimeState,
 }
 
 // EnsureServicesUp recreates missing or unhealthy dependency services and waits for health.
+// Services already running and healthy are skipped.
 func (r *Runner) EnsureServicesUp(imageRef string, services ...string) error {
 	if len(services) == 0 {
 		return nil
 	}
-	args := []string{"up", "-d", "--no-build", "--wait"}
+	states, err := r.ServiceRuntimeStates(services)
+	if err != nil {
+		return r.composeUp(imageRef, true, false, false, services...)
+	}
+	_, start, recreate := planDependencyEnsure(states)
+	if len(start) == 0 && len(recreate) == 0 {
+		return nil
+	}
+	if len(start) > 0 {
+		if err := r.composeUp(imageRef, false, false, false, start...); err != nil {
+			return err
+		}
+	}
+	if len(recreate) > 0 {
+		if err := r.composeUp(imageRef, false, true, false, recreate...); err != nil {
+			return err
+		}
+	}
+	return r.composeUp(imageRef, true, false, true, services...)
+}
+
+func (r *Runner) composeUp(imageRef string, wait, forceRecreate, noRecreate bool, services ...string) error {
+	if len(services) == 0 {
+		return nil
+	}
+	args := []string{"up", "-d", "--no-build", "--no-deps"}
+	if wait {
+		args = append(args, "--wait", "--wait-timeout", fmt.Sprintf("%d", int(ensureServicesWaitTimeout.Seconds())))
+	}
+	if forceRecreate {
+		args = append(args, "--force-recreate")
+	}
+	if noRecreate {
+		args = append(args, "--no-recreate")
+	}
 	args = append(args, services...)
 	cmd, err := r.command(args...)
 	if err != nil {
@@ -273,6 +348,10 @@ func (r *Runner) EnsureServicesUp(imageRef string, services ...string) error {
 	}
 	cmd.Env = r.runtimeEnv(imageRef)
 	if err := runComposeCmd(cmd); err != nil {
+		states, stateErr := r.ServiceRuntimeStates(services)
+		if stateErr == nil {
+			return fmt.Errorf("compose up failed: %w%s", err, formatDependencyEnsureFailure(states))
+		}
 		return fmt.Errorf("compose up failed: %w", err)
 	}
 	return nil

@@ -81,11 +81,7 @@ func EnsureDependenciesUp(req EnsureDepsRequest, progress Progress) error {
 	progress("Ensuring compose dependencies are healthy: " + strings.Join(services, ", "))
 	states, err := runner.ServiceRuntimeStates(services)
 	if err == nil {
-		for _, st := range states {
-			if st.State != "" && st.State != "running" {
-				progress(fmt.Sprintf("  %s: %s", st.Service, st.State))
-			}
-		}
+		logDependencyEnsurePlan(states, progress)
 	}
 
 	cleanupLogin, err := ephemeralRegistryLogin(req.RegistryUser, req.RegistryToken)
@@ -180,11 +176,7 @@ func ensureDependenciesReady(req ReleaseRequest, rec ProjectRecord, gen Generati
 	progress("Ensuring compose dependencies are healthy before release...")
 	states, err := runner.ServiceRuntimeStates(services)
 	if err == nil {
-		for _, st := range states {
-			if st.State != "" && st.State != "running" {
-				progress(fmt.Sprintf("  %s: %s", st.Service, st.State))
-			}
-		}
+		logDependencyEnsurePlan(states, progress)
 	}
 	if err := runner.EnsureServicesUp(req.ImageRef, services...); err != nil {
 		return fmt.Errorf("release aborted: dependencies not healthy: %w", err)
@@ -229,4 +221,78 @@ func runnerForManagedProject(name, composeFile string) (ProjectRecord, *AnalyzeR
 		OverrideFile:   filepath.Join(genDir, "serverpilot.override.yml"),
 	}
 	return rec, analysis, runner, nil
+}
+
+func dependencyNeedsEnsure(st ServiceRuntimeState) bool {
+	if st.State == "missing" || st.State == "" {
+		return true
+	}
+	if st.State != "running" {
+		return true
+	}
+	switch strings.ToLower(st.Health) {
+	case "", "healthy":
+		return false
+	default:
+		return true
+	}
+}
+
+func dependencyNeedsRecreate(st ServiceRuntimeState) bool {
+	return st.State == "running" && strings.EqualFold(st.Health, "unhealthy")
+}
+
+func planDependencyEnsure(states []ServiceRuntimeState) (healthy, start, recreate []string) {
+	for _, st := range states {
+		if !dependencyNeedsEnsure(st) {
+			healthy = append(healthy, st.Service)
+			continue
+		}
+		if dependencyNeedsRecreate(st) {
+			recreate = append(recreate, st.Service)
+			continue
+		}
+		start = append(start, st.Service)
+	}
+	return healthy, start, recreate
+}
+
+func logDependencyEnsurePlan(states []ServiceRuntimeState, progress Progress) {
+	for _, st := range states {
+		health := st.Health
+		if health == "" {
+			health = "-"
+		}
+		progress(fmt.Sprintf("  %s: state=%s health=%s", st.Service, st.State, health))
+	}
+	healthy, start, recreate := planDependencyEnsure(states)
+	if len(healthy) > 0 {
+		progress("  already healthy: " + strings.Join(healthy, ", "))
+	}
+	if len(recreate) > 0 {
+		progress("  will recreate unhealthy: " + strings.Join(recreate, ", "))
+	}
+	if len(start) > 0 {
+		progress("  will start/wait: " + strings.Join(start, ", "))
+	}
+}
+
+func formatDependencyEnsureFailure(states []ServiceRuntimeState) string {
+	var failed []string
+	for _, st := range states {
+		if dependencyNeedsEnsure(st) {
+			health := st.Health
+			if health == "" {
+				health = "-"
+			}
+			failed = append(failed, fmt.Sprintf("%s(state=%s, health=%s)", st.Service, st.State, health))
+		}
+	}
+	if len(failed) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		" — services did not reach their Compose health requirements: %s; inspect their declared healthchecks and container logs",
+		strings.Join(failed, ", "),
+	)
 }
