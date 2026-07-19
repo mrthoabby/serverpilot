@@ -1046,6 +1046,7 @@
     }
     updateAssocDomainHint();
   }
+  window.checkAssocNginxDomainReadiness = checkAssocNginxDomainReadiness;
 
   function initAssocDomainValidation() {
     var domainEl = document.getElementById("assocDomain");
@@ -1236,6 +1237,18 @@
         showToast("Nginx repair failed: " + ((err && err.message) || "error"), "error");
       } finally {
         assocNginxRepairBtn.disabled = false;
+      }
+    });
+  }
+
+  var assocNginxMainEditBtn = document.getElementById("assocNginxMainEditBtn");
+  if (assocNginxMainEditBtn) {
+    assocNginxMainEditBtn.addEventListener("click", async function() {
+      if (typeof ensureRecentReauth === "function") {
+        try { await ensureRecentReauth(); } catch (_) { return; }
+      }
+      if (typeof window.openNginxMainEditor === "function") {
+        await window.openNginxMainEditor();
       }
     });
   }

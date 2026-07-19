@@ -38,6 +38,64 @@ var nginxHTTPBlock = regexp.MustCompile(`(?m)^(\s*http\s*\{)`)
 
 const nginxMainConfigPath = "/etc/nginx/nginx.conf"
 const minimumServerNamesHashBucketSize = 128
+const maxMainConfigBytes = 1048576
+
+// ReadMainConfigContent returns the trusted main nginx configuration.
+func ReadMainConfigContent() (string, error) {
+	if !isWithinNginxDir(nginxMainConfigPath) {
+		return "", fmt.Errorf("invalid nginx main config path")
+	}
+	data, err := os.ReadFile(nginxMainConfigPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read nginx main config")
+	}
+	return string(data), nil
+}
+
+// WriteMainConfigContent updates nginx.conf. When validate is true, the
+// candidate file is tested with nginx -t before it replaces the live config.
+func WriteMainConfigContent(content string, validate bool) (string, error) {
+	if len(content) == 0 {
+		return "", fmt.Errorf("content cannot be empty")
+	}
+	if len(content) > maxMainConfigBytes {
+		return "", fmt.Errorf("config content too large")
+	}
+	if !isWithinNginxDir(nginxMainConfigPath) {
+		return "", fmt.Errorf("invalid nginx main config path")
+	}
+	if !validate {
+		if err := writeConfigAtomically(nginxMainConfigPath, content); err != nil {
+			return "", fmt.Errorf("failed to write nginx main config")
+		}
+		return "", nil
+	}
+
+	info, err := os.Stat(nginxMainConfigPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to inspect nginx main config")
+	}
+	original, err := os.ReadFile(nginxMainConfigPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read nginx main config")
+	}
+	tmpPath, err := writeStagedConfig(filepath.Dir(nginxMainConfigPath), content, info.Mode().Perm())
+	if err != nil {
+		return "", fmt.Errorf("failed to stage nginx main config")
+	}
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := testConfigWithPath(tmpPath); err != nil {
+		return nginxErrorDetail(err.Error()), fmt.Errorf("nginx main config validation failed")
+	}
+	if err := os.Rename(tmpPath, nginxMainConfigPath); err != nil {
+		return "", fmt.Errorf("failed to update nginx main config")
+	}
+	if err := syncDirectory(filepath.Dir(nginxMainConfigPath)); err != nil {
+		_ = os.WriteFile(nginxMainConfigPath, original, info.Mode().Perm())
+		return "", fmt.Errorf("failed to persist nginx main config")
+	}
+	return "", nil
+}
 
 // Diagnose runs nginx -t and parses common failure patterns.
 func Diagnose() RepairReport {

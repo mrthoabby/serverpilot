@@ -137,6 +137,7 @@
         <pre id="assocNginxRepairDetail" class="nginx-diag-detail-mini" style="display:none;"></pre>
         <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
           <button type="button" id="assocNginxTestBtn" class="btn btn-sm btn-outline">Ver nginx -t</button>
+          <button type="button" id="assocNginxMainEditBtn" class="btn btn-sm btn-outline">Edit nginx.conf</button>
           <button type="button" id="assocNginxRepairBtn" class="btn btn-sm btn-outline">Repair Nginx</button>
           <button type="button" id="assocNginxDiagBtn" class="btn btn-sm btn-outline">Diagnóstico completo</button>
         </div>
@@ -297,6 +298,7 @@
     <h4 class="nginx-diag-detail-title">nginx -t output</h4>
     <pre class="nginx-diag-detail" id="nginxDiagDetail"></pre>
     <div class="modal-actions">
+      <button type="button" class="btn btn-outline" id="nginxDiagEditMainBtn">Edit nginx.conf</button>
       <button type="button" class="btn btn-outline" id="nginxDiagCloseBtn">Close</button>
       <button type="button" class="btn btn-primary" id="nginxDiagRepairBtn" style="display:none;">Repair Nginx</button>
     </div>
@@ -318,6 +320,26 @@
         <button type="button" class="btn btn-sm btn-outline" id="configCancelBtn">Cancel</button>
         <button type="button" class="btn btn-sm btn-warning" id="configSaveBtn">Save</button>
         <button type="button" class="btn btn-sm btn-success" id="configSaveReloadBtn">Save &amp; Reload</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Nginx Main Config Editor Modal -->
+<div class="modal-overlay" id="nginxMainEditorModal">
+  <div class="modal config-editor-modal">
+    <h3>Edit <span class="config-domain">nginx.conf</span></h3>
+    <p class="modal-sub">Edit <code>/etc/nginx/nginx.conf</code>. Use Save &amp; Reload to run <code>nginx -t</code> and apply. Example fix: <code>server_names_hash_bucket_size 128;</code> inside <code>http {</code>.</p>
+    <textarea class="config-textarea" id="nginxMainEditorTextarea" spellcheck="false"></textarea>
+    <div class="config-error-box" id="nginxMainEditorError"></div>
+    <div class="config-actions">
+      <div class="config-actions-left">
+        <button type="button" class="btn btn-sm btn-outline" id="nginxMainEditorResetBtn">Reset</button>
+      </div>
+      <div class="config-actions-right">
+        <button type="button" class="btn btn-sm btn-outline" id="nginxMainEditorCancelBtn">Cancel</button>
+        <button type="button" class="btn btn-sm btn-warning" id="nginxMainEditorSaveBtn">Save</button>
+        <button type="button" class="btn btn-sm btn-success" id="nginxMainEditorSaveReloadBtn">Save &amp; Reload</button>
       </div>
     </div>
   </div>

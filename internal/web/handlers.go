@@ -1534,6 +1534,81 @@ func (s *Server) handleNginxTest(w http.ResponseWriter, r *http.Request) {
 	}})
 }
 
+func (s *Server) handleNginxMainConfigRead(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "GET required"})
+		return
+	}
+	content, err := nginx.ReadMainConfigContent()
+	if err != nil {
+		log.Printf("nginx main config read failed: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to read nginx main config"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Success: true, Data: map[string]string{
+		"path":    "/etc/nginx/nginx.conf",
+		"content": content,
+	}})
+}
+
+type nginxMainConfigSaveRequest struct {
+	Content string `json:"content"`
+	Reload  bool   `json:"reload"`
+}
+
+func (s *Server) handleNginxMainConfigSave(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "POST required"})
+		return
+	}
+	var req nginxMainConfigSaveRequest
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	if len(req.Content) == 0 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "content cannot be empty"})
+		return
+	}
+	if len(req.Content) > 1048576 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "config content too large"})
+		return
+	}
+
+	testOutput, err := nginx.WriteMainConfigContent(req.Content, req.Reload)
+	if err != nil {
+		if req.Reload && testOutput != "" {
+			writeJSON(w, http.StatusOK, apiResponse{
+				Success: false,
+				Error:   "Validation failed",
+				Data: map[string]string{
+					"test_output": testOutput,
+				},
+			})
+			return
+		}
+		log.Printf("nginx main config save failed: %v", err)
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to save nginx main config"})
+		return
+	}
+	if req.Reload {
+		if err := nginx.ReloadNginx(); err != nil {
+			log.Printf("nginx reload after main config save failed: %v", err)
+			writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "config saved but reload failed"})
+			return
+		}
+		writeJSON(w, http.StatusOK, apiResponse{
+			Success: true,
+			Data:    map[string]string{"message": "nginx.conf saved and nginx reloaded"},
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data:    map[string]string{"message": "nginx.conf saved (without reload)"},
+	})
+}
+
 // handleNginxRepair fixes known nginx config problems and reloads when valid.
 func (s *Server) handleNginxRepair(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

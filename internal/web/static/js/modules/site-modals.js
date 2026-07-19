@@ -378,5 +378,138 @@
     }
   });
 
+  // ── Nginx Main Config Editor ──
+  function nginxMainEditorEls() {
+    return {
+      modal: document.getElementById("nginxMainEditorModal"),
+      textarea: document.getElementById("nginxMainEditorTextarea"),
+      errorBox: document.getElementById("nginxMainEditorError")
+    };
+  }
+
+  var nginxMainOriginalContent = "";
+
+  async function openNginxMainEditor() {
+    var els = nginxMainEditorEls();
+    if (!els.modal || !els.textarea || !els.errorBox) {
+      showToast("nginx.conf editor unavailable — hard-refresh the dashboard (Ctrl+Shift+R)", "error");
+      return;
+    }
+    els.textarea.value = "";
+    els.errorBox.style.display = "none";
+    setText(els.errorBox, "");
+    els.modal.classList.add("show");
+    try {
+      var resp = await apiFetch("/api/nginx/main-config");
+      var data = (resp && resp.data) ? resp.data : resp;
+      nginxMainOriginalContent = data.content || "";
+      els.textarea.value = nginxMainOriginalContent;
+    } catch (err) {
+      showToast("Failed to load nginx.conf: " + err.message, "error");
+      els.modal.classList.remove("show");
+    }
+  }
+
+  function closeNginxMainEditor() {
+    var els = nginxMainEditorEls();
+    if (!els.modal) return;
+    els.modal.classList.remove("show");
+    nginxMainOriginalContent = "";
+    if (els.textarea) els.textarea.value = "";
+    if (els.errorBox) els.errorBox.style.display = "none";
+  }
+
+  onEl("nginxMainEditorCancelBtn", "click", closeNginxMainEditor);
+  onEl("nginxMainEditorModal", "click", function(e) {
+    var modal = document.getElementById("nginxMainEditorModal");
+    if (e.target === modal) closeNginxMainEditor();
+  });
+  onEl("nginxMainEditorResetBtn", "click", function() {
+    var els = nginxMainEditorEls();
+    if (els.textarea) els.textarea.value = nginxMainOriginalContent;
+    if (els.errorBox) els.errorBox.style.display = "none";
+    showToast("nginx.conf reset to original", "success");
+  });
+  onEl("editNginxMainBtn", "click", async function() {
+    if (typeof ensureRecentReauth === "function") {
+      try { await ensureRecentReauth(); } catch (_) { return; }
+    }
+    await openNginxMainEditor();
+  });
+  onEl("nginxDiagEditMainBtn", "click", async function() {
+    if (typeof ensureRecentReauth === "function") {
+      try { await ensureRecentReauth(); } catch (_) { return; }
+    }
+    await openNginxMainEditor();
+  });
+
+  onEl("nginxMainEditorSaveBtn", "click", async function() {
+    var els = nginxMainEditorEls();
+    if (!els.textarea || !els.errorBox) return;
+    var btn = this;
+    btn.disabled = true;
+    setText(btn, "Saving...");
+    els.errorBox.style.display = "none";
+    try {
+      if (typeof ensureRecentReauth === "function") {
+        await ensureRecentReauth();
+      }
+      var resp = await apiFetch("/api/nginx/main-config/save", {
+        method: "POST",
+        body: { content: els.textarea.value, reload: false }
+      });
+      var data = (resp && resp.data) ? resp.data : resp;
+      nginxMainOriginalContent = els.textarea.value;
+      showToast(data.message || "nginx.conf saved", "success");
+    } catch (err) {
+      showToast("Save failed: " + err.message, "error");
+    } finally {
+      btn.disabled = false;
+      setText(btn, "Save");
+    }
+  });
+
+  onEl("nginxMainEditorSaveReloadBtn", "click", async function() {
+    var els = nginxMainEditorEls();
+    if (!els.textarea || !els.errorBox) return;
+    var btn = this;
+    btn.disabled = true;
+    setText(btn, "Validating...");
+    els.errorBox.style.display = "none";
+    try {
+      if (typeof ensureRecentReauth === "function") {
+        await ensureRecentReauth();
+      }
+      var resp = await apiFetch("/api/nginx/main-config/save", {
+        method: "POST",
+        body: { content: els.textarea.value, reload: true }
+      });
+      if (resp && resp.success === false) {
+        var data = resp.data || {};
+        var errMsg = resp.error || "Validation failed";
+        if (data.test_output) errMsg = data.test_output;
+        els.errorBox.style.display = "block";
+        setText(els.errorBox, errMsg);
+        showToast("nginx.conf has errors — not reloaded", "error");
+      } else {
+        var data2 = (resp && resp.data) ? resp.data : resp;
+        nginxMainOriginalContent = els.textarea.value;
+        showToast(data2.message || "nginx.conf saved and reloaded", "success");
+        els.errorBox.style.display = "none";
+        if (typeof checkAssocNginxDomainReadiness === "function") {
+          await checkAssocNginxDomainReadiness();
+        }
+        await loadSites();
+      }
+    } catch (err) {
+      els.errorBox.style.display = "block";
+      setText(els.errorBox, err.message);
+      showToast("Save & Reload failed: " + err.message, "error");
+    } finally {
+      btn.disabled = false;
+      setText(btn, "Save & Reload");
+    }
+  });
+
   // ── Progress / Log Modal ──
   var progressModal = document.getElementById("progressModal");

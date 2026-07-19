@@ -38,6 +38,7 @@ window.loadSettings = loadSettings;
 window.confirmAction = confirmAction;
 window.runStreamedOperation = runStreamedOperation;
 window.openConfigEditor = openConfigEditor;
+window.openNginxMainEditor = openNginxMainEditor;
 window.renderNginxDiagnostics = renderNginxDiagnostics;
 window.openNginxDiagnostics = openNginxDiagnostics;
 window.openContainerLogsModal = openContainerLogsModal;
