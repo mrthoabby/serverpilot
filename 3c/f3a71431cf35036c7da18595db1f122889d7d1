@@ -1,0 +1,31 @@
+internal/web/static/js/modules/containers.js
+  s_8182556d4f4d67::t_555a07a4a10fc3 389,391-403
+  s_8182556d4f4d67::t_3780de33c83cfe 446-447
+internal/web/templates/partials/modals.html
+  s_8182556d4f4d67::t_3f956ba3dcfbae 281
+internal/docker/delete.go
+  s_8182556d4f4d67::t_70aed09a952c59 65
+  s_8182556d4f4d67::t_4be94d04993d51 20-22
+internal/web/static/containers-sites.js
+  s_8182556d4f4d67::t_8059efa0d43fee 704,709-711
+  s_8182556d4f4d67::t_2b02f41b9aa4f9 761-765,779,781-799
+internal/web/handlers_containers_sites.go
+  s_8182556d4f4d67::t_3ae8bce1b79a9d 330
+  s_8182556d4f4d67::t_2e78fd543601d1 363-365
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "3cf3a71431cf35036c7da18595db1f122889d7d1",
+  "prompts": {},
+  "sessions": {
+    "s_8182556d4f4d67": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "050707da-cb0a-4b12-9f07-fa7a36b58cc7",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
