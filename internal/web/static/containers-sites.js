@@ -701,6 +701,18 @@
         }
       }
 
+      if (!isReplica && typeof openContainerDeleteModal === "function" && !(c.compose && c.compose.is_compose)) {
+        var deleteBtn = document.createElement("button");
+        deleteBtn.className = "btn btn-sm btn-danger";
+        deleteBtn.style.marginRight = "0.35rem";
+        setText(deleteBtn, "Eliminar");
+        deleteBtn.title = "Eliminar contenedor y, opcionalmente, su imagen Docker";
+        deleteBtn.addEventListener("click", function() {
+          openContainerDeleteModal(c, sitesByContainer(c));
+        });
+        tdAct.appendChild(deleteBtn);
+      }
+
       if (!linked.length && hasPublishedTCPPort(c)) {
         var addSiteBtn = document.createElement("button");
         addSiteBtn.className = "btn btn-sm btn-primary";

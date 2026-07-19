@@ -375,6 +375,89 @@
     });
   }
 
+  var _containerDeleteTarget = null;
+
+  function openContainerDeleteModal(container, linkedSites) {
+    var modal = document.getElementById("containerDeleteModal");
+    if (!modal || !container) return;
+    _containerDeleteTarget = container;
+    linkedSites = linkedSites || [];
+    setText(document.getElementById("containerDeleteSub"),
+      "¿Eliminar el contenedor \"" + (container.name || container.id || "") + "\" de forma permanente?");
+    var imageRef = document.getElementById("containerDeleteImageRef");
+    if (imageRef) setText(imageRef, container.image || "(desconocida)");
+    var removeImage = document.getElementById("containerDeleteRemoveImage");
+    if (removeImage) removeImage.checked = true;
+    var sitesWarn = document.getElementById("containerDeleteSitesWarn");
+    if (sitesWarn) {
+      if (linkedSites.length) {
+        var domains = linkedSites.map(function(item) {
+          var site = item.site || {};
+          var mapping = item.mapping || {};
+          return site.domain || mapping.nginx_domain || "?";
+        });
+        sitesWarn.style.display = "block";
+        sitesWarn.innerHTML = "<strong style=\"color:var(--text-primary);\">Sitios Nginx vinculados:</strong> " +
+          escapeHtml(domains.join(", ")) +
+          ". El proxy dejará de funcionar hasta que elimines o reasignes esos sitios.";
+      } else {
+        sitesWarn.style.display = "none";
+        sitesWarn.innerHTML = "";
+      }
+    }
+    modal.classList.add("show");
+  }
+
+  function closeContainerDeleteModal() {
+    var modal = document.getElementById("containerDeleteModal");
+    if (modal) modal.classList.remove("show");
+    _containerDeleteTarget = null;
+  }
+
+  async function confirmContainerDelete() {
+    var container = _containerDeleteTarget;
+    if (!container) return;
+    var removeImageEl = document.getElementById("containerDeleteRemoveImage");
+    var removeImage = removeImageEl ? !!removeImageEl.checked : false;
+    var btn = document.getElementById("containerDeleteConfirmBtn");
+    if (btn) btn.disabled = true;
+    try {
+      if (typeof ensureRecentReauth === "function") {
+        await ensureRecentReauth();
+      }
+      var resp = await apiFetch("/api/containers/delete", {
+        method: "POST",
+        body: {
+          container_id: container.id || "",
+          container_name: container.name || "",
+          remove_image: removeImage
+        }
+      });
+      var data = (resp && resp.data) ? resp.data : resp;
+      closeContainerDeleteModal();
+      showToast((data && data.message) || "Contenedor eliminado", data && data.image_warning ? "warning" : "success");
+      if (typeof window.loadContainers === "function") {
+        await window.loadContainers();
+      }
+      if (typeof loadSites === "function") {
+        await loadSites();
+      }
+      if (typeof loadMappings === "function") {
+        await loadMappings();
+      }
+    } catch (err) {
+      showToast("No se pudo eliminar el contenedor: " + ((err && err.message) || "error"), "error");
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  onEl("containerDeleteCancelBtn", "click", closeContainerDeleteModal);
+  onEl("containerDeleteModal", "click", function(e) {
+    if (e.target === document.getElementById("containerDeleteModal")) closeContainerDeleteModal();
+  });
+  onEl("containerDeleteConfirmBtn", "click", confirmContainerDelete);
+
   onEl("replicaCancelBtn", "click", function() {
     document.getElementById("replicaModal").classList.remove("show");
   });

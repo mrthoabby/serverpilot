@@ -323,6 +323,78 @@ func (s *Server) handleContainerRelease(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+type containerDeleteRequest struct {
+	ContainerID   string `json:"container_id"`
+	ContainerName string `json:"container_name"`
+	RemoveImage   bool   `json:"remove_image"`
+}
+
+func (s *Server) handleContainerDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+	var req containerDeleteRequest
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	ref := strings.TrimSpace(req.ContainerID)
+	if ref == "" {
+		ref = strings.TrimSpace(req.ContainerName)
+	}
+	if err := docker.ValidateContainerRef(ref); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid container"})
+		return
+	}
+
+	reps, err := replicas.List()
+	if err == nil {
+		for _, rep := range reps {
+			if rep.Name == ref || strings.TrimSpace(req.ContainerName) == rep.Name {
+				writeJSON(w, http.StatusBadRequest, apiResponse{Error: "managed replicas must be deleted from the replica delete action"})
+				return
+			}
+		}
+	}
+
+	result, err := docker.DeleteContainer(docker.DeleteContainerOptions{
+		IDOrName:    ref,
+		RemoveImage: req.RemoveImage,
+	})
+	if err != nil {
+		log.Printf("container-delete: %v", err)
+		msg := "failed to delete container"
+		lower := strings.ToLower(err.Error())
+		switch {
+		case strings.Contains(lower, "compose containers"):
+			msg = "compose containers must be removed with compose down"
+		case strings.Contains(lower, "container not found"):
+			msg = "container not found"
+		}
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: msg})
+		return
+	}
+
+	message := "container deleted"
+	if result.ImageRemoved {
+		message = "container and image deleted"
+	} else if req.RemoveImage && result.ImageWarning != "" {
+		message = "container deleted; image could not be removed (it may still be in use)"
+	}
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"message":        message,
+			"container_id":   result.ContainerID,
+			"container_name": result.ContainerName,
+			"image_removed":  result.ImageRemoved,
+			"image_id":       result.ImageID,
+			"image_warning":  result.ImageWarning,
+		},
+	})
+}
+
 func createSiteFromRequest(req siteCreateRequestV2) (sites.SiteRecord, error) {
 	tmplType := templates.TemplateType(strings.ToLower(strings.TrimSpace(req.TemplateType)))
 	if !templates.ValidTemplateType(tmplType) {

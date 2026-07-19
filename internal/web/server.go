@@ -85,6 +85,7 @@ func (s *Server) Start() error {
 	mux.Handle("/api/containers/reserve-port", s.authMiddleware(http.HandlerFunc(s.handleContainerReservePort)))
 	mux.Handle("/api/containers/publish-port", s.requireSecureReauth(http.HandlerFunc(s.handleContainerPublishPort)))
 	mux.Handle("/api/containers/release", s.requireSecureReauth(http.HandlerFunc(s.handleContainerRelease)))
+	mux.Handle("/api/containers/delete", s.requireSecureReauth(http.HandlerFunc(s.handleContainerDelete)))
 	mux.Handle("/api/sites/redirect/activate", s.requireReauth(http.HandlerFunc(s.handleSiteRedirectActivate)))
 	mux.Handle("/api/sites/redirect/deactivate", s.requireReauth(http.HandlerFunc(s.handleSiteRedirectDeactivate)))
 	mux.Handle("/api/container-replicas", s.authMiddleware(http.HandlerFunc(s.handleContainerReplicasList)))

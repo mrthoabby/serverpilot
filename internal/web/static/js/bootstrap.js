@@ -48,6 +48,7 @@ window.openGDAppActivateModal = openGDAppActivateModal;
 window.openReplicaModal = openReplicaModal;
 window.syncReplica = syncReplica;
 window.deleteReplica = deleteReplica;
+window.openContainerDeleteModal = openContainerDeleteModal;
 window.applyReplicaLabels = applyReplicaLabels;
 window.containerForReplica = containerForReplica;
 window.replicasByParentName = replicasByParentName;
