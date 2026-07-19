@@ -134,6 +134,7 @@
       </div>
       <div id="assocNginxRepair" style="display:none;border:1px solid var(--yellow);border-radius:6px;padding:10px;margin:0 0 12px;background:rgba(210,153,34,0.08);">
         <div id="assocNginxRepairMessage" style="font-size:0.76rem;color:var(--text-secondary);line-height:1.45;"></div>
+        <div id="assocNginxRepairFix" class="nginx-diag-fix-guide" style="display:none;margin-top:8px;"></div>
         <pre id="assocNginxRepairDetail" class="nginx-diag-detail-mini" style="display:none;"></pre>
         <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
           <button type="button" id="assocNginxTestBtn" class="btn btn-sm btn-outline">Ver nginx -t</button>
@@ -289,6 +290,7 @@
   <div class="modal nginx-diag-modal">
     <h3>Nginx Diagnostics</h3>
     <p class="modal-sub" id="nginxDiagStatus"></p>
+    <div id="nginxDiagFixGuide" class="nginx-diag-fix-guide" style="display:none;"></div>
     <div id="nginxDiagFixed" class="nginx-diag-fixed" style="display:none;"></div>
     <div id="nginxDiagIssues" class="nginx-diag-issues"></div>
     <div id="nginxDiagHidden" class="nginx-diag-hidden" style="display:none;">

@@ -394,7 +394,7 @@ func classifyNginxIssueWithLocation(message, file string, line int, detail strin
 	case strings.Contains(lower, "could not build server_names_hash") || strings.Contains(lower, "server_names_hash_bucket_size"):
 		kind = "server_names_hash"
 		autoFixable = true
-		suggestion = "Run Repair Nginx to increase server_names_hash_bucket_size in nginx.conf automatically."
+		suggestion = "Demasiados dominios o nombres largos. Usa Repair Nginx para subir server_names_hash_bucket_size a 128 en nginx.conf, o edita nginx.conf → bloque http { } → agrega: server_names_hash_bucket_size 128; → Save & Reload."
 	case strings.Contains(lower, "duplicate"):
 		kind = "duplicate_directive"
 		autoFixable = true

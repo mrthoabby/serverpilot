@@ -623,6 +623,36 @@
   color: #3fb950;
 }
 
+.nginx-diag-fix-guide {
+  border: 1px solid rgba(210, 153, 34, 0.35);
+  border-radius: 6px;
+  padding: 0.65rem 0.8rem;
+  background: rgba(210, 153, 34, 0.08);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.nginx-diag-fix-guide strong {
+  display: block;
+  color: var(--text-primary);
+  margin-bottom: 0.35rem;
+  font-size: 0.8rem;
+}
+
+.nginx-diag-fix-guide ol {
+  margin: 0.4rem 0 0;
+  padding-left: 1.15rem;
+}
+
+.nginx-diag-fix-guide li {
+  margin-bottom: 0.25rem;
+}
+
+.nginx-diag-fix-guide code {
+  font-size: 0.72rem;
+}
+
 .assoc-body-size-group {
   margin-top: 0.5rem;
 }

@@ -33,6 +33,79 @@
     });
   }
 
+  function nginxUserGuidance(data) {
+    data = data || {};
+    var issues = data.issues || [];
+    var issue = issues[0];
+    var blob = ((data.detail || "") + " " + issues.map(function(i) {
+      return (i.kind || "") + " " + (i.message || "") + " " + (i.suggestion || "");
+    }).join(" ")).toLowerCase();
+
+    if (blob.indexOf("server_names_hash") >= 0 || blob.indexOf("could not build server_names_hash") >= 0) {
+      return {
+        headline: "Nginx no puede acomodar todos los nombres de servidor",
+        problem: "Hay demasiados dominios o nombres largos configurados. Nginx no recarga hasta aumentar server_names_hash_bucket_size en /etc/nginx/nginx.conf.",
+        steps: [
+          "Haz clic en <strong>Repair Nginx</strong> (automático, recomendado) o en <strong>Edit nginx.conf</strong>.",
+          "Dentro del bloque <code>http { }</code> agrega: <code>server_names_hash_bucket_size 128;</code>",
+          "Guarda y recarga Nginx (<strong>Save &amp; Reload</strong>), luego vuelve a crear el sitio."
+        ],
+        autoFixable: true
+      };
+    }
+    if (blob.indexOf("duplicate") >= 0) {
+      var dupFile = issue && issue.file ? issue.file : "";
+      return {
+        headline: "Directiva duplicada en la configuración de Nginx",
+        problem: dupFile
+          ? ("Conflicto en <code>" + escapeHtml(dupFile) + (issue.line ? ":" + issue.line : "") + "</code>.")
+          : "Un archivo de sitio tiene directivas proxy duplicadas.",
+        steps: [
+          "Haz clic en <strong>Repair Nginx</strong> para eliminar duplicados seguros automáticamente.",
+          dupFile
+            ? ("O edita/elimina el config del sitio: <code>" + escapeHtml(dupFile) + "</code>.")
+            : "O edita el archivo de sitio que muestra el error.",
+          "Usa <strong>Ver nginx -t</strong> hasta que pase, luego crea el sitio de nuevo."
+        ],
+        autoFixable: true
+      };
+    }
+    if (issue && issue.file && issue.file !== "nginx.conf") {
+      return {
+        headline: "Error en la configuración del sitio" + (issue.line ? " (línea " + issue.line + ")" : ""),
+        problem: issue.message || "nginx -t falló al validar este sitio.",
+        steps: [
+          "Abre <strong>Diagnóstico completo</strong> o <strong>Ver nginx -t</strong> para ver la salida completa.",
+          "Edita o elimina el config: <code>" + escapeHtml(issue.file) + "</code>.",
+          "Cuando nginx -t pase sin errores, vuelve a crear el sitio."
+        ],
+        autoFixable: !!issue.auto_fixable
+      };
+    }
+    return {
+      headline: data.ok ? "La configuración de Nginx es válida" : "La prueba de configuración de Nginx falló",
+      problem: (issue && issue.message) || (data.detail && data.detail.split("\n").filter(function(line) { return line.trim(); })[0]) || "nginx -t reportó un error.",
+      steps: data.ok ? [] : [
+        "Abre <strong>Ver nginx -t</strong> para ver la salida completa.",
+        "Usa <strong>Repair Nginx</strong> si el problema es auto-reparable; si no, edita nginx.conf o el config del sitio.",
+        "Crea el sitio de nuevo solo después de que nginx -t termine sin errores."
+      ],
+      autoFixable: !!(issue && issue.auto_fixable)
+    };
+  }
+
+  function renderNginxFixGuideHtml(guide) {
+    if (!guide || !guide.steps || !guide.steps.length) return "";
+    return "<strong>Cómo resolverlo</strong>" +
+      "<div style=\"margin:0.35rem 0 0.5rem;color:var(--text-primary)\">" + escapeHtml(guide.headline) + "</div>" +
+      "<div>" + guide.problem + "</div>" +
+      "<ol>" + guide.steps.map(function(step) { return "<li>" + step + "</li>"; }).join("") + "</ol>";
+  }
+
+  function stripHtml(text) {
+    return String(text || "").replace(/<[^>]+>/g, "");
+  }
+
   function renderNginxIssueHtml(issue) {
     var loc = "";
     if (issue.file) {
@@ -66,6 +139,7 @@
     }
 
     var status = document.getElementById("nginxDiagStatus");
+    var fixGuide = document.getElementById("nginxDiagFixGuide");
     var fixedBox = document.getElementById("nginxDiagFixed");
     var issuesBox = document.getElementById("nginxDiagIssues");
     var hiddenBox = document.getElementById("nginxDiagHidden");
@@ -73,10 +147,22 @@
     var detail = document.getElementById("nginxDiagDetail");
     var repairBtn = document.getElementById("nginxDiagRepairBtn");
 
+    var guide = nginxUserGuidance(data);
+
     if (data.ok) {
-      setText(status, data.fixed && data.fixed.length ? "Nginx is valid after repair." : "Nginx configuration is valid.");
+      setText(status, data.fixed && data.fixed.length ? "Nginx válido después de la reparación." : "La configuración de Nginx es válida.");
     } else {
-      setText(status, "Nginx configuration test failed. Review the issues below and take manual action where needed.");
+      setText(status, guide.headline + ". " + stripHtml(guide.problem));
+    }
+
+    if (fixGuide) {
+      if (!data.ok && guide.steps.length) {
+        fixGuide.style.display = "block";
+        fixGuide.innerHTML = renderNginxFixGuideHtml(guide);
+      } else {
+        fixGuide.style.display = "none";
+        fixGuide.innerHTML = "";
+      }
     }
 
     if (fixedBox) {

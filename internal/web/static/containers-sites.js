@@ -1015,13 +1015,23 @@
     var issues = result.issues.slice();
 
     if (assocNginxDomainIssue && !assocNginxDomainIssue.ok) {
-      var nginxIssue = assocNginxDomainIssue.issues && assocNginxDomainIssue.issues[0];
-      var nginxText = nginxIssue && nginxIssue.message
-        ? nginxIssue.message
-        : "La configuración global de Nginx no es válida. Repárala antes de crear el sitio.";
-      issues.unshift({ level: "error", text: nginxText });
-      if (nginxIssue && nginxIssue.suggestion) {
-        issues.splice(1, 0, { level: "warn", text: nginxIssue.suggestion });
+      var guide = typeof window.nginxUserGuidance === "function"
+        ? window.nginxUserGuidance(assocNginxDomainIssue)
+        : null;
+      if (guide) {
+        issues.unshift({ level: "error", text: guide.headline + " — " + stripHtml(guide.problem) });
+        guide.steps.forEach(function(step, i) {
+          issues.splice(i + 1, 0, { level: "warn", text: (i + 1) + ". " + stripHtml(step) });
+        });
+      } else {
+        var nginxIssue = assocNginxDomainIssue.issues && assocNginxDomainIssue.issues[0];
+        var nginxText = nginxIssue && nginxIssue.message
+          ? nginxIssue.message
+          : "La configuración global de Nginx no es válida. Repárala antes de crear el sitio.";
+        issues.unshift({ level: "error", text: nginxText });
+        if (nginxIssue && nginxIssue.suggestion) {
+          issues.splice(1, 0, { level: "warn", text: nginxIssue.suggestion });
+        }
       }
       result.ok = false;
     }
@@ -1065,6 +1075,11 @@
   function hideAssociateNginxRepair() {
     var box = document.getElementById("assocNginxRepair");
     if (box) box.style.display = "none";
+    var fixBox = document.getElementById("assocNginxRepairFix");
+    if (fixBox) {
+      fixBox.style.display = "none";
+      fixBox.innerHTML = "";
+    }
     var detail = document.getElementById("assocNginxRepairDetail");
     if (detail) {
       detail.style.display = "none";
@@ -1096,8 +1111,19 @@
     return null;
   }
 
+  function stripHtml(text) {
+    return String(text || "").replace(/<[^>]+>/g, "");
+  }
+
   function nginxErrorSummary(diagData, fallback) {
     if (!diagData) return fallback;
+    if (typeof window.nginxUserGuidance === "function") {
+      var guide = window.nginxUserGuidance(diagData);
+      if (guide && guide.headline) {
+        var firstStep = guide.steps && guide.steps[0] ? stripHtml(guide.steps[0]) : "";
+        return firstStep ? (guide.headline + " — " + firstStep) : guide.headline;
+      }
+    }
     var issue = diagData.issues && diagData.issues[0];
     if (issue && issue.message) {
       var loc = issue.file ? (" (" + issue.file + (issue.line ? ":" + issue.line : "") + ")") : "";
@@ -1128,28 +1154,54 @@
   function showAssociateNginxRepairFromData(data) {
     var box = document.getElementById("assocNginxRepair");
     var message = document.getElementById("assocNginxRepairMessage");
+    var fixBox = document.getElementById("assocNginxRepairFix");
     var detail = document.getElementById("assocNginxRepairDetail");
     if (!box || !message) return;
     data = data || {};
     lastAssocNginxDiag = data;
-    message.textContent = "Nginx rejected the site configuration. No site was kept. Repair Nginx or open diagnostics to see the exact error.";
-    if (detail) {
-      detail.style.display = "none";
-      detail.textContent = "";
-    }
-    var issue = data.issues && data.issues[0];
-    if (issue && issue.message) {
-      var loc = issue.file ? (" in " + issue.file + (issue.line ? ":" + issue.line : "")) : "";
-      message.textContent = "Nginx rejected the new site config" + loc + ": " + issue.message + ". No site was kept.";
-      if (issue.suggestion) {
-        message.textContent += " " + issue.suggestion;
+
+    var guide = typeof window.nginxUserGuidance === "function" ? window.nginxUserGuidance(data) : null;
+    if (guide) {
+      message.textContent = guide.headline + " No se guardó ningún sitio.";
+      if (fixBox) {
+        if (!data.ok && guide.steps.length) {
+          fixBox.style.display = "block";
+          fixBox.innerHTML = typeof window.renderNginxFixGuideHtml === "function"
+            ? window.renderNginxFixGuideHtml(guide)
+            : ("<strong>Cómo resolverlo</strong><ol>" + guide.steps.map(function(s) {
+              return "<li>" + s + "</li>";
+            }).join("") + "</ol>");
+        } else {
+          fixBox.style.display = "none";
+          fixBox.innerHTML = "";
+        }
       }
-    } else if (data.detail) {
-      message.textContent = "Nginx rejected the site configuration. No site was kept. See the nginx -t output below or open diagnostics.";
+    } else {
+      message.textContent = "Nginx rechazó la configuración del sitio. No se guardó ningún sitio. Usa Repair Nginx o el diagnóstico para ver el error exacto.";
+      if (fixBox) {
+        fixBox.style.display = "none";
+        fixBox.innerHTML = "";
+      }
+      var issue = data.issues && data.issues[0];
+      if (issue && issue.message) {
+        var loc = issue.file ? (" en " + issue.file + (issue.line ? ":" + issue.line : "")) : "";
+        message.textContent = "Nginx rechazó el nuevo config" + loc + ": " + issue.message + ". No se guardó ningún sitio.";
+        if (issue.suggestion) {
+          message.textContent += " " + issue.suggestion;
+        }
+      } else if (data.detail) {
+        message.textContent = "Nginx rechazó la configuración del sitio. No se guardó ningún sitio. Revisa la salida de nginx -t abajo o abre el diagnóstico.";
+      }
     }
-    if (detail && data.detail) {
-      detail.textContent = data.detail;
-      detail.style.display = "block";
+
+    if (detail) {
+      if (data.detail) {
+        detail.textContent = data.detail;
+        detail.style.display = "block";
+      } else {
+        detail.style.display = "none";
+        detail.textContent = "";
+      }
     }
     box.style.display = "block";
   }
