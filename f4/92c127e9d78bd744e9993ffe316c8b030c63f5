@@ -1,0 +1,36 @@
+internal/web/handlers_containers_sites_test.go
+  s_9d42ed75d09991::t_344bdceb56af81 6
+  s_9d42ed75d09991::t_170fc65f19e509 20-40
+internal/docker/delete.go
+  s_9d42ed75d09991::t_0c3fbb5ed10b08 1-127
+internal/docker/delete_test.go
+  s_9d42ed75d09991::t_e80a254eac2171 1-35
+internal/web/templates/partials/modals.html
+  s_9d42ed75d09991::t_2af33aa60e9d8f 276-293
+internal/web/static/js/modules/containers.js
+  s_9d42ed75d09991::t_f6ba49876a37c0 378-460
+internal/web/handlers_containers_sites.go
+  s_9d42ed75d09991::t_2ddd7228297956 326-397
+internal/web/static/js/bootstrap.js
+  s_9d42ed75d09991::t_35ec04d42789d0 51
+internal/web/static/containers-sites.js
+  s_9d42ed75d09991::t_dead8d1ed9b378 704-715
+internal/web/server.go
+  s_9d42ed75d09991::t_d5c12f94f71b87 88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "f492c127e9d78bd744e9993ffe316c8b030c63f5",
+  "prompts": {},
+  "sessions": {
+    "s_9d42ed75d09991": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ca396ca0-92d0-4608-bd48-7db50cd50ae4",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
