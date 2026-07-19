@@ -392,11 +392,11 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 // assets, and websocket connections. Nginx or Cloudflare must not send a
 // conflicting Content-Security-Policy-Report-Only header on top of this.
 const dashboardCSP = "default-src 'self'; " +
-	"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; " +
+	"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://static.cloudflareinsights.com; " +
 	"style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
 	"img-src 'self' data: blob:; " +
 	"font-src 'self' data:; " +
-	"connect-src 'self' wss: ws:; " +
+	"connect-src 'self' wss: ws: https://cdn.jsdelivr.net https://static.cloudflareinsights.com; " +
 	"worker-src 'self' blob:;"
 
 // SecurityMiddleware adds security headers to all responses.

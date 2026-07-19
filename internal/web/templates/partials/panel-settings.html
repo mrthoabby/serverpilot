@@ -94,9 +94,22 @@
             </div>
           </div>
 
+          <div class="settings-step" id="settingsStepNginx" style="margin-top:1.25rem;">
+            <div class="settings-step-header">
+              <span class="settings-step-num" id="settingsNginxNum">6</span>
+              <span class="settings-step-title">Nginx</span>
+            </div>
+            <p class="settings-step-desc">Edit the main Nginx config, run <code>nginx -t</code>, or apply safe automatic repairs (for example <code>server_names_hash_bucket_size</code>).</p>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;">
+              <button class="btn btn-sm btn-outline" id="settingsEditNginxMainBtn">Edit nginx.conf</button>
+              <button class="btn btn-sm btn-outline" id="settingsNginxTestBtn">Ver nginx -t</button>
+              <button class="btn btn-sm btn-outline" id="settingsRepairNginxBtn">Repair Nginx</button>
+            </div>
+          </div>
+
           <div class="settings-step" id="settingsStep5" style="margin-top:1.25rem;">
             <div class="settings-step-header">
-              <span class="settings-step-num done">5</span>
+              <span class="settings-step-num done">7</span>
               <span class="settings-step-title">Active Sessions</span>
               <span class="settings-step-status configured" id="settingsSessionPolicy"></span>
             </div>
@@ -111,7 +124,7 @@
           </div>
           <div class="settings-step" id="settingsEmailLoginStep">
             <div class="settings-step-header">
-              <span class="settings-step-num" id="settingsEmailLoginNum">6</span>
+              <span class="settings-step-num" id="settingsEmailLoginNum">8</span>
               <span class="settings-step-title">Email Login</span>
               <span class="settings-step-status" id="settingsEmailLoginStatus"></span>
             </div>

@@ -185,16 +185,53 @@
     }
   });
 
-  onEl("repairNginxBtn", "click", async function() {
+  async function confirmAndRunNginxRepair(triggerBtn) {
     if (!window.confirm("Scan Nginx, repair known safe issues (including duplicate proxy directives and server name hash size), and reload Nginx?")) return;
-    var btn = document.getElementById("repairNginxBtn");
-    btn.disabled = true;
+    if (triggerBtn) triggerBtn.disabled = true;
     try {
       await openNginxDiagnostics(true);
     } finally {
-      btn.disabled = false;
+      if (triggerBtn) triggerBtn.disabled = false;
+    }
+  }
+
+  async function openNginxMainEditorWithReauth() {
+    if (typeof ensureRecentReauth === "function") {
+      try { await ensureRecentReauth(); } catch (_) { return; }
+    }
+    await openNginxMainEditor();
+  }
+
+  async function runNginxTestDiagnostics() {
+    var resp = await apiFetch("/api/nginx/test");
+    var data = (resp && resp.data) || {};
+    renderNginxDiagnostics({
+      ok: !!data.ok,
+      detail: data.output || "",
+      issues: data.ok ? [] : [{ message: data.output || "nginx -t failed", auto_fixable: false }]
+    }, { showRepair: true });
+  }
+
+  ["repairNginxBtn", "navbarRepairNginxBtn", "settingsRepairNginxBtn"].forEach(function(id) {
+    onEl(id, "click", async function() {
+      await confirmAndRunNginxRepair(document.getElementById(id));
+    });
+  });
+
+  ["editNginxMainBtn", "navbarEditNginxMainBtn", "settingsEditNginxMainBtn"].forEach(function(id) {
+    onEl(id, "click", function() {
+      openNginxMainEditorWithReauth();
+    });
+  });
+
+  onEl("settingsNginxTestBtn", "click", async function() {
+    try {
+      await runNginxTestDiagnostics();
+    } catch (err) {
+      showToast("nginx -t failed: " + ((err && err.message) || "error"), "error");
     }
   });
+
   onEl("createRedirectBtn", "click", function() {
     document.getElementById("redirectDomain").value = "";
     document.getElementById("redirectTarget").value = "";
@@ -430,17 +467,8 @@
     if (els.errorBox) els.errorBox.style.display = "none";
     showToast("nginx.conf reset to original", "success");
   });
-  onEl("editNginxMainBtn", "click", async function() {
-    if (typeof ensureRecentReauth === "function") {
-      try { await ensureRecentReauth(); } catch (_) { return; }
-    }
-    await openNginxMainEditor();
-  });
-  onEl("nginxDiagEditMainBtn", "click", async function() {
-    if (typeof ensureRecentReauth === "function") {
-      try { await ensureRecentReauth(); } catch (_) { return; }
-    }
-    await openNginxMainEditor();
+  onEl("nginxDiagEditMainBtn", "click", function() {
+    openNginxMainEditorWithReauth();
   });
 
   onEl("nginxMainEditorSaveBtn", "click", async function() {
