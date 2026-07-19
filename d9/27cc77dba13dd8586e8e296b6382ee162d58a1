@@ -1,0 +1,24 @@
+internal/web/middleware.go
+  s_9d42ed75d09991::t_4f368db3a8491b 391-401
+  s_9d42ed75d09991::t_9d2304596e5ad0 414
+internal/web/middleware_test.go
+  s_9d42ed75d09991::t_e52432dcfb9b91 56-57,59-77
+  s_9d42ed75d09991::t_c7b7d9b7a16aa9 11
+  s_9d42ed75d09991::t_11150d4df8fbeb 58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "d927cc77dba13dd8586e8e296b6382ee162d58a1",
+  "prompts": {},
+  "sessions": {
+    "s_9d42ed75d09991": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ca396ca0-92d0-4608-bd48-7db50cd50ae4",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
