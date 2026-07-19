@@ -386,8 +386,21 @@
       "¿Eliminar el contenedor \"" + (container.name || container.id || "") + "\" de forma permanente?");
     var imageRef = document.getElementById("containerDeleteImageRef");
     if (imageRef) setText(imageRef, container.image || "(desconocida)");
+    var isCompose = !!(container.compose && container.compose.is_compose);
     var removeImage = document.getElementById("containerDeleteRemoveImage");
-    if (removeImage) removeImage.checked = true;
+    if (removeImage) removeImage.checked = !isCompose;
+    var composeWarn = document.getElementById("containerDeleteComposeWarn");
+    if (composeWarn) {
+      if (isCompose) {
+        composeWarn.style.display = "block";
+        composeWarn.innerHTML = "<strong style=\"color:var(--text-primary);\">Servicio Compose (" +
+          escapeHtml((container.compose && container.compose.service) || "?") +
+          ").</strong> Se elimina solo este contenedor; Compose puede recrearlo en el próximo <code>up</code> o release. No borres la imagen si otros servicios del stack la comparten.";
+      } else {
+        composeWarn.style.display = "none";
+        composeWarn.innerHTML = "";
+      }
+    }
     var sitesWarn = document.getElementById("containerDeleteSitesWarn");
     if (sitesWarn) {
       if (linkedSites.length) {
@@ -430,7 +443,8 @@
         body: {
           container_id: container.id || "",
           container_name: container.name || "",
-          remove_image: removeImage
+          remove_image: removeImage,
+          allow_compose: !!(container.compose && container.compose.is_compose)
         }
       });
       var data = (resp && resp.data) ? resp.data : resp;

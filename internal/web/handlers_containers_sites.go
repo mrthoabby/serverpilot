@@ -327,6 +327,7 @@ type containerDeleteRequest struct {
 	ContainerID   string `json:"container_id"`
 	ContainerName string `json:"container_name"`
 	RemoveImage   bool   `json:"remove_image"`
+	AllowCompose  bool   `json:"allow_compose"`
 }
 
 func (s *Server) handleContainerDelete(w http.ResponseWriter, r *http.Request) {
@@ -359,8 +360,9 @@ func (s *Server) handleContainerDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := docker.DeleteContainer(docker.DeleteContainerOptions{
-		IDOrName:    ref,
-		RemoveImage: req.RemoveImage,
+		IDOrName:     ref,
+		RemoveImage:  req.RemoveImage,
+		AllowCompose: req.AllowCompose,
 	})
 	if err != nil {
 		log.Printf("container-delete: %v", err)

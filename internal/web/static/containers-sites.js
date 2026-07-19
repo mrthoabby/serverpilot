@@ -701,12 +701,14 @@
         }
       }
 
-      if (!isReplica && typeof openContainerDeleteModal === "function" && !(c.compose && c.compose.is_compose)) {
+      if (!isReplica && typeof openContainerDeleteModal === "function") {
         var deleteBtn = document.createElement("button");
         deleteBtn.className = "btn btn-sm btn-danger";
         deleteBtn.style.marginRight = "0.35rem";
         setText(deleteBtn, "Eliminar");
-        deleteBtn.title = "Eliminar contenedor y, opcionalmente, su imagen Docker";
+        deleteBtn.title = (c.compose && c.compose.is_compose)
+          ? "Eliminar este contenedor del stack Compose (Compose puede recrearlo en el próximo up/release)"
+          : "Eliminar contenedor y, opcionalmente, su imagen Docker";
         deleteBtn.addEventListener("click", function() {
           openContainerDeleteModal(c, sitesByContainer(c));
         });
@@ -756,6 +758,11 @@
       var strong = document.createElement("strong");
       setText(strong, "Compose stack: " + project);
       td.appendChild(strong);
+
+      var stackActions = document.createElement("div");
+      stackActions.style.display = "flex";
+      stackActions.style.gap = "0.35rem";
+
       if (typeof openComposeReleaseModal === "function") {
         var relBtn = document.createElement("button");
         relBtn.className = "btn btn-sm btn-outline";
@@ -769,8 +776,27 @@
           }
           openComposeReleaseModal(project, svc);
         });
-        td.appendChild(relBtn);
+        stackActions.appendChild(relBtn);
       }
+
+      if (typeof confirmAction === "function" && typeof runStreamedOperation === "function") {
+        var delStackBtn = document.createElement("button");
+        delStackBtn.className = "btn btn-sm btn-danger";
+        setText(delStackBtn, "Eliminar stack");
+        delStackBtn.title = "Detener y eliminar todos los contenedores, redes y volúmenes de este stack Compose";
+        delStackBtn.addEventListener("click", function() {
+          confirmAction(
+            "Eliminar stack Compose",
+            "Se detendrán y eliminarán TODOS los servicios del stack \"" + project + "\" (contenedores, redes y volúmenes gestionados). Las dependencias como base de datos se perderán si no tienen volúmenes externos. ¿Continuar?",
+            function() {
+              runStreamedOperation("/api/compose/delete", { name: project }, "Eliminar stack Compose", project);
+            }
+          );
+        });
+        stackActions.appendChild(delStackBtn);
+      }
+
+      td.appendChild(stackActions);
       header.appendChild(td);
       tbody.appendChild(header);
       composeGroups[project].forEach(function(c) { renderRow(c); });

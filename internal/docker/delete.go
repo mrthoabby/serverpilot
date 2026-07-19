@@ -17,6 +17,9 @@ var containerNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$`)
 type DeleteContainerOptions struct {
 	IDOrName    string
 	RemoveImage bool
+	// AllowCompose force-removes a single compose-managed container. Compose can
+	// recreate it on the next `up`/release; the caller must confirm intent.
+	AllowCompose bool
 }
 
 // DeleteContainerResult reports what was removed.
@@ -59,7 +62,7 @@ func DeleteContainer(opts DeleteContainerOptions) (DeleteContainerResult, error)
 	if name == "" {
 		return DeleteContainerResult{}, fmt.Errorf("container has no name")
 	}
-	if IsComposeContainer(runtime.Config.Labels) {
+	if IsComposeContainer(runtime.Config.Labels) && !opts.AllowCompose {
 		return DeleteContainerResult{}, fmt.Errorf("compose containers must be removed with compose down")
 	}
 
