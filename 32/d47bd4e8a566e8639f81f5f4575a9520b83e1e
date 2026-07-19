@@ -1,0 +1,35 @@
+internal/compose/deps_test.go
+  s_8182556d4f4d67::t_b852fb6288cda3 71-73,79-80,82-83,85-86,88-94,110-111
+  s_8182556d4f4d67::t_c31c4f9ac5ac84 112-129
+  s_8182556d4f4d67::t_a708ac4a76881e 74-78,81,84,87,95-109
+  s_8182556d4f4d67::t_506a4e8a96df3e 6
+internal/compose/exec.go
+  s_8182556d4f4d67::t_0f6e4c99c8ce64 311,318,323,327,330,340-342
+  s_8182556d4f4d67::t_56464a5aa5394a 313,351-354
+  s_8182556d4f4d67::t_7e4aaf1aa40210 18-21
+  s_8182556d4f4d67::t_2a39dbe606dbc6 219-251
+  s_8182556d4f4d67::t_2bd54d63d09e4f 282,287-290,317,322,334-336,339
+  s_8182556d4f4d67::t_0b666d0de0a226 304,309-310,312,314-316,319-321,324-326,328-329,331-333,337-338,343
+  s_8182556d4f4d67::t_f257a19013f284 257
+internal/compose/deps.go
+  s_8182556d4f4d67::t_719caa616aff59 84
+  s_8182556d4f4d67::t_5f0ad770caa5eb 179
+  s_8182556d4f4d67::t_ff0359105eeaf0 225-279,292-294,297-298
+  s_8182556d4f4d67::t_ca321590c2426c 280-291,295-296
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "32d47bd4e8a566e8639f81f5f4575a9520b83e1e",
+  "prompts": {},
+  "sessions": {
+    "s_8182556d4f4d67": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "050707da-cb0a-4b12-9f07-fa7a36b58cc7",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
