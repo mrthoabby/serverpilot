@@ -1,0 +1,63 @@
+internal/compose/models.go
+  s_8182556d4f4d67::t_02b088d056692c 65-66
+internal/compose/deps.go
+  s_8182556d4f4d67::t_1a70e3c0a5f4dc 7-8
+  s_8182556d4f4d67::t_0c7a4aa5ad2e88 65
+  s_8182556d4f4d67::t_3344a02c702af5 119
+  s_8182556d4f4d67::t_e6ee61c9e8c7b3 1-6,9-64,66-118,120-232
+internal/compose/socket.go
+  s_8182556d4f4d67::t_e7430fd63748a0 121-170
+  s_8182556d4f4d67::t_ceac2e6faa7e83 187-212,217,219,221,230
+  s_8182556d4f4d67::t_e0af2c73f7a08e 251-283,290-300,302-308,310
+  s_8182556d4f4d67::t_19389b7e06b3bd 28-41
+  s_8182556d4f4d67::t_ffaf0142caa5bc 250
+internal/web/handlers_compose.go
+  s_8182556d4f4d67::t_e9be22d7ca7a3f 31-44,47-48,51-60
+  s_8182556d4f4d67::t_1bc4ca0d4c7490 166-211,214-215
+  s_8182556d4f4d67::t_0609fc5ee4e37f 147-157
+internal/web/handlers_compose_test.go
+  s_8182556d4f4d67::t_04c805f8f9799b 26-27
+internal/compose/analyze.go
+  s_8182556d4f4d67::t_4beafd5c544c80 31
+  s_8182556d4f4d67::t_8788893f340e76 143-144
+internal/compose/exec.go
+  s_8182556d4f4d67::t_6c4baf10909ff3 6
+  s_8182556d4f4d67::t_1323803d91e314 203-295
+cmd/compose.go
+  s_8182556d4f4d67::t_c79d71a4d46c03 205-243,246-275
+  s_8182556d4f4d67::t_73b3b752336d57 27-28
+  s_8182556d4f4d67::t_c3a6d1638a0ab9 318-320,322-323
+internal/web/server.go
+  s_8182556d4f4d67::t_b1d0c98c71f8cb 101-102
+internal/web/templates/partials/modals.html
+  s_8182556d4f4d67::t_b64beb6645f98c 268-273
+internal/web/static/js/modules/modals.js
+  s_8182556d4f4d67::t_075422df01e3ab 340-341
+  s_8182556d4f4d67::t_33db8c6888e8f8 387,397-398
+  s_8182556d4f4d67::t_8aabe0b2863fa2 314,318,321
+internal/compose/release.go
+  s_8182556d4f4d67::t_826fde3ba005ff 16-26
+  s_8182556d4f4d67::t_6159a73718aeed 114-117
+internal/compose/deps_test.go
+  s_8182556d4f4d67::t_de6c8c0c62f060 52-53,59
+  s_8182556d4f4d67::t_86b2138710e0b8 1-51,54-58,60-69
+docs/DEPLOY.md
+  s_8182556d4f4d67::t_f96054315fb1c9 88
+  s_8182556d4f4d67::t_eecbbebd85c9b4 705,712-722
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "c9f8d0fe8f28d8ddb11904ca836d1d0f98852da1",
+  "prompts": {},
+  "sessions": {
+    "s_8182556d4f4d67": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "050707da-cb0a-4b12-9f07-fa7a36b58cc7",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
