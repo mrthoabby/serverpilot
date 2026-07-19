@@ -85,7 +85,7 @@ INVARIANTE_6: Secretos de conexión (SSH) → GitHub Secrets. NO en prod.env.
 INVARIANTE_7: Registry login en servidor es TEMPORAL dentro de release.sh. NO persistir tokens.
 INVARIANTE_8: Publicar containers en 127.0.0.1. Nginx (ServerPilot) expone el dominio.
 INVARIANTE_9: (camino 2) Puertos host en compose usan ${SP_COMPOSE_PORT...}; ServerPilot asigna valores en bootstrap (sp compose deploy). release.sh NO reasigna puertos.
-INVARIANTE_10: release.sh NO invoca docker/docker compose directamente en Camino 2 — solo `sp compose release` (igual que `sp port`: el usuario ejecuta `sp`, ServerPilot hace el resto).
+INVARIANTE_10: release.sh NO invoca docker/docker compose directamente en Camino 2 — solo comandos `sp compose` (`deps up`, `run`, `release`). Backup app-specific con docker/compose_aux sigue siendo aceptable.
 ```
 
 ---
@@ -702,10 +702,24 @@ fi
 **Qué hace `sp compose release` (no lo reimplementes en bash):**
 
 ```
+0. (default) Asegura dependencias long-running sanas (up --wait, excluye el servicio target y one-shots)
 1. Login registry efímero (si REGISTRY_USER + REGISTRY_TOKEN)
 2. compose pull <service> con IMAGE_REF
 3. compose up -d --no-deps --no-build <service>
 4. Usa el manifiesto + override + serverpilot.env de la generación activa
+```
+
+**Comandos auxiliares (Camino 2, vía `sp` — no `docker compose` directo):**
+
+```bash
+# Antes de migrate o si deps pueden estar caídas:
+sp compose deps up --name APP_NAME --file docker-compose.yml [--except-service RELEASE_SERVICE]
+
+# One-shot (restart: "no"), p. ej. migraciones:
+sp compose run --name APP_NAME --file docker-compose.yml --service migrate
+
+# Omitir chequeo de deps en release (no recomendado):
+sp compose release --no-ensure-deps ...
 ```
 
 ### Blue-green por servicio sobre red compartida

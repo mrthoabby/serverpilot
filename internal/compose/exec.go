@@ -3,6 +3,7 @@ package compose
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -193,9 +194,101 @@ func (r *Runner) PullService(service, imageRef string) error {
 		return err
 	}
 	cmd.Env = r.runtimeEnv(imageRef)
-	cmd.Env = r.runtimeEnv(imageRef)
 	if err := runComposeCmd(cmd); err != nil {
 		return fmt.Errorf("compose pull failed: %w", err)
+	}
+	return nil
+}
+
+// ServiceRuntimeState reports one compose service container state.
+type ServiceRuntimeState struct {
+	Service string
+	State   string
+	Health  string
+}
+
+type composePsStateRow struct {
+	Service string `json:"Service"`
+	State   string `json:"State"`
+	Health  string `json:"Health"`
+}
+
+// ServiceRuntimeStates returns compose ps state for the requested services.
+func (r *Runner) ServiceRuntimeStates(services []string) ([]ServiceRuntimeState, error) {
+	if len(services) == 0 {
+		return nil, nil
+	}
+	args := []string{"ps", "--format", "json"}
+	args = append(args, services...)
+	cmd, err := r.command(args...)
+	if err != nil {
+		return nil, err
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("compose ps failed")
+	}
+	byService := map[string]ServiceRuntimeState{}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var row composePsStateRow
+		if err := json.Unmarshal([]byte(line), &row); err != nil {
+			continue
+		}
+		svc := strings.TrimSpace(row.Service)
+		if svc == "" {
+			continue
+		}
+		byService[svc] = ServiceRuntimeState{
+			Service: svc,
+			State:   strings.TrimSpace(row.State),
+			Health:  strings.TrimSpace(row.Health),
+		}
+	}
+	outStates := make([]ServiceRuntimeState, 0, len(services))
+	for _, svc := range services {
+		if st, ok := byService[svc]; ok {
+			outStates = append(outStates, st)
+		} else {
+			outStates = append(outStates, ServiceRuntimeState{Service: svc, State: "missing"})
+		}
+	}
+	return outStates, nil
+}
+
+// EnsureServicesUp recreates missing or unhealthy dependency services and waits for health.
+func (r *Runner) EnsureServicesUp(imageRef string, services ...string) error {
+	if len(services) == 0 {
+		return nil
+	}
+	args := []string{"up", "-d", "--no-build", "--wait"}
+	args = append(args, services...)
+	cmd, err := r.command(args...)
+	if err != nil {
+		return err
+	}
+	cmd.Env = r.runtimeEnv(imageRef)
+	if err := runComposeCmd(cmd); err != nil {
+		return fmt.Errorf("compose up failed: %w", err)
+	}
+	return nil
+}
+
+// RunOneShot executes a one-shot compose service without starting dependencies.
+func (r *Runner) RunOneShot(service, imageRef string, extraArgs ...string) error {
+	args := []string{"run", "--rm", "--no-deps", service}
+	args = append(args, extraArgs...)
+	cmd, err := r.command(args...)
+	if err != nil {
+		return err
+	}
+	cmd.Env = r.runtimeEnv(imageRef)
+	if err := runComposeCmd(cmd); err != nil {
+		return fmt.Errorf("compose run failed: %w", err)
 	}
 	return nil
 }

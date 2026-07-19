@@ -23,6 +23,8 @@ func TestComposeHandlersRejectWrongMethod(t *testing.T) {
 		{"validate", s.handleComposeValidate, http.MethodGet},
 		{"deploy", s.handleComposeDeploy, http.MethodGet},
 		{"release", s.handleComposeRelease, http.MethodGet},
+		{"deps_up", s.handleComposeDepsUp, http.MethodGet},
+		{"run", s.handleComposeRun, http.MethodGet},
 		{"clone", s.handleComposeClone, http.MethodGet},
 		{"sync", s.handleComposeSync, http.MethodGet},
 		{"delete", s.handleComposeDelete, http.MethodGet},

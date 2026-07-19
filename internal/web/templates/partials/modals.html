@@ -265,6 +265,12 @@
           <input type="text" id="releaseDrain" placeholder="10s" value="10s">
         </div>
       </div>
+      <div class="form-group" id="releaseEnsureDepsGroup" style="display:none;">
+        <label style="display:flex;align-items:flex-start;gap:0.5rem;font-size:0.82rem;color:var(--text-secondary);cursor:pointer;">
+          <input type="checkbox" id="releaseSkipEnsureDeps" style="margin-top:0.15rem;">
+          <span>Skip dependency health check (not recommended — release may fail if db/redis are down)</span>
+        </label>
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-outline" id="releaseCancelBtn">Cancel</button>
         <button type="submit" class="btn btn-primary" id="releaseSubmitBtn">Release</button>

@@ -24,6 +24,8 @@ var (
 	composeHealthURL      string
 	composeHealthWait     time.Duration
 	composeDrain          time.Duration
+	composeSkipEnsureDeps bool
+	composeExceptService  string
 )
 
 var composeCmd = &cobra.Command{
@@ -200,16 +202,80 @@ Example:
 			file = os.Getenv("COMPOSE_FILE")
 		}
 		return compose.ReleaseCLI(compose.ReleaseRequest{
+			Name:           composeProject,
+			Service:        composeReleaseService,
+			ComposeFile:    file,
+			ImageRef:       os.Getenv("IMAGE_REF"),
+			RegistryUser:   os.Getenv("REGISTRY_USER"),
+			RegistryToken:  os.Getenv("REGISTRY_TOKEN"),
+			Strategy:       composeStrategy,
+			HealthURL:      composeHealthURL,
+			HealthTimeout:  composeHealthWait,
+			Drain:          composeDrain,
+			SkipEnsureDeps: composeSkipEnsureDeps,
+		}, composeProgress())
+	},
+}
+
+var composeDepsCmd = &cobra.Command{
+	Use:   "deps",
+	Short: "Manage compose dependency services",
+}
+
+var composeDepsUpCmd = &cobra.Command{
+	Use:   "up",
+	Short: "Ensure long-running compose dependencies are healthy",
+	Long: `Starts or recreates dependency services (restart != "no") and waits for healthchecks.
+
+Use before migrations or when shared deps (db, redis, search) may be down.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if composeProject == "" {
+			return fmt.Errorf("--name is required")
+		}
+		file := composeFilePath
+		if file == "" {
+			file = os.Getenv("COMPOSE_FILE")
+		}
+		except := composeExceptService
+		if except == "" {
+			except = os.Getenv("RELEASE_SERVICE")
+		}
+		return compose.DepsUpCLI(compose.EnsureDepsRequest{
 			Name:          composeProject,
-			Service:       composeReleaseService,
 			ComposeFile:   file,
+			ExceptService: except,
 			ImageRef:      os.Getenv("IMAGE_REF"),
 			RegistryUser:  os.Getenv("REGISTRY_USER"),
 			RegistryToken: os.Getenv("REGISTRY_TOKEN"),
-			Strategy:      composeStrategy,
-			HealthURL:     composeHealthURL,
-			HealthTimeout: composeHealthWait,
-			Drain:         composeDrain,
+		}, composeProgress())
+	},
+}
+
+var composeRunCmd = &cobra.Command{
+	Use:   "run",
+	Short: "Run a one-shot compose service",
+	Long: `Ensures dependencies are healthy, then runs a restart: "no" service (e.g. migrations).
+
+Requires IMAGE_REF when the service image uses ${IMAGE_REF}.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if composeProject == "" {
+			return fmt.Errorf("--name is required")
+		}
+		if composeReleaseService == "" {
+			return fmt.Errorf("--service is required")
+		}
+		file := composeFilePath
+		if file == "" {
+			file = os.Getenv("COMPOSE_FILE")
+		}
+		return compose.RunCLI(compose.RunServiceRequest{
+			Name:          composeProject,
+			ComposeFile:   file,
+			Service:       composeReleaseService,
+			Args:          args,
+			ImageRef:      os.Getenv("IMAGE_REF"),
+			RegistryUser:  os.Getenv("REGISTRY_USER"),
+			RegistryToken: os.Getenv("REGISTRY_TOKEN"),
 		}, composeProgress())
 	},
 }
@@ -249,8 +315,12 @@ func init() {
 	composeReleaseCmd.Flags().StringVar(&composeHealthURL, "health-url", "", "Optional HTTP health check path (e.g. /health)")
 	composeReleaseCmd.Flags().DurationVar(&composeHealthWait, "health-timeout", 60*time.Second, "Health check timeout")
 	composeReleaseCmd.Flags().DurationVar(&composeDrain, "drain", 10*time.Second, "Drain period before removing old color")
+	composeReleaseCmd.Flags().BoolVar(&composeSkipEnsureDeps, "no-ensure-deps", false, "Skip dependency health check before release")
+	composeDepsUpCmd.Flags().StringVar(&composeExceptService, "except-service", "", "Exclude this service from dependency ensure (default: RELEASE_SERVICE env)")
+	composeRunCmd.Flags().StringVar(&composeReleaseService, "service", "", "One-shot compose service to run")
 
-	composeCmd.AddCommand(composeValidateCmd, composeDeployCmd, composeListCmd, composeStatusCmd, composeCloneCmd, composeSyncCmd, composeReleaseCmd, composeDeleteCmd)
+	composeDepsCmd.AddCommand(composeDepsUpCmd)
+	composeCmd.AddCommand(composeValidateCmd, composeDeployCmd, composeListCmd, composeStatusCmd, composeCloneCmd, composeSyncCmd, composeReleaseCmd, composeDepsCmd, composeRunCmd, composeDeleteCmd)
 	rootCmd.AddCommand(composeCmd)
 }
 

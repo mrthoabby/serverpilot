@@ -25,17 +25,20 @@ const (
 )
 
 type composeSocketRequest struct {
-	Op            string `json:"op"`
-	Name          string `json:"name"`
-	Service       string `json:"service"`
-	ComposeFile   string `json:"compose_file,omitempty"`
-	ImageRef      string `json:"image_ref"`
-	RegistryUser  string `json:"registry_user,omitempty"`
-	RegistryToken string `json:"registry_token,omitempty"`
-	Strategy      string `json:"strategy,omitempty"`
-	HealthURL     string `json:"health_url,omitempty"`
-	HealthTimeout string `json:"health_timeout,omitempty"`
-	Drain         string `json:"drain,omitempty"`
+	Op             string   `json:"op"`
+	Name           string   `json:"name"`
+	Service        string   `json:"service"`
+	ComposeFile    string   `json:"compose_file,omitempty"`
+	ImageRef       string   `json:"image_ref,omitempty"`
+	RegistryUser   string   `json:"registry_user,omitempty"`
+	RegistryToken  string   `json:"registry_token,omitempty"`
+	Strategy       string   `json:"strategy,omitempty"`
+	HealthURL      string   `json:"health_url,omitempty"`
+	HealthTimeout  string   `json:"health_timeout,omitempty"`
+	Drain          string   `json:"drain,omitempty"`
+	SkipEnsureDeps bool     `json:"skip_ensure_deps,omitempty"`
+	ExceptService  string   `json:"except_service,omitempty"`
+	Args           []string `json:"args,omitempty"`
 }
 
 type composeSocketResponse struct {
@@ -104,12 +107,6 @@ func handleComposeSocketConn(conn net.Conn) {
 }
 
 func dispatchComposeSocketRequest(req composeSocketRequest) composeSocketResponse {
-	if req.Op != "release" {
-		return composeSocketResponse{Error: "unknown op"}
-	}
-	if err := validateSocketImageRef(req.ImageRef); err != nil {
-		return composeSocketResponse{Error: err.Error()}
-	}
 	if err := validateSocketSecret(req.RegistryUser); err != nil {
 		return composeSocketResponse{Error: err.Error()}
 	}
@@ -121,20 +118,56 @@ func dispatchComposeSocketRequest(req composeSocketRequest) composeSocketRespons
 	progress := func(msg string) {
 		lines = append(lines, msg)
 	}
-	releaseReq := ReleaseRequest{
-		Name:          req.Name,
-		Service:       req.Service,
-		ComposeFile:   req.ComposeFile,
-		ImageRef:      req.ImageRef,
-		RegistryUser:  req.RegistryUser,
-		RegistryToken: req.RegistryToken,
-		Strategy:      req.Strategy,
-		HealthURL:     req.HealthURL,
-		HealthTimeout: parseDurationOrDefault(req.HealthTimeout, defaultHealthWait),
-		Drain:         parseDurationOrDefault(req.Drain, defaultDrain),
-	}
-	if err := ReleaseService(releaseReq, progress); err != nil {
-		return composeSocketResponse{Error: err.Error(), Log: lines}
+
+	switch req.Op {
+	case "release":
+		if err := validateSocketImageRef(req.ImageRef); err != nil {
+			return composeSocketResponse{Error: err.Error()}
+		}
+		releaseReq := ReleaseRequest{
+			Name:           req.Name,
+			Service:        req.Service,
+			ComposeFile:    req.ComposeFile,
+			ImageRef:       req.ImageRef,
+			RegistryUser:   req.RegistryUser,
+			RegistryToken:  req.RegistryToken,
+			Strategy:       req.Strategy,
+			HealthURL:      req.HealthURL,
+			HealthTimeout:  parseDurationOrDefault(req.HealthTimeout, defaultHealthWait),
+			Drain:          parseDurationOrDefault(req.Drain, defaultDrain),
+			SkipEnsureDeps: req.SkipEnsureDeps,
+		}
+		if err := ReleaseService(releaseReq, progress); err != nil {
+			return composeSocketResponse{Error: err.Error(), Log: lines}
+		}
+	case "deps_up":
+		if err := EnsureDependenciesUp(EnsureDepsRequest{
+			Name:          req.Name,
+			ComposeFile:   req.ComposeFile,
+			ExceptService: req.ExceptService,
+			ImageRef:      req.ImageRef,
+			RegistryUser:  req.RegistryUser,
+			RegistryToken: req.RegistryToken,
+		}, progress); err != nil {
+			return composeSocketResponse{Error: err.Error(), Log: lines}
+		}
+	case "run":
+		if err := validateSocketImageRef(req.ImageRef); err != nil {
+			return composeSocketResponse{Error: err.Error()}
+		}
+		if err := RunComposeService(RunServiceRequest{
+			Name:          req.Name,
+			ComposeFile:   req.ComposeFile,
+			Service:       req.Service,
+			Args:          req.Args,
+			ImageRef:      req.ImageRef,
+			RegistryUser:  req.RegistryUser,
+			RegistryToken: req.RegistryToken,
+		}, progress); err != nil {
+			return composeSocketResponse{Error: err.Error(), Log: lines}
+		}
+	default:
+		return composeSocketResponse{Error: "unknown op"}
 	}
 	return composeSocketResponse{OK: true, Log: lines}
 }
@@ -151,16 +184,41 @@ func writeComposeSocketResponse(conn net.Conn, resp composeSocketResponse) {
 // ReleaseCLI is the `sp compose release` entry point for non-root callers.
 // It delegates to the running ServerPilot daemon over a Unix socket.
 func ReleaseCLI(req ReleaseRequest, progress Progress) error {
+	return composeOpCLI("release", req.Name, progress, func() (*composeSocketResponse, error) {
+		return releaseViaSocket(req)
+	}, func() error {
+		return ReleaseService(req, progress)
+	})
+}
+
+// DepsUpCLI ensures long-running compose dependencies are healthy.
+func DepsUpCLI(req EnsureDepsRequest, progress Progress) error {
+	return composeOpCLI("deps up", req.Name, progress, func() (*composeSocketResponse, error) {
+		return depsUpViaSocket(req)
+	}, func() error {
+		return EnsureDependenciesUp(req, progress)
+	})
+}
+
+// RunCLI runs a one-shot compose service via ServerPilot.
+func RunCLI(req RunServiceRequest, progress Progress) error {
+	return composeOpCLI("run", req.Name, progress, func() (*composeSocketResponse, error) {
+		return runViaSocket(req)
+	}, func() error {
+		return RunComposeService(req, progress)
+	})
+}
+
+func composeOpCLI(label, name string, progress Progress, viaSocket func() (*composeSocketResponse, error), asRoot func() error) error {
 	if progress == nil {
 		progress = func(string) {}
 	}
 	if os.Geteuid() == 0 {
-		return ReleaseService(req, progress)
+		return asRoot()
 	}
-
-	resp, err := releaseViaSocket(req)
+	resp, err := viaSocket()
 	if err != nil {
-		return fmt.Errorf("sp compose release is unavailable — ensure ServerPilot is running (sp start -d)")
+		return fmt.Errorf("sp compose %s is unavailable — ensure ServerPilot is running (sp start -d)", label)
 	}
 	for _, line := range resp.Log {
 		progress(line)
@@ -169,7 +227,7 @@ func ReleaseCLI(req ReleaseRequest, progress Progress) error {
 		if resp.Error != "" {
 			return fmt.Errorf("%s", resp.Error)
 		}
-		return fmt.Errorf("compose release failed")
+		return fmt.Errorf("compose %s failed", label)
 	}
 	return nil
 }
@@ -189,19 +247,67 @@ func releaseViaSocket(req ReleaseRequest) (*composeSocketResponse, error) {
 	}
 
 	socketReq := composeSocketRequest{
-		Op:            "release",
+		Op:             "release",
+		Name:           req.Name,
+		Service:        req.Service,
+		ComposeFile:    req.ComposeFile,
+		ImageRef:       req.ImageRef,
+		RegistryUser:   req.RegistryUser,
+		RegistryToken:  req.RegistryToken,
+		Strategy:       req.Strategy,
+		HealthURL:      req.HealthURL,
+		HealthTimeout:  req.HealthTimeout.String(),
+		Drain:          req.Drain.String(),
+		SkipEnsureDeps: req.SkipEnsureDeps,
+	}
+	return composeViaSocket(socketReq)
+}
+
+func depsUpViaSocket(req EnsureDepsRequest) (*composeSocketResponse, error) {
+	fillComposeEnvDefaults(&req.ComposeFile, &req.ImageRef, &req.RegistryUser, &req.RegistryToken)
+	socketReq := composeSocketRequest{
+		Op:            "deps_up",
+		Name:          req.Name,
+		ComposeFile:   req.ComposeFile,
+		ImageRef:      req.ImageRef,
+		RegistryUser:  req.RegistryUser,
+		RegistryToken: req.RegistryToken,
+		ExceptService: req.ExceptService,
+	}
+	return composeViaSocket(socketReq)
+}
+
+func runViaSocket(req RunServiceRequest) (*composeSocketResponse, error) {
+	fillComposeEnvDefaults(&req.ComposeFile, &req.ImageRef, &req.RegistryUser, &req.RegistryToken)
+	socketReq := composeSocketRequest{
+		Op:            "run",
 		Name:          req.Name,
 		Service:       req.Service,
 		ComposeFile:   req.ComposeFile,
 		ImageRef:      req.ImageRef,
 		RegistryUser:  req.RegistryUser,
 		RegistryToken: req.RegistryToken,
-		Strategy:      req.Strategy,
-		HealthURL:     req.HealthURL,
-		HealthTimeout: req.HealthTimeout.String(),
-		Drain:         req.Drain.String(),
+		Args:          req.Args,
 	}
+	return composeViaSocket(socketReq)
+}
 
+func fillComposeEnvDefaults(composeFile, imageRef, registryUser, registryToken *string) {
+	if composeFile != nil && *composeFile == "" {
+		*composeFile = strings.TrimSpace(os.Getenv("COMPOSE_FILE"))
+	}
+	if imageRef != nil && *imageRef == "" {
+		*imageRef = strings.TrimSpace(os.Getenv("IMAGE_REF"))
+	}
+	if registryUser != nil && *registryUser == "" {
+		*registryUser = strings.TrimSpace(os.Getenv("REGISTRY_USER"))
+	}
+	if registryToken != nil && *registryToken == "" {
+		*registryToken = strings.TrimSpace(os.Getenv("REGISTRY_TOKEN"))
+	}
+}
+
+func composeViaSocket(socketReq composeSocketRequest) (*composeSocketResponse, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), composeSocketDialTimeout)
 	defer cancel()
 

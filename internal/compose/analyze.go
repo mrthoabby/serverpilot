@@ -28,6 +28,7 @@ type rawNetwork struct {
 type rawService struct {
 	Image         string   `yaml:"image"`
 	Build         any      `yaml:"build"`
+	Restart       string   `yaml:"restart"`
 	Ports         []any    `yaml:"ports"`
 	Expose        []any    `yaml:"expose"`
 	Volumes       []string `yaml:"volumes"`
@@ -139,6 +140,8 @@ func analyzeService(projectRoot, name string, raw rawService, networks map[strin
 		spec.InternalOnly = true
 	}
 	spec.Image = strings.TrimSpace(raw.Image)
+	spec.Restart = strings.TrimSpace(raw.Restart)
+	spec.OneShot = strings.EqualFold(spec.Restart, "no")
 
 	if raw.Build != nil {
 		ctx, _, issues := analyzeBuild(projectRoot, raw.Build)

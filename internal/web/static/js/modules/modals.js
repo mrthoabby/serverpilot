@@ -311,11 +311,14 @@
 
   function toggleReleaseAdvancedFields() {
     var strategy = document.getElementById("releaseStrategy");
+    var kind = (document.getElementById("releaseKind") || {}).value || "";
     var isBG = strategy && strategy.value === "blue-green";
     var healthGroup = document.getElementById("releaseHealthGroup");
     var timingGroup = document.getElementById("releaseTimingGroup");
+    var ensureDepsGroup = document.getElementById("releaseEnsureDepsGroup");
     if (healthGroup) healthGroup.style.display = isBG ? "block" : "none";
     if (timingGroup) timingGroup.style.display = isBG ? "grid" : "none";
+    if (ensureDepsGroup) ensureDepsGroup.style.display = kind === "compose" ? "block" : "none";
   }
 
   function openReleaseModal(opts) {
@@ -334,6 +337,8 @@
     document.getElementById("releaseHealthURL").value = opts.healthURL || "";
     document.getElementById("releaseHealthTimeout").value = opts.healthTimeout || "60s";
     document.getElementById("releaseDrain").value = opts.drain || "10s";
+    var skipEnsureDeps = document.getElementById("releaseSkipEnsureDeps");
+    if (skipEnsureDeps) skipEnsureDeps.checked = false;
     setText(document.getElementById("releaseModalTitle"), kind === "compose" ? "Compose release" : "Container release");
     setText(document.getElementById("releaseModalSub"),
       kind === "compose"
@@ -379,6 +384,7 @@
     releaseModal.classList.remove("show");
 
     if (kind === "compose") {
+      var skipEnsureDepsEl = document.getElementById("releaseSkipEnsureDeps");
       runStreamedOperation(
         "/api/compose/release",
         {
@@ -388,7 +394,8 @@
           strategy: strategy,
           health_url: healthURL,
           health_timeout: healthTimeout,
-          drain: drain
+          drain: drain,
+          skip_ensure_deps: !!(skipEnsureDepsEl && skipEnsureDepsEl.checked)
         },
         "Compose release",
         target + " — " + strategy

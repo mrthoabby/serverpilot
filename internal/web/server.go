@@ -98,6 +98,8 @@ func (s *Server) Start() error {
 	mux.Handle("/api/compose/validate", s.authMiddleware(http.HandlerFunc(s.handleComposeValidate)))
 	mux.Handle("/api/compose/deploy", s.requireSecureReauth(http.HandlerFunc(s.handleComposeDeploy)))
 	mux.Handle("/api/compose/release", s.requireSecureReauth(http.HandlerFunc(s.handleComposeRelease)))
+	mux.Handle("/api/compose/deps/up", s.requireSecureReauth(http.HandlerFunc(s.handleComposeDepsUp)))
+	mux.Handle("/api/compose/run", s.requireSecureReauth(http.HandlerFunc(s.handleComposeRun)))
 	mux.Handle("/api/compose/clone", s.requireSecureReauth(http.HandlerFunc(s.handleComposeClone)))
 	mux.Handle("/api/compose/sync", s.requireSecureReauth(http.HandlerFunc(s.handleComposeSync)))
 	mux.Handle("/api/compose/delete", s.requireSecureReauth(http.HandlerFunc(s.handleComposeDelete)))

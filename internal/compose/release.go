@@ -13,16 +13,17 @@ import (
 
 // ReleaseRequest updates one service image in an existing managed project.
 type ReleaseRequest struct {
-	Name          string
-	Service       string
-	ComposeFile   string // relative to /opt/<name>/, default docker-compose.yml
-	ImageRef      string
-	RegistryUser  string
-	RegistryToken string
-	Strategy      string
-	HealthURL     string
-	HealthTimeout time.Duration
-	Drain         time.Duration
+	Name           string
+	Service        string
+	ComposeFile    string // relative to /opt/<name>/, default docker-compose.yml
+	ImageRef       string
+	RegistryUser   string
+	RegistryToken  string
+	Strategy       string
+	HealthURL      string
+	HealthTimeout  time.Duration
+	Drain          time.Duration
+	SkipEnsureDeps bool
 }
 
 // ReleaseService pulls IMAGE_REF and recreates only the target service.
@@ -108,6 +109,10 @@ func ReleaseService(req ReleaseRequest, progress Progress) error {
 			return fmt.Errorf("compose manifest changed — run a rolling reconcile before blue-green release")
 		}
 		return reconcileReleaseStack(req, rec, gen, analysis, progress)
+	}
+
+	if err := ensureDependenciesReady(req, rec, gen, analysis, envPath, overridePath, progress); err != nil {
+		return err
 	}
 
 	if ParseStrategy(req.Strategy) == StrategyBlueGreen {
