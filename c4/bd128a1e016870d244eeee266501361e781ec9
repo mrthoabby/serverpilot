@@ -1,0 +1,20 @@
+internal/compose/exec_test.go
+  s_8182556d4f4d67::t_f42f6294c0d8aa 33,43,46-57
+  s_8182556d4f4d67::t_2a1d103fa896fd 4-5,34-42,44-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "c4bd128a1e016870d244eeee266501361e781ec9",
+  "prompts": {},
+  "sessions": {
+    "s_8182556d4f4d67": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "050707da-cb0a-4b12-9f07-fa7a36b58cc7",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
