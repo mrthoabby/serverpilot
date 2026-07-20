@@ -1,0 +1,24 @@
+internal/deployhealth/health.go
+  s_8182556d4f4d67::t_683b80163cf5cb 28
+  s_8182556d4f4d67::t_65727361dfcb0c 58-80
+cmd/compose.go
+  s_8182556d4f4d67::t_c9fdf53468d4de 316
+internal/compose/bluegreen.go
+  s_8182556d4f4d67::t_8a76dc28222607 21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "4c1f2de52802db668d5b02d7b3cad6cc3e3dd9d5",
+  "prompts": {},
+  "sessions": {
+    "s_8182556d4f4d67": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "050707da-cb0a-4b12-9f07-fa7a36b58cc7",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
