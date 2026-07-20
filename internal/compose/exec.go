@@ -162,32 +162,7 @@ func (r *Runner) runtimeEnv(imageRef string) []string {
 	if imageRef != "" {
 		env = append(env, "IMAGE_REF="+imageRef)
 	}
-	for _, path := range []string{r.ProjectEnvFile, r.EnvFile} {
-		env = append(env, readEnvFileKV(path)...)
-	}
 	return env
-}
-
-func readEnvFileKV(path string) []string {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		if idx := strings.IndexByte(line, '='); idx > 0 {
-			out = append(out, line)
-		}
-	}
-	return out
 }
 
 // PullService pulls the image for one compose service.

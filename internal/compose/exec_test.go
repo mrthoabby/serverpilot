@@ -1,6 +1,8 @@
 package compose
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -25,6 +27,31 @@ func TestUpArgsEnvFileBeforeSubcommand(t *testing.T) {
 	}
 	if envIdx > upIdx {
 		t.Fatalf("--env-file must precede up subcommand, got: %s", joined)
+	}
+}
+
+func TestRuntimeEnvDoesNotReinjectEnvFileValues(t *testing.T) {
+	root := t.TempDir()
+	projectEnv := filepath.Join(root, "prod.env")
+	generationEnv := filepath.Join(root, "serverpilot.env")
+	if err := os.WriteFile(projectEnv, []byte("DISCOVERY_MONGO_ROOT_PASSWORD=\"quoted-secret\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(generationEnv, []byte("SP_COMPOSE_PORT=12345\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := Runner{
+		ProjectEnvFile: projectEnv,
+		EnvFile:        generationEnv,
+	}
+	env := r.runtimeEnv("registry.example/app:v1")
+	for _, item := range env {
+		if strings.HasPrefix(item, "DISCOVERY_MONGO_ROOT_PASSWORD=") {
+			t.Fatalf("runtime env must not duplicate values parsed by Compose: %v", env)
+		}
+	}
+	if indexOf(env, "IMAGE_REF=registry.example/app:v1") < 0 {
+		t.Fatalf("runtime env must include explicit image override: %v", env)
 	}
 }
 
