@@ -1,0 +1,31 @@
+internal/compose/exec.go
+  s_8182556d4f4d67::t_b785ae2a291328 526-530
+  s_8182556d4f4d67::t_421351a2f1a8ec 462-472,487-491,506-525,531-579
+  s_8182556d4f4d67::t_d00ed022981f75 7
+internal/compose/exec_test.go
+  s_8182556d4f4d67::t_eeefa35751ebe2 4
+  s_8182556d4f4d67::t_70d8c6b9b6c323 76-78,83-105
+internal/compose/bluegreen_test.go
+  s_8182556d4f4d67::t_eedbed52b9c0c9 127
+  s_8182556d4f4d67::t_5bed7ba6a077b1 118-126
+internal/compose/bluegreen.go
+  s_8182556d4f4d67::t_d8725175e002e7 93-99,113
+  s_8182556d4f4d67::t_f55a2636f315bb 299,301,305
+  s_8182556d4f4d67::t_5e5b97a29d8cfb 69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "fd62965431ac9cb9e4bae749f671d6f6d42a5b8c",
+  "prompts": {},
+  "sessions": {
+    "s_8182556d4f4d67": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "050707da-cb0a-4b12-9f07-fa7a36b58cc7",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
