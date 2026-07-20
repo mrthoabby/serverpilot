@@ -1,0 +1,26 @@
+internal/compose/bluegreen.go
+  s_8182556d4f4d67::t_1b9f0c3ce4b94d 106-109
+  s_8182556d4f4d67::t_64a0757d0403ee 256-301
+  s_8182556d4f4d67::t_7acd620242fe41 6
+internal/compose/bluegreen_test.go
+  s_8182556d4f4d67::t_620346520d7e1e 128-138
+internal/deployhealth/health.go
+  s_8182556d4f4d67::t_5d2cbc54b38232 73-92
+  s_8182556d4f4d67::t_ff9295d05f116c 35,44,55-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "7a9861bb5d95aee6f931e03b60e61bb4d55c86bb",
+  "prompts": {},
+  "sessions": {
+    "s_8182556d4f4d67": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "050707da-cb0a-4b12-9f07-fa7a36b58cc7",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
