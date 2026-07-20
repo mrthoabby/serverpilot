@@ -1,0 +1,30 @@
+internal/compose/deps_test.go
+  s_8182556d4f4d67::t_8c1f0c89b4104a 25-27,51-53,107-119
+  s_8182556d4f4d67::t_fee3a551b17031 56-82
+internal/compose/models.go
+  s_8182556d4f4d67::t_fde4404c563de5 67
+internal/compose/analyze.go
+  s_8182556d4f4d67::t_c8db768a7c4c4b 46
+  s_8182556d4f4d67::t_fa4edca0971f96 110-115,220,226,232
+  s_8182556d4f4d67::t_640be2b7cbd727 152,215-219,221-225,227-231,233-238
+internal/compose/deps.go
+  s_8182556d4f4d67::t_cdbec9a159e338 56-103,128-129,131,138,146,174-175,178-179,183,187-191
+docs/DEPLOY.md
+  s_8182556d4f4d67::t_e4c2d91dac9a7c 718-719
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "bf227ee7632ec306c998f3c695d81309e61d45c9",
+  "prompts": {},
+  "sessions": {
+    "s_8182556d4f4d67": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "050707da-cb0a-4b12-9f07-fa7a36b58cc7",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
