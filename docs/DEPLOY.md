@@ -715,7 +715,8 @@ fi
 # Antes de migrate o si deps pueden estar caídas:
 sp compose deps up --name APP_NAME --file docker-compose.yml [--except-service RELEASE_SERVICE]
 
-# One-shot (restart: "no"), p. ej. migraciones:
+# One-shot (restart: "no"), p. ej. migraciones. Solo asegura sus dependencias
+# long-running declaradas en depends_on; no inicia servicios ajenos al job:
 sp compose run --name APP_NAME --file docker-compose.yml --service migrate
 
 # Omitir chequeo de deps en release (no recomendado):

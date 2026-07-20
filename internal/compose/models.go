@@ -64,6 +64,7 @@ type ServiceSpec struct {
 	BuildContext string        `json:"build_context,omitempty"`
 	Restart      string        `json:"restart,omitempty"`
 	OneShot      bool          `json:"one_shot,omitempty"`
+	DependsOn    []string      `json:"depends_on,omitempty"`
 	ExposedPorts []string      `json:"exposed_ports,omitempty"`
 	Endpoints    []Endpoint    `json:"endpoints,omitempty"`
 	Mounts       []MountSpec   `json:"mounts,omitempty"`

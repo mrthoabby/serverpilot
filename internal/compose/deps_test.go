@@ -22,6 +22,9 @@ func TestAnalyzeProjectMarksOneShotServices(t *testing.T) {
   migrate:
     image: nginx:alpine
     restart: "no"
+    depends_on:
+      mongo:
+        condition: service_healthy
   mongo:
     image: mongo:7
     restart: unless-stopped
@@ -45,6 +48,38 @@ func TestAnalyzeProjectMarksOneShotServices(t *testing.T) {
 	if byName["app"].OneShot || byName["mongo"].OneShot {
 		t.Fatalf("expected app/mongo to be long-running: %#v", byName)
 	}
+	if len(byName["migrate"].DependsOn) != 1 || byName["migrate"].DependsOn[0] != "mongo" {
+		t.Fatalf("expected migrate dependency to be parsed, got %#v", byName["migrate"].DependsOn)
+	}
+}
+
+func TestAnalyzeProjectRejectsInvalidDependencyReference(t *testing.T) {
+	root := t.TempDir()
+	opt := filepath.Join(root, "shop")
+	if err := os.MkdirAll(opt, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	composeYAML := `services:
+  job:
+    image: busybox:stable
+    restart: "no"
+    depends_on:
+      - " database "
+  database:
+    image: busybox:stable
+`
+	if err := os.WriteFile(filepath.Join(opt, "docker-compose.yml"), []byte(composeYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	LockManagedAppsRootForTest(t, root)
+
+	result, err := AnalyzeProject("shop", opt, "docker-compose.yml")
+	if err != nil {
+		t.Fatalf("AnalyzeProject: %v", err)
+	}
+	if result.CanDeploy {
+		t.Fatalf("expected malformed depends_on reference to block deployment: %#v", result)
+	}
 }
 
 func TestDependencyServiceNamesExcludesTargetAndOneShot(t *testing.T) {
@@ -59,6 +94,29 @@ func TestDependencyServiceNamesExcludesTargetAndOneShot(t *testing.T) {
 	}
 	got := DependencyServiceNames(analysis, "web")
 	want := []string{"mongo", "redis-cache"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v want %v", got, want)
+		}
+	}
+}
+
+func TestServiceDependencyNamesUsesTransitiveComposeGraph(t *testing.T) {
+	analysis := &AnalyzeResult{
+		Services: []ServiceSpec{
+			{Name: "api", DependsOn: []string{"job", "cache"}},
+			{Name: "job", OneShot: true, DependsOn: []string{"database"}},
+			{Name: "cache"},
+			{Name: "database", DependsOn: []string{"storage"}},
+			{Name: "storage"},
+			{Name: "unrelated"},
+		},
+	}
+	got := ServiceDependencyNames(analysis, "job")
+	want := []string{"database", "storage"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v want %v", got, want)
 	}

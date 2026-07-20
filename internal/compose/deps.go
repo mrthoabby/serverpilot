@@ -53,6 +53,54 @@ func DependencyServiceNames(analysis *AnalyzeResult, exclude ...string) []string
 	return out
 }
 
+// ServiceDependencyNames returns the transitive long-running dependencies
+// declared by target through Compose depends_on. Unrelated services and
+// one-shot nodes are not returned.
+func ServiceDependencyNames(analysis *AnalyzeResult, target string) []string {
+	if analysis == nil {
+		return nil
+	}
+	byName := make(map[string]ServiceSpec, len(analysis.Services))
+	for _, svc := range analysis.Services {
+		byName[svc.Name] = svc
+	}
+	if _, ok := byName[target]; !ok {
+		return nil
+	}
+
+	visited := map[string]bool{target: true}
+	selected := map[string]bool{}
+	var visit func(string)
+	visit = func(name string) {
+		svc, ok := byName[name]
+		if !ok {
+			return
+		}
+		for _, dependency := range svc.DependsOn {
+			if visited[dependency] {
+				continue
+			}
+			visited[dependency] = true
+			dep, ok := byName[dependency]
+			if !ok {
+				continue
+			}
+			if !dep.OneShot {
+				selected[dependency] = true
+			}
+			visit(dependency)
+		}
+	}
+	visit(target)
+
+	out := make([]string, 0, len(selected))
+	for name := range selected {
+		out = append(out, name)
+	}
+	sortStrings(out)
+	return out
+}
+
 // EnsureDependenciesUp starts or recreates dependency services and waits for health.
 func EnsureDependenciesUp(req EnsureDepsRequest, progress Progress) error {
 	if progress == nil {
@@ -77,14 +125,17 @@ func EnsureDependenciesUp(req EnsureDepsRequest, progress Progress) error {
 		progress("No long-running dependencies to ensure.")
 		return nil
 	}
+	return ensureManagedServicesUp(runner, services, req.ImageRef, req.RegistryUser, req.RegistryToken, progress)
+}
 
+func ensureManagedServicesUp(runner Runner, services []string, imageRef, registryUser, registryToken string, progress Progress) error {
 	progress("Ensuring compose dependencies are healthy: " + strings.Join(services, ", "))
 	states, err := runner.ServiceRuntimeStates(services)
 	if err == nil {
 		logDependencyEnsurePlan(states, progress)
 	}
 
-	cleanupLogin, err := ephemeralRegistryLogin(req.RegistryUser, req.RegistryToken)
+	cleanupLogin, err := ephemeralRegistryLogin(registryUser, registryToken)
 	if err != nil {
 		return err
 	}
@@ -92,7 +143,7 @@ func EnsureDependenciesUp(req EnsureDepsRequest, progress Progress) error {
 		defer cleanupLogin()
 	}
 
-	if err := runner.EnsureServicesUp(req.ImageRef, services...); err != nil {
+	if err := runner.EnsureServicesUp(imageRef, services...); err != nil {
 		return fmt.Errorf("dependency ensure failed: %w", err)
 	}
 	progress("Dependencies are healthy.")
@@ -116,29 +167,28 @@ func RunComposeService(req RunServiceRequest, progress Progress) error {
 		return fmt.Errorf("docker compose is not installed — install docker-compose-plugin (sp setup or dashboard → Apps → Server Dependencies)")
 	}
 
-	if err := EnsureDependenciesUp(EnsureDepsRequest{
-		Name:          req.Name,
-		ComposeFile:   req.ComposeFile,
-		ImageRef:      req.ImageRef,
-		RegistryUser:  req.RegistryUser,
-		RegistryToken: req.RegistryToken,
-	}, progress); err != nil {
-		return err
-	}
-
 	_, analysis, runner, err := runnerForManagedProject(req.Name, req.ComposeFile)
 	if err != nil {
 		return err
 	}
-	var oneShot bool
+	var service ServiceSpec
+	var found bool
 	for _, svc := range analysis.Services {
 		if svc.Name == req.Service {
-			oneShot = svc.OneShot
+			service = svc
+			found = true
 			break
 		}
 	}
-	if !oneShot {
+	if !found || !service.OneShot {
 		return fmt.Errorf("service %q is not a one-shot service (restart: \"no\") — use sp compose release instead", req.Service)
+	}
+
+	services := ServiceDependencyNames(analysis, req.Service)
+	if len(services) == 0 {
+		progress("No long-running dependencies declared for " + req.Service + ".")
+	} else if err := ensureManagedServicesUp(runner, services, req.ImageRef, req.RegistryUser, req.RegistryToken, progress); err != nil {
+		return err
 	}
 
 	cleanupLogin, err := ephemeralRegistryLogin(req.RegistryUser, req.RegistryToken)

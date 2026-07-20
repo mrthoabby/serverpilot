@@ -43,6 +43,7 @@ type rawService struct {
 	Configs       any      `yaml:"configs"`
 	ContainerName string   `yaml:"container_name"`
 	Networks      any      `yaml:"networks"`
+	DependsOn     any      `yaml:"depends_on"`
 }
 
 // AnalyzeProject reads and policy-checks a compose project without mutating state.
@@ -106,6 +107,12 @@ func AnalyzeProject(name, rootDir, composeFile string) (*AnalyzeResult, error) {
 		}
 		ApplyRawServicePolicy(result, svcName, raw)
 		spec := analyzeService(root, svcName, raw, doc.Networks)
+		for _, dependency := range spec.DependsOn {
+			_, exists := doc.Services[dependency]
+			if dependency != strings.TrimSpace(dependency) || ValidateServiceName(dependency) != nil || !exists {
+				result.Blocking = append(result.Blocking, "service "+svcName+" has invalid depends_on reference")
+			}
+		}
 		result.Services = append(result.Services, spec)
 		result.Endpoints = append(result.Endpoints, spec.Endpoints...)
 		result.Mounts = append(result.Mounts, spec.Mounts...)
@@ -142,6 +149,7 @@ func analyzeService(projectRoot, name string, raw rawService, networks map[strin
 	spec.Image = strings.TrimSpace(raw.Image)
 	spec.Restart = strings.TrimSpace(raw.Restart)
 	spec.OneShot = strings.EqualFold(spec.Restart, "no")
+	spec.DependsOn = normalizeDependsOn(raw.DependsOn)
 
 	if raw.Build != nil {
 		ctx, _, issues := analyzeBuild(projectRoot, raw.Build)
@@ -202,6 +210,32 @@ func analyzeService(projectRoot, name string, raw rawService, networks map[strin
 		spec.InternalOnly = true
 	}
 	return spec
+}
+
+func normalizeDependsOn(value any) []string {
+	var dependencies []string
+	switch typed := value.(type) {
+	case []any:
+		for _, item := range typed {
+			if name := fmt.Sprint(item); name != "" {
+				dependencies = append(dependencies, name)
+			}
+		}
+	case []string:
+		for _, item := range typed {
+			if name := item; name != "" {
+				dependencies = append(dependencies, name)
+			}
+		}
+	case map[string]any:
+		for name := range typed {
+			if name != "" {
+				dependencies = append(dependencies, name)
+			}
+		}
+	}
+	sortStrings(dependencies)
+	return dependencies
 }
 
 func composeNetworkRefs(raw any) []string {
