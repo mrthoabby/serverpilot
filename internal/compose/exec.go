@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -458,6 +459,17 @@ func WriteOverride(dir, name string, content []byte) (string, error) {
 
 // RenderPortOverrideYAML builds an override that binds reserved localhost ports.
 func RenderPortOverrideYAML(endpoints []Endpoint) []byte {
+	return renderPortOverrideYAML(endpoints, false)
+}
+
+// RenderBlueGreenOverrideYAML builds a blue-green override that clears depends_on
+// on the released service and binds reserved localhost ports. Shared long-running
+// dependencies are ensured separately and reached via external networks.
+func RenderBlueGreenOverrideYAML(endpoints []Endpoint) []byte {
+	return renderPortOverrideYAML(endpoints, true)
+}
+
+func renderPortOverrideYAML(endpoints []Endpoint, clearDependsOn bool) []byte {
 	var b strings.Builder
 	b.WriteString("services:\n")
 	byService := map[string][]Endpoint{}
@@ -472,7 +484,11 @@ func RenderPortOverrideYAML(endpoints []Endpoint) []byte {
 	for _, svc := range serviceNames {
 		b.WriteString("  ")
 		b.WriteString(svc)
-		b.WriteString(":\n    ports: !override\n")
+		b.WriteString(":\n")
+		if clearDependsOn {
+			b.WriteString("    depends_on: !override []\n")
+		}
+		b.WriteString("    ports: !override\n")
 		for _, ep := range byService[svc] {
 			b.WriteString("      - \"127.0.0.1:${")
 			b.WriteString(ep.EnvVar)
@@ -486,4 +502,79 @@ func RenderPortOverrideYAML(endpoints []Endpoint) []byte {
 		}
 	}
 	return []byte(b.String())
+}
+
+func (r *Runner) composePsOutput(services ...string) ([]byte, error) {
+	args := []string{"ps", "--all", "--format", "json"}
+	args = append(args, services...)
+	cmd, err := r.command(args...)
+	if err != nil {
+		return nil, err
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		if detail := composeErrorDetail(stderr.String()); detail != "" {
+			return nil, fmt.Errorf("compose ps failed: %s", detail)
+		}
+		return nil, fmt.Errorf("compose ps failed")
+	}
+	return out, nil
+}
+
+type composePsRow struct {
+	Service string `json:"Service"`
+	Name    string `json:"Name"`
+}
+
+func parseContainerNameFromPsJSON(out []byte) (string, error) {
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var row composePsRow
+		if err := json.Unmarshal([]byte(line), &row); err != nil {
+			continue
+		}
+		name := strings.TrimPrefix(row.Name, "/")
+		if name != "" {
+			return name, nil
+		}
+	}
+	return "", errServiceContainerNotFound
+}
+
+var errServiceContainerNotFound = fmt.Errorf("service container not found")
+
+const containerAppearTimeout = 30 * time.Second
+
+// WaitForServiceContainer polls compose ps until the service container appears.
+func (r *Runner) WaitForServiceContainer(service string, timeout time.Duration) (string, error) {
+	if timeout <= 0 {
+		timeout = containerAppearTimeout
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		name, err := r.ContainerNameForService(service)
+		if err == nil {
+			return name, nil
+		}
+		if !errors.Is(err, errServiceContainerNotFound) {
+			return "", err
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return "", fmt.Errorf("%w within %s", errServiceContainerNotFound, timeout)
+}
+
+func formatBlueGreenServiceHint(project, service string) string {
+	project = strings.TrimSpace(project)
+	service = strings.TrimSpace(service)
+	if project == "" || service == "" {
+		return ""
+	}
+	return fmt.Sprintf(" — inspect: docker compose -p %s logs %s", project, service)
 }

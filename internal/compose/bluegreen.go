@@ -1,7 +1,6 @@
 package compose
 
 import (
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -67,7 +66,7 @@ func ReleaseServiceBlueGreen(req ReleaseRequest, rec ProjectRecord, gen Generati
 		portalloc.ReleaseOwners(createdOwners)
 		return err
 	}
-	overridePath, err := WriteOverride(genDir, "serverpilot.override.yml", RenderPortOverrideYAML(endpoints))
+	overridePath, err := WriteOverride(genDir, "serverpilot.override.yml", RenderBlueGreenOverrideYAML(endpoints))
 	if err != nil {
 		portalloc.ReleaseOwners(createdOwners)
 		return err
@@ -91,17 +90,18 @@ func ReleaseServiceBlueGreen(req ReleaseRequest, rec ProjectRecord, gen Generati
 		return err
 	}
 
+	containerName, err := targetRunner.WaitForServiceContainer(req.Service, containerAppearTimeout)
+	if err != nil {
+		_ = targetRunner.RemoveService(req.Service)
+		portalloc.ReleaseOwners(createdOwners)
+		return fmt.Errorf("blue-green health: %w%s", err, formatBlueGreenServiceHint(targetRunner.ComposeProject, req.Service))
+	}
+
 	healthTimeout := req.HealthTimeout
 	if healthTimeout <= 0 {
 		healthTimeout = defaultHealthWait
 	}
 	for _, ep := range endpoints {
-		containerName, err := targetRunner.ContainerNameForService(ep.Service)
-		if err != nil {
-			_ = targetRunner.RemoveService(req.Service)
-			portalloc.ReleaseOwners(createdOwners)
-			return fmt.Errorf("blue-green health: %w", err)
-		}
 		if err := deployhealth.WaitHealthy(deployhealth.Options{
 			ContainerName: containerName,
 			HostPort:      ep.HostPort,
@@ -110,7 +110,7 @@ func ReleaseServiceBlueGreen(req ReleaseRequest, rec ProjectRecord, gen Generati
 		}); err != nil {
 			_ = targetRunner.RemoveService(req.Service)
 			portalloc.ReleaseOwners(createdOwners)
-			return fmt.Errorf("blue-green health check failed for %s: %w", ep.Service, err)
+			return fmt.Errorf("blue-green health check failed for %s: %w%s", ep.Service, err, formatBlueGreenServiceHint(targetRunner.ComposeProject, req.Service))
 		}
 	}
 
@@ -296,35 +296,11 @@ func activeColorRunner(rec ProjectRecord, gen Generation) (bool, Runner) {
 	return gen.ComposeProject != "", runner
 }
 
-type composePsRow struct {
-	Service string `json:"Service"`
-	Name    string `json:"Name"`
-}
-
-// ContainerNameForService returns the running container name for a compose service.
+// ContainerNameForService returns the container name for a compose service.
 func (r *Runner) ContainerNameForService(service string) (string, error) {
-	cmd, err := r.command("ps", "--format", "json", service)
+	out, err := r.composePsOutput(service)
 	if err != nil {
 		return "", err
 	}
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("compose ps failed")
-	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		var row composePsRow
-		if err := json.Unmarshal([]byte(line), &row); err != nil {
-			continue
-		}
-		name := strings.TrimPrefix(row.Name, "/")
-		if name != "" {
-			return name, nil
-		}
-	}
-	return "", fmt.Errorf("service container not found")
+	return parseContainerNameFromPsJSON(out)
 }

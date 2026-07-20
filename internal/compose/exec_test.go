@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,7 +73,35 @@ func TestRenderPortOverrideYAMLUsesOverrideMerge(t *testing.T) {
 	if !strings.Contains(body, "ports: !override") {
 		t.Fatalf("expected !override merge tag, got:\n%s", body)
 	}
+	if strings.Contains(body, "depends_on:") {
+		t.Fatalf("rolling override must not clear depends_on, got:\n%s", body)
+	}
 	if !strings.Contains(body, "127.0.0.1:${SP_COMPOSE_PORT_WEB_8080}:8080") {
 		t.Fatalf("expected localhost bind, got:\n%s", body)
+	}
+}
+
+func TestRenderBlueGreenOverrideYAMLClearsDependsOn(t *testing.T) {
+	out := RenderBlueGreenOverrideYAML([]Endpoint{
+		{Service: "web", ContainerPort: "8080", EnvVar: "SP_COMPOSE_PORT_WEB_8080"},
+	})
+	body := string(out)
+	if !strings.Contains(body, "depends_on: !override []") {
+		t.Fatalf("expected depends_on override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "ports: !override") {
+		t.Fatalf("expected ports override, got:\n%s", body)
+	}
+}
+
+func TestParseContainerNameFromPsJSON(t *testing.T) {
+	out := []byte(`{"Service":"web","Name":"/shop__green-web-1"}`)
+	name, err := parseContainerNameFromPsJSON(out)
+	if err != nil || name != "shop__green-web-1" {
+		t.Fatalf("got name=%q err=%v", name, err)
+	}
+	_, err = parseContainerNameFromPsJSON([]byte(""))
+	if !errors.Is(err, errServiceContainerNotFound) {
+		t.Fatalf("expected not found, got %v", err)
 	}
 }

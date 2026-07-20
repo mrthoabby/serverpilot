@@ -115,6 +115,16 @@ func TestEndpointKeyAndPortMap(t *testing.T) {
 	}
 }
 
+func TestFormatBlueGreenServiceHint(t *testing.T) {
+	got := formatBlueGreenServiceHint("shop__green", "web")
+	if !strings.Contains(got, "docker compose -p shop__green logs web") {
+		t.Fatalf("unexpected hint: %q", got)
+	}
+	if formatBlueGreenServiceHint("", "web") != "" {
+		t.Fatal("expected empty hint for missing project")
+	}
+}
+
 func TestParseDurationOrDefault(t *testing.T) {
 	if parseDurationOrDefault("", defaultHealthWait) != defaultHealthWait {
 		t.Fatal("empty should use fallback")
