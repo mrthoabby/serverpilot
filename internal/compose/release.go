@@ -106,9 +106,27 @@ func ReleaseService(req ReleaseRequest, progress Progress) error {
 
 	if analysis.Fingerprint != gen.Fingerprint {
 		if ParseStrategy(req.Strategy) == StrategyBlueGreen {
-			return fmt.Errorf("compose manifest changed — run a rolling reconcile before blue-green release")
+			progress("Compose manifest changed; reconciling stack before blue-green release...")
+			if err := reconcileReleaseStack(req, rec, gen, analysis, progress); err != nil {
+				return err
+			}
+			rec, ok, err = GetProject(req.Name)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("compose project %q not found after reconcile", req.Name)
+			}
+			gen, hasGen = GetActiveGeneration(rec)
+			if !hasGen {
+				return fmt.Errorf("compose project %q has no active generation after reconcile", req.Name)
+			}
+			if analysis.Fingerprint != gen.Fingerprint {
+				return fmt.Errorf("release stack reconcile did not update project fingerprint")
+			}
+		} else {
+			return reconcileReleaseStack(req, rec, gen, analysis, progress)
 		}
-		return reconcileReleaseStack(req, rec, gen, analysis, progress)
 	}
 
 	if err := ensureDependenciesReady(req, rec, gen, analysis, envPath, overridePath, progress); err != nil {
