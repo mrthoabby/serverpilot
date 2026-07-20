@@ -3,6 +3,7 @@ package compose
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -102,17 +103,10 @@ func ReleaseServiceBlueGreen(req ReleaseRequest, rec ProjectRecord, gen Generati
 	if healthTimeout <= 0 {
 		healthTimeout = defaultHealthWait
 	}
-	for _, ep := range endpoints {
-		if err := deployhealth.WaitHealthy(deployhealth.Options{
-			ContainerName: containerName,
-			HostPort:      ep.HostPort,
-			HealthURL:     req.HealthURL,
-			Timeout:       healthTimeout,
-		}); err != nil {
-			_ = targetRunner.RemoveService(req.Service)
-			portalloc.ReleaseOwners(createdOwners)
-			return fmt.Errorf("blue-green health check failed for %s: %w%s", ep.Service, err, formatBlueGreenServiceHint(targetRunner.ComposeProject, req.Service))
-		}
+	if err := waitBlueGreenHealthy(req, containerName, endpoints, healthTimeout); err != nil {
+		_ = targetRunner.RemoveService(req.Service)
+		portalloc.ReleaseOwners(createdOwners)
+		return fmt.Errorf("blue-green health check failed for %s: %w%s", req.Service, err, formatBlueGreenServiceHint(targetRunner.ComposeProject, req.Service))
 	}
 
 	oldPorts := endpointPortMap(gen.Endpoints)
@@ -257,6 +251,52 @@ func mergeGenerationEndpoints(previous, replacement []Endpoint, service string) 
 		}
 	}
 	return append(out, replacement...)
+}
+
+func waitBlueGreenHealthy(req ReleaseRequest, containerName string, endpoints []Endpoint, timeout time.Duration) error {
+	if strings.TrimSpace(req.HealthURL) != "" {
+		ep, ok := primaryHealthEndpoint(endpoints)
+		if !ok {
+			return fmt.Errorf("no endpoints configured for health check")
+		}
+		return deployhealth.WaitHealthy(deployhealth.Options{
+			ContainerName: containerName,
+			HostPort:      ep.HostPort,
+			HealthURL:     req.HealthURL,
+			Timeout:       timeout,
+		})
+	}
+	for _, ep := range endpoints {
+		if err := deployhealth.WaitHealthy(deployhealth.Options{
+			ContainerName: containerName,
+			HostPort:      ep.HostPort,
+			Timeout:       timeout,
+		}); err != nil {
+			return fmt.Errorf("port %s: %w", ep.ContainerPort, err)
+		}
+	}
+	return nil
+}
+
+func primaryHealthEndpoint(endpoints []Endpoint) (Endpoint, bool) {
+	if len(endpoints) == 0 {
+		return Endpoint{}, false
+	}
+	primary := endpoints[0]
+	primaryPort := endpointPortNumber(primary.ContainerPort)
+	for _, ep := range endpoints[1:] {
+		if port := endpointPortNumber(ep.ContainerPort); port < primaryPort {
+			primary = ep
+			primaryPort = port
+		}
+	}
+	return primary, true
+}
+
+func endpointPortNumber(raw string) int {
+	raw = strings.TrimSpace(strings.Split(raw, "/")[0])
+	port, _ := strconv.Atoi(raw)
+	return port
 }
 
 func releasePreviousEndpointOwners(project string, previous Generation, endpoints []Endpoint) {

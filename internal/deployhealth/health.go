@@ -32,6 +32,7 @@ func WaitHealthy(opts Options) error {
 	}
 	deadline := time.Now().Add(opts.Timeout)
 	hasHC := containerHasHealthcheck(opts.ContainerName)
+	var lastHealthLog string
 	for time.Now().Before(deadline) {
 		if hasHC {
 			switch inspectHealthStatus(opts.ContainerName) {
@@ -40,7 +41,7 @@ func WaitHealthy(opts Options) error {
 					return nil
 				}
 			case "unhealthy":
-				return fmt.Errorf("container healthcheck failed")
+				lastHealthLog = inspectHealthLog(opts.ContainerName)
 			}
 		} else {
 			if containerRunning(opts.ContainerName) && tcpReady(opts.HostPort) {
@@ -50,6 +51,9 @@ func WaitHealthy(opts Options) error {
 			}
 		}
 		time.Sleep(opts.PollInterval)
+	}
+	if lastHealthLog != "" {
+		return fmt.Errorf("container healthcheck failed: %s", truncateHealthDetail(lastHealthLog))
 	}
 	return fmt.Errorf("target did not become healthy in time")
 }
@@ -64,6 +68,26 @@ func containerHasHealthcheck(name string) bool {
 		return false
 	}
 	return strings.TrimSpace(string(out)) == "yes"
+}
+
+func inspectHealthLog(name string) string {
+	dockerBin, err := deps.DockerPath()
+	if err != nil {
+		return ""
+	}
+	out, err := exec.Command(dockerBin, "inspect", "--format", "{{if .State.Health}}{{with index .State.Health.Log (sub (len .State.Health.Log) 1)}}{{.Output}}{{end}}{{end}}", name).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func truncateHealthDetail(detail string) string {
+	detail = strings.TrimSpace(detail)
+	if len(detail) <= 240 {
+		return detail
+	}
+	return detail[len(detail)-240:]
 }
 
 func inspectHealthStatus(name string) string {

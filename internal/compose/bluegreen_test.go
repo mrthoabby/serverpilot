@@ -125,6 +125,17 @@ func TestFormatBlueGreenServiceHint(t *testing.T) {
 	}
 }
 
+func TestPrimaryHealthEndpointPrefersLowestPort(t *testing.T) {
+	endpoints := []Endpoint{
+		{Service: "app", ContainerPort: "8090", HostPort: 4001},
+		{Service: "app", ContainerPort: "8089", HostPort: 4000},
+	}
+	ep, ok := primaryHealthEndpoint(endpoints)
+	if !ok || ep.ContainerPort != "8089" || ep.HostPort != 4000 {
+		t.Fatalf("unexpected primary endpoint: %#v ok=%v", ep, ok)
+	}
+}
+
 func TestParseDurationOrDefault(t *testing.T) {
 	if parseDurationOrDefault("", defaultHealthWait) != defaultHealthWait {
 		t.Fatal("empty should use fallback")
