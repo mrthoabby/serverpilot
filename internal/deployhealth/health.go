@@ -25,7 +25,7 @@ type Options struct {
 // Order: Docker HEALTHCHECK (if defined) -> TCP on host port -> optional HTTP GET.
 func WaitHealthy(opts Options) error {
 	if opts.Timeout <= 0 {
-		opts.Timeout = 60 * time.Second
+		opts.Timeout = 3 * time.Minute
 	}
 	if opts.PollInterval <= 0 {
 		opts.PollInterval = 750 * time.Millisecond
@@ -54,6 +54,29 @@ func WaitHealthy(opts Options) error {
 	}
 	if lastHealthLog != "" {
 		return fmt.Errorf("container healthcheck failed: %s", truncateHealthDetail(lastHealthLog))
+	}
+	return formatWaitHealthyTimeout(opts, hasHC)
+}
+
+func formatWaitHealthyTimeout(opts Options, hasHC bool) error {
+	status := strings.TrimSpace(inspectHealthStatus(opts.ContainerName))
+	if status == "" && hasHC {
+		status = "unknown"
+	}
+	if !hasHC && containerRunning(opts.ContainerName) {
+		status = "running"
+	}
+	if status == "healthy" && opts.HealthURL != "" {
+		return fmt.Errorf("target did not become healthy in time (docker healthy but %s not ready on host port %d)", opts.HealthURL, opts.HostPort)
+	}
+	if log := inspectHealthLog(opts.ContainerName); log != "" {
+		if status == "" {
+			return fmt.Errorf("target did not become healthy in time: %s", truncateHealthDetail(log))
+		}
+		return fmt.Errorf("target did not become healthy in time (status=%s): %s", status, truncateHealthDetail(log))
+	}
+	if status != "" {
+		return fmt.Errorf("target did not become healthy in time (status=%s)", status)
 	}
 	return fmt.Errorf("target did not become healthy in time")
 }

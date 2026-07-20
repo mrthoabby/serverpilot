@@ -18,7 +18,7 @@ const (
 	ColorBlue         = "blue"
 	ColorGreen        = "green"
 	defaultDrain      = 10 * time.Second
-	defaultHealthWait = 60 * time.Second
+	defaultHealthWait = 3 * time.Minute
 )
 
 // ParseStrategy normalizes a deployment strategy name.

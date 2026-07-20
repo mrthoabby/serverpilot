@@ -313,7 +313,7 @@ func init() {
 	composeReleaseCmd.Flags().StringVar(&composeReleaseService, "service", "app", "Compose service to update")
 	composeReleaseCmd.Flags().StringVar(&composeStrategy, "strategy", compose.StrategyRolling, "Deployment strategy: rolling or blue-green")
 	composeReleaseCmd.Flags().StringVar(&composeHealthURL, "health-url", "", "Optional HTTP health check path (e.g. /health)")
-	composeReleaseCmd.Flags().DurationVar(&composeHealthWait, "health-timeout", 60*time.Second, "Health check timeout")
+	composeReleaseCmd.Flags().DurationVar(&composeHealthWait, "health-timeout", 3*time.Minute, "Health check timeout")
 	composeReleaseCmd.Flags().DurationVar(&composeDrain, "drain", 10*time.Second, "Drain period before removing old color")
 	composeReleaseCmd.Flags().BoolVar(&composeSkipEnsureDeps, "no-ensure-deps", false, "Skip dependency health check before release")
 	composeDepsUpCmd.Flags().StringVar(&composeExceptService, "except-service", "", "Exclude this service from dependency ensure (default: RELEASE_SERVICE env)")
