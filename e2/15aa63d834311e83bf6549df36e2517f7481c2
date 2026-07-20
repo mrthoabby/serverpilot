@@ -1,0 +1,33 @@
+internal/compose/bluegreen.go
+  s_8182556d4f4d67::t_2b2ed64f6c896a 82
+internal/compose/reconcile.go
+  s_8182556d4f4d67::t_3b569230146d1d 159
+internal/compose/exec_test.go
+  s_8182556d4f4d67::t_e3db2ca429a84e 68-79
+internal/compose/release.go
+  s_8182556d4f4d67::t_c81cb6de3ce1be 147
+internal/compose/deps.go
+  s_8182556d4f4d67::t_0901e761cc7d19 226
+  s_8182556d4f4d67::t_497d0700c9fdf2 132
+internal/compose/exec.go
+  s_8182556d4f4d67::t_63625f4f857970 32
+  s_8182556d4f4d67::t_bc3fcf593d61ee 184
+  s_8182556d4f4d67::t_ae692253dddff3 145,334,353,366
+  s_8182556d4f4d67::t_7681929d646010 75,79-84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "e215aa63d834311e83bf6549df36e2517f7481c2",
+  "prompts": {},
+  "sessions": {
+    "s_8182556d4f4d67": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "050707da-cb0a-4b12-9f07-fa7a36b58cc7",
+        "model": "default"
+      },
+      "human_author": "Danis Abadia <deanis89@hotmail.com>"
+    }
+  }
+}
