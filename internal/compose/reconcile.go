@@ -156,6 +156,7 @@ func reconcileReleaseStack(req ReleaseRequest, rec ProjectRecord, gen Generation
 		ProjectEnvFile: managedEnvFile(analysis.ProjectRoot),
 		EnvFile:        envPath,
 		OverrideFile:   overridePath,
+		ImageRef:       req.ImageRef,
 	}
 	progress("Compose manifest changed; reconciling the complete stack...")
 	if err := runner.PullService(req.Service, req.ImageRef); err != nil {

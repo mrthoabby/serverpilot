@@ -29,6 +29,7 @@ type Runner struct {
 	ProjectEnvFile string // prod.env or .env under project root
 	EnvFile        string
 	OverrideFile   string
+	ImageRef       string // optional; required when the manifest interpolates ${IMAGE_REF}
 	Timeout        time.Duration
 }
 
@@ -71,8 +72,16 @@ func (r *Runner) command(subcmd ...string) (*exec.Cmd, error) {
 	ctx, _ := r.withContext()
 	cmd := exec.CommandContext(ctx, dockerBin, args...)
 	cmd.Dir = r.ProjectRoot
-	cmd.Env = minimalComposeEnv(r.EnvFile)
+	cmd.Env = r.envFor("")
 	return cmd, nil
+}
+
+func (r *Runner) envFor(imageRef string) []string {
+	ref := strings.TrimSpace(imageRef)
+	if ref == "" {
+		ref = strings.TrimSpace(r.ImageRef)
+	}
+	return r.runtimeEnv(ref)
 }
 
 func (r *Runner) envFileArgs() []string {
@@ -133,7 +142,7 @@ func (r *Runner) Up(imageRef string) error {
 	ctx, _ := r.withContext()
 	cmd := exec.CommandContext(ctx, dockerBin, args...)
 	cmd.Dir = r.ProjectRoot
-	cmd.Env = r.runtimeEnv(imageRef)
+	cmd.Env = r.envFor(imageRef)
 	if err := runComposeCmd(cmd); err != nil {
 		return fmt.Errorf("compose up failed: %w", err)
 	}
@@ -172,7 +181,7 @@ func (r *Runner) PullService(service, imageRef string) error {
 	if err != nil {
 		return err
 	}
-	cmd.Env = r.runtimeEnv(imageRef)
+	cmd.Env = r.envFor(imageRef)
 	if err := runComposeCmd(cmd); err != nil {
 		return fmt.Errorf("compose pull failed: %w", err)
 	}
@@ -322,7 +331,7 @@ func (r *Runner) composeUp(imageRef string, wait, forceRecreate, noRecreate bool
 	if err != nil {
 		return err
 	}
-	cmd.Env = r.runtimeEnv(imageRef)
+	cmd.Env = r.envFor(imageRef)
 	if err := runComposeCmd(cmd); err != nil {
 		states, stateErr := r.ServiceRuntimeStates(services)
 		if stateErr == nil {
@@ -341,7 +350,7 @@ func (r *Runner) RunOneShot(service, imageRef string, extraArgs ...string) error
 	if err != nil {
 		return err
 	}
-	cmd.Env = r.runtimeEnv(imageRef)
+	cmd.Env = r.envFor(imageRef)
 	if err := runComposeCmd(cmd); err != nil {
 		return fmt.Errorf("compose run failed: %w", err)
 	}
@@ -354,7 +363,7 @@ func (r *Runner) UpServiceNoDeps(service, imageRef string) error {
 	if err != nil {
 		return err
 	}
-	cmd.Env = r.runtimeEnv(imageRef)
+	cmd.Env = r.envFor(imageRef)
 	if err := runComposeCmd(cmd); err != nil {
 		return fmt.Errorf("compose up failed: %w", err)
 	}

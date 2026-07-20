@@ -129,6 +129,7 @@ func EnsureDependenciesUp(req EnsureDepsRequest, progress Progress) error {
 }
 
 func ensureManagedServicesUp(runner Runner, services []string, imageRef, registryUser, registryToken string, progress Progress) error {
+	runner.ImageRef = strings.TrimSpace(imageRef)
 	progress("Ensuring compose dependencies are healthy: " + strings.Join(services, ", "))
 	states, err := runner.ServiceRuntimeStates(services)
 	if err == nil {
@@ -222,6 +223,7 @@ func ensureDependenciesReady(req ReleaseRequest, rec ProjectRecord, gen Generati
 		ProjectEnvFile: managedEnvFile(rec.RootDir),
 		EnvFile:        envPath,
 		OverrideFile:   overridePath,
+		ImageRef:       req.ImageRef,
 	}
 	progress("Ensuring compose dependencies are healthy before release...")
 	states, err := runner.ServiceRuntimeStates(services)

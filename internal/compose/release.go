@@ -144,6 +144,7 @@ func ReleaseService(req ReleaseRequest, progress Progress) error {
 		ProjectEnvFile: managedEnvFile(rec.RootDir),
 		EnvFile:        envPath,
 		OverrideFile:   overridePath,
+		ImageRef:       req.ImageRef,
 	}
 	progress("Pulling image for service " + req.Service + "...")
 	if err := runner.PullService(req.Service, req.ImageRef); err != nil {

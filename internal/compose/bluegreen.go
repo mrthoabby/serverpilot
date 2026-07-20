@@ -79,6 +79,7 @@ func ReleaseServiceBlueGreen(req ReleaseRequest, rec ProjectRecord, gen Generati
 		ProjectEnvFile: managedEnvFile(rec.RootDir),
 		EnvFile:        envPath,
 		OverrideFile:   overridePath,
+		ImageRef:       req.ImageRef,
 	}
 	if err := targetRunner.PullService(req.Service, req.ImageRef); err != nil {
 		portalloc.ReleaseOwners(createdOwners)

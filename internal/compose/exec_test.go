@@ -65,6 +65,18 @@ func indexOf(items []string, target string) int {
 	return -1
 }
 
+func TestEnvForUsesRunnerImageRefWhenParamEmpty(t *testing.T) {
+	r := Runner{ImageRef: "registry.example/app:v2"}
+	env := r.envFor("")
+	if indexOf(env, "IMAGE_REF=registry.example/app:v2") < 0 {
+		t.Fatalf("expected runner image ref in env: %v", env)
+	}
+	env = r.envFor("registry.example/app:v1")
+	if indexOf(env, "IMAGE_REF=registry.example/app:v1") < 0 {
+		t.Fatalf("explicit image ref must win: %v", env)
+	}
+}
+
 func TestRenderPortOverrideYAMLUsesOverrideMerge(t *testing.T) {
 	out := RenderPortOverrideYAML([]Endpoint{
 		{Service: "web", ContainerPort: "8080", EnvVar: "SP_COMPOSE_PORT_WEB_8080"},
