@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mrthoabby/serverpilot/internal/compose"
@@ -20,6 +21,7 @@ var (
 	composeParent         string
 	composeShareConfirm   bool
 	composeReleaseService string
+	composeReleaseImage   string
 	composeStrategy       string
 	composeHealthURL      string
 	composeHealthWait     time.Duration
@@ -205,7 +207,7 @@ Example:
 			Name:           composeProject,
 			Service:        composeReleaseService,
 			ComposeFile:    file,
-			ImageRef:       os.Getenv("IMAGE_REF"),
+			ImageRef:       firstNonEmptyEnv(composeReleaseImage, os.Getenv("IMAGE_REF")),
 			RegistryUser:   os.Getenv("REGISTRY_USER"),
 			RegistryToken:  os.Getenv("REGISTRY_TOKEN"),
 			Strategy:       composeStrategy,
@@ -244,7 +246,7 @@ Use before migrations or when shared deps (db, redis, search) may be down.`,
 			Name:          composeProject,
 			ComposeFile:   file,
 			ExceptService: except,
-			ImageRef:      os.Getenv("IMAGE_REF"),
+			ImageRef:      firstNonEmptyEnv(composeReleaseImage, os.Getenv("IMAGE_REF")),
 			RegistryUser:  os.Getenv("REGISTRY_USER"),
 			RegistryToken: os.Getenv("REGISTRY_TOKEN"),
 		}, composeProgress())
@@ -273,7 +275,7 @@ Requires IMAGE_REF when the service image uses ${IMAGE_REF}.`,
 			ComposeFile:   file,
 			Service:       composeReleaseService,
 			Args:          args,
-			ImageRef:      os.Getenv("IMAGE_REF"),
+			ImageRef:      firstNonEmptyEnv(composeReleaseImage, os.Getenv("IMAGE_REF")),
 			RegistryUser:  os.Getenv("REGISTRY_USER"),
 			RegistryToken: os.Getenv("REGISTRY_TOKEN"),
 		}, composeProgress())
@@ -311,13 +313,16 @@ func init() {
 	composeCmd.PersistentFlags().StringVar(&composeParent, "parent", "", "Parent compose project for clone/sync")
 	composeCmd.PersistentFlags().BoolVar(&composeShareConfirm, "share-confirm", false, "Confirm writable shared volumes")
 	composeReleaseCmd.Flags().StringVar(&composeReleaseService, "service", "app", "Compose service to update")
+	composeReleaseCmd.Flags().StringVar(&composeReleaseImage, "image", "", "Image reference (default: IMAGE_REF env)")
 	composeReleaseCmd.Flags().StringVar(&composeStrategy, "strategy", compose.StrategyRolling, "Deployment strategy: rolling or blue-green")
 	composeReleaseCmd.Flags().StringVar(&composeHealthURL, "health-url", "", "Optional HTTP health check path (e.g. /health)")
 	composeReleaseCmd.Flags().DurationVar(&composeHealthWait, "health-timeout", 3*time.Minute, "Health check timeout")
 	composeReleaseCmd.Flags().DurationVar(&composeDrain, "drain", 10*time.Second, "Drain period before removing old color")
 	composeReleaseCmd.Flags().BoolVar(&composeSkipEnsureDeps, "no-ensure-deps", false, "Skip dependency health check before release")
 	composeDepsUpCmd.Flags().StringVar(&composeExceptService, "except-service", "", "Exclude this service from dependency ensure (default: RELEASE_SERVICE env)")
+	composeDepsUpCmd.Flags().StringVar(&composeReleaseImage, "image", "", "Image reference for compose interpolation (default: IMAGE_REF env)")
 	composeRunCmd.Flags().StringVar(&composeReleaseService, "service", "", "One-shot compose service to run")
+	composeRunCmd.Flags().StringVar(&composeReleaseImage, "image", "", "Image reference (default: IMAGE_REF env)")
 
 	composeDepsCmd.AddCommand(composeDepsUpCmd)
 	composeCmd.AddCommand(composeValidateCmd, composeDeployCmd, composeListCmd, composeStatusCmd, composeCloneCmd, composeSyncCmd, composeReleaseCmd, composeDepsCmd, composeRunCmd, composeDeleteCmd)
@@ -356,4 +361,13 @@ func requireRootForComposeMutation() error {
 		return fmt.Errorf("this compose command must be run as root (try: sudo sp compose ...)")
 	}
 	return nil
+}
+
+func firstNonEmptyEnv(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }

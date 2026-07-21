@@ -154,6 +154,9 @@ func ReleaseService(req ReleaseRequest, progress Progress) error {
 	if err := runner.UpServiceNoDeps(req.Service, req.ImageRef); err != nil {
 		return err
 	}
+	if _, err := writeDeployEnv(filepath.Dir(envPath), endpointPortEnvMap(gen.Endpoints), req.ImageRef); err != nil {
+		return fmt.Errorf("update release env: %w", err)
+	}
 	progress("Release complete.")
 	return nil
 }

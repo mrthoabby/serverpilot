@@ -100,7 +100,7 @@ func Clone(req CloneRequest, progress Progress) (*ProjectRecord, error) {
 		return nil, err
 	}
 
-	envPath, err := writeDeployEnv(genDir, ownerPorts)
+	envPath, err := writeDeployEnv(genDir, ownerPorts, "")
 	if err != nil {
 		portalloc.ReleaseOwners(owners)
 		return nil, err

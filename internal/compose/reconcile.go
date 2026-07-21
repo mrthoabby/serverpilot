@@ -139,7 +139,7 @@ func reconcileReleaseStack(req ReleaseRequest, rec ProjectRecord, gen Generation
 	for _, endpoint := range plan.Endpoints {
 		ports[endpoint.EnvVar] = endpoint.HostPort
 	}
-	if _, err := writeDeployEnv(genDir, ports); err != nil {
+	if _, err := writeDeployEnv(genDir, ports, req.ImageRef); err != nil {
 		rollbackReservations()
 		return err
 	}

@@ -62,7 +62,11 @@ func ReleaseServiceBlueGreen(req ReleaseRequest, rec ProjectRecord, gen Generati
 		return err
 	}
 
-	envPath, err := writeDeployEnv(genDir, ownerPorts)
+	// Keep every published endpoint port in serverpilot.env so compose can
+	// interpolate the full manifest (e.g. MinIO) while only the target service
+	// is recreated in the inactive color.
+	stackPorts := mergePortEnvMaps(endpointPortEnvMap(gen.Endpoints), ownerPorts)
+	envPath, err := writeDeployEnv(genDir, stackPorts, req.ImageRef)
 	if err != nil {
 		portalloc.ReleaseOwners(createdOwners)
 		return err
@@ -156,6 +160,7 @@ func ReleaseServiceBlueGreen(req ReleaseRequest, rec ProjectRecord, gen Generati
 	}
 
 	if hasGen, oldRunner := activeColorRunner(rec, gen); hasGen {
+		oldRunner.ImageRef = req.ImageRef
 		progress("Stopping previous " + currentColor + " color...")
 		if err := oldRunner.RemoveService(req.Service); err != nil {
 			return fmt.Errorf("blue-green cleanup previous service: %w", err)

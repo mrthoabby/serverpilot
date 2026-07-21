@@ -68,7 +68,7 @@ func Deploy(req DeployRequest, progress Progress) (*ProjectRecord, error) {
 		portalloc.ReleaseOwners(createdOwners)
 		return nil, err
 	}
-	envPath, err := writeDeployEnv(genDir, ownerPorts)
+	envPath, err := writeDeployEnv(genDir, ownerPorts, req.AppImageRef)
 	if err != nil {
 		portalloc.ReleaseOwners(createdOwners)
 		return nil, err
@@ -183,12 +183,47 @@ func migrateComposePortOwners(project string, rec ProjectRecord) {
 	}
 }
 
-func writeDeployEnv(dir string, ports map[string]int) (string, error) {
+func endpointPortEnvMap(endpoints []Endpoint) map[string]int {
+	out := make(map[string]int, len(endpoints))
+	for _, ep := range endpoints {
+		if ep.EnvVar == "" || ep.HostPort <= 0 {
+			continue
+		}
+		out[ep.EnvVar] = ep.HostPort
+	}
+	return out
+}
+
+func mergePortEnvMaps(base map[string]int, overlays ...map[string]int) map[string]int {
+	out := make(map[string]int, len(base))
+	for key, port := range base {
+		out[key] = port
+	}
+	for _, overlay := range overlays {
+		for key, port := range overlay {
+			out[key] = port
+		}
+	}
+	return out
+}
+
+func writeDeployEnv(dir string, ports map[string]int, imageRef string) (string, error) {
 	var b strings.Builder
-	for key, port := range ports {
+	imageRef = strings.TrimSpace(imageRef)
+	if imageRef != "" {
+		b.WriteString("IMAGE_REF=")
+		b.WriteString(imageRef)
+		b.WriteString("\n")
+	}
+	keys := make([]string, 0, len(ports))
+	for key := range ports {
+		keys = append(keys, key)
+	}
+	sortStrings(keys)
+	for _, key := range keys {
 		b.WriteString(key)
 		b.WriteString("=")
-		b.WriteString(fmt.Sprintf("%d", port))
+		b.WriteString(fmt.Sprintf("%d", ports[key]))
 		b.WriteString("\n")
 	}
 	if len(ports) == 1 {
