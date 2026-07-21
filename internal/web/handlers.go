@@ -306,10 +306,12 @@ func (s *Server) handleContainerLogs(w http.ResponseWriter, r *http.Request) {
 
 	logs, err := docker.GetContainerLogs(id, 10)
 	if err != nil {
-		// Detailed error stays server-side; client gets a generic message
-		// to avoid leaking internal docker errors (CWE-209).
 		log.Printf("container logs: %v", err)
-		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: "failed to read logs"})
+		clientMsg := "failed to read logs"
+		if errors.Is(err, docker.ErrLogsUnavailable) {
+			clientMsg = "logs not available for this container logging driver"
+		}
+		writeJSON(w, http.StatusInternalServerError, apiResponse{Error: clientMsg})
 		return
 	}
 

@@ -202,6 +202,9 @@ func GetContainerDetails(id string) (*Container, error) {
 // validation surface and make it harder to argue the input is shell-safe even
 // though we never use a shell. The dashboard already has the full ID returned
 // by ListContainers (`--no-trunc`) so this is no UX loss.
+//
+// When `docker logs` fails (common with some logging drivers or daemon quirks),
+// we fall back to reading the json-file LogPath reported by docker inspect.
 func GetContainerLogs(id string, tail int) (string, error) {
 	if tail <= 0 {
 		tail = 10
@@ -210,15 +213,8 @@ func GetContainerLogs(id string, tail int) (string, error) {
 		tail = maxLogsTail
 	}
 
-	// Hex-only allowlist: identical to GetContainerDetails. Rejects any
-	// shell metacharacter implicitly (none of `;&|$<>(){}[]!#\` is hex).
-	if id == "" || len(id) > 128 {
-		return "", fmt.Errorf("invalid container ID format")
-	}
-	for _, c := range id {
-		if !((c >= 'a' && c <= 'f') || (c >= '0' && c <= '9')) {
-			return "", fmt.Errorf("invalid container ID format")
-		}
+	if err := validateContainerIDHex(id); err != nil {
+		return "", err
 	}
 
 	dockerBin, err := deps.DockerPath()
@@ -226,44 +222,25 @@ func GetContainerLogs(id string, tail int) (string, error) {
 		return "", err
 	}
 
-	// Bound execution time so a hung docker daemon can't tie up handlers.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Arguments are passed as separate parameters — no shell, no fmt.Sprintf
-	// concatenation into a command string (CWE-78).
-	cmd := exec.CommandContext(
-		ctx,
-		dockerBin,
-		"logs",
-		"--tail", fmt.Sprintf("%d", tail),
-		"--timestamps",
-		"--",
-		id,
-	)
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		// Surface the docker error message to the caller so the handler can
-		// log it server-side, but the handler is responsible for returning a
-		// generic message to the client (CWE-209).
-		trimmed := strings.TrimSpace(string(output))
-		if trimmed != "" {
-			return "", fmt.Errorf("failed to read logs: %s", trimmed)
-		}
-		return "", fmt.Errorf("failed to read logs: %w", err)
+	logs, cliErr := runDockerLogs(ctx, dockerBin, id, tail)
+	if cliErr == nil {
+		return logs, nil
 	}
 
-	if len(output) > maxLogsBytes {
-		// Keep the most recent bytes — the user asked for the *last* N lines.
-		output = output[len(output)-maxLogsBytes:]
-		// Drop a possibly truncated first line so we don't render half a row.
-		if idx := strings.IndexByte(string(output), '\n'); idx >= 0 && idx < len(output)-1 {
-			output = output[idx+1:]
+	logPath, pathErr := inspectContainerLogPath(ctx, dockerBin, id)
+	if pathErr == nil && logPath != "" {
+		if fileLogs, fileErr := readJSONLogFileTail(logPath, tail); fileErr == nil {
+			return fileLogs, nil
 		}
 	}
 
-	return string(output), nil
+	if logsUnavailableFromDockerErr(cliErr) || (pathErr == nil && logPath == "") {
+		return "", fmt.Errorf("%w: %v", ErrLogsUnavailable, cliErr)
+	}
+	return "", cliErr
 }
 
 // RestartContainer restarts a Docker container so its main process re-reads
