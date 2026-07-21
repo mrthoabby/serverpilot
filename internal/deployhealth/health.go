@@ -1,6 +1,7 @@
 package deployhealth
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -21,8 +22,23 @@ type Options struct {
 	PollInterval  time.Duration
 }
 
+type dockerHealthInspect struct {
+	Status string `json:"Status"`
+	Log    []struct {
+		Output string `json:"Output"`
+	} `json:"Log"`
+}
+
+type containerDiagnostics struct {
+	StateStatus  string
+	HealthStatus string
+	OOMKilled    bool
+	RestartCount int
+	Health       dockerHealthInspect
+}
+
 // WaitHealthy blocks until the target is ready or the timeout expires.
-// Order: Docker HEALTHCHECK (if defined) -> TCP on host port -> optional HTTP GET.
+// Order: optional host HTTP/TCP -> Docker HEALTHCHECK status -> host verify when docker healthy.
 func WaitHealthy(opts Options) error {
 	if opts.Timeout <= 0 {
 		opts.Timeout = 3 * time.Minute
@@ -34,6 +50,9 @@ func WaitHealthy(opts Options) error {
 	hasHC := containerHasHealthcheck(opts.ContainerName)
 	var lastHealthLog string
 	for time.Now().Before(deadline) {
+		if hostEndpointReady(opts) {
+			return nil
+		}
 		if hasHC {
 			switch inspectHealthStatus(opts.ContainerName) {
 			case "healthy":
@@ -43,11 +62,9 @@ func WaitHealthy(opts Options) error {
 			case "unhealthy":
 				lastHealthLog = inspectHealthLog(opts.ContainerName)
 			}
-		} else {
-			if containerRunning(opts.ContainerName) && tcpReady(opts.HostPort) {
-				if opts.HealthURL == "" || httpReady(opts.HostPort, opts.HealthURL) {
-					return nil
-				}
+		} else if containerRunning(opts.ContainerName) && tcpReady(opts.HostPort) {
+			if opts.HealthURL == "" || httpReady(opts.HostPort, opts.HealthURL) {
+				return nil
 			}
 		}
 		time.Sleep(opts.PollInterval)
@@ -58,10 +75,24 @@ func WaitHealthy(opts Options) error {
 	return formatWaitHealthyTimeout(opts, hasHC)
 }
 
+func hostEndpointReady(opts Options) bool {
+	if opts.HostPort <= 0 || !containerRunning(opts.ContainerName) {
+		return false
+	}
+	if opts.HealthURL != "" {
+		return httpReady(opts.HostPort, opts.HealthURL)
+	}
+	return tcpReady(opts.HostPort)
+}
+
 func formatWaitHealthyTimeout(opts Options, hasHC bool) error {
-	status := strings.TrimSpace(inspectHealthStatus(opts.ContainerName))
+	diag := inspectContainerDiagnostics(opts.ContainerName)
+	status := strings.TrimSpace(diag.HealthStatus)
 	if status == "" && hasHC {
 		status = "unknown"
+	}
+	if status == "" && diag.StateStatus != "" {
+		status = diag.StateStatus
 	}
 	if !hasHC && containerRunning(opts.ContainerName) {
 		status = "running"
@@ -69,16 +100,76 @@ func formatWaitHealthyTimeout(opts Options, hasHC bool) error {
 	if status == "healthy" && opts.HealthURL != "" {
 		return fmt.Errorf("target did not become healthy in time (docker healthy but %s not ready on host port %d)", opts.HealthURL, opts.HostPort)
 	}
-	if log := inspectHealthLog(opts.ContainerName); log != "" {
-		if status == "" {
-			return fmt.Errorf("target did not become healthy in time: %s", truncateHealthDetail(log))
+	logDetail := formatHealthLogs(diag.Health.Log)
+	if logDetail != "" {
+		msg := fmt.Sprintf("target did not become healthy in time (status=%s", status)
+		if diag.RestartCount > 0 || diag.OOMKilled {
+			msg += fmt.Sprintf("; restarts=%d oom=%t", diag.RestartCount, diag.OOMKilled)
 		}
-		return fmt.Errorf("target did not become healthy in time (status=%s): %s", status, truncateHealthDetail(log))
+		msg += "): " + logDetail
+		return fmt.Errorf("%s", msg)
 	}
 	if status != "" {
-		return fmt.Errorf("target did not become healthy in time (status=%s)", status)
+		msg := fmt.Sprintf("target did not become healthy in time (status=%s", status)
+		if diag.RestartCount > 0 || diag.OOMKilled {
+			msg += fmt.Sprintf("; restarts=%d oom=%t", diag.RestartCount, diag.OOMKilled)
+		}
+		msg += fmt.Sprintf(") — inspect: docker logs --tail 20 %s", opts.ContainerName)
+		return fmt.Errorf("%s", msg)
 	}
 	return fmt.Errorf("target did not become healthy in time")
+}
+
+func formatHealthLogs(entries []struct {
+	Output string `json:"Output"`
+}) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	start := len(entries) - 3
+	if start < 0 {
+		start = 0
+	}
+	var parts []string
+	for _, entry := range entries[start:] {
+		out := strings.TrimSpace(entry.Output)
+		if out == "" {
+			continue
+		}
+		parts = append(parts, truncateHealthDetail(out))
+	}
+	return strings.Join(parts, " | ")
+}
+
+func inspectContainerDiagnostics(name string) containerDiagnostics {
+	diag := containerDiagnostics{}
+	dockerBin, err := deps.DockerPath()
+	if err != nil {
+		return diag
+	}
+	out, err := exec.Command(dockerBin, "inspect", "--format",
+		"{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{.State.OOMKilled}}|{{.RestartCount}}|{{json .State.Health}}",
+		name).Output()
+	if err != nil {
+		return diag
+	}
+	parts := strings.SplitN(strings.TrimSpace(string(out)), "|", 5)
+	if len(parts) > 0 {
+		diag.StateStatus = strings.TrimSpace(parts[0])
+	}
+	if len(parts) > 1 {
+		diag.HealthStatus = strings.TrimSpace(parts[1])
+	}
+	if len(parts) > 2 {
+		diag.OOMKilled = strings.TrimSpace(parts[2]) == "true"
+	}
+	if len(parts) > 3 {
+		diag.RestartCount, _ = strconv.Atoi(strings.TrimSpace(parts[3]))
+	}
+	if len(parts) > 4 && strings.TrimSpace(parts[4]) != "" && parts[4] != "null" {
+		_ = json.Unmarshal([]byte(parts[4]), &diag.Health)
+	}
+	return diag
 }
 
 func containerHasHealthcheck(name string) bool {
@@ -94,15 +185,11 @@ func containerHasHealthcheck(name string) bool {
 }
 
 func inspectHealthLog(name string) string {
-	dockerBin, err := deps.DockerPath()
-	if err != nil {
+	diag := inspectContainerDiagnostics(name)
+	if len(diag.Health.Log) == 0 {
 		return ""
 	}
-	out, err := exec.Command(dockerBin, "inspect", "--format", "{{if .State.Health}}{{with index .State.Health.Log (sub (len .State.Health.Log) 1)}}{{.Output}}{{end}}{{end}}", name).Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
+	return strings.TrimSpace(diag.Health.Log[len(diag.Health.Log)-1].Output)
 }
 
 func truncateHealthDetail(detail string) string {
@@ -114,15 +201,7 @@ func truncateHealthDetail(detail string) string {
 }
 
 func inspectHealthStatus(name string) string {
-	dockerBin, err := deps.DockerPath()
-	if err != nil {
-		return ""
-	}
-	out, err := exec.Command(dockerBin, "inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{end}}", name).Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
+	return inspectContainerDiagnostics(name).HealthStatus
 }
 
 func containerRunning(name string) bool {
