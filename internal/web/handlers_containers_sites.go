@@ -464,3 +464,62 @@ func (s *Server) handleSiteSyncPort(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 }
+
+type siteUpdateMappingRequest struct {
+	SiteID        string `json:"site_id"`
+	ConfigName    string `json:"config_name"`
+	Domain        string `json:"domain"`
+	ContainerID   string `json:"container_id"`
+	ContainerName string `json:"container_name"`
+	HostPort      int    `json:"host_port"`
+	ContainerPort int    `json:"container_port"`
+}
+
+func (s *Server) handleSiteUpdateMapping(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+	var req siteUpdateMappingRequest
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	if req.HostPort < 1 {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "host_port is required"})
+		return
+	}
+	if req.ContainerPort < 1 {
+		req.ContainerPort = 3000
+	}
+	if req.SiteID == "" && strings.TrimSpace(req.ConfigName) == "" && strings.TrimSpace(req.Domain) == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "site_id, config_name, or domain is required"})
+		return
+	}
+
+	rec, err := docker.UpdateSiteMapping(docker.UpdateSiteMappingInput{
+		SiteID:        strings.TrimSpace(req.SiteID),
+		ConfigName:    strings.TrimSpace(req.ConfigName),
+		Domain:        strings.TrimSpace(req.Domain),
+		ContainerID:   strings.TrimSpace(req.ContainerID),
+		ContainerName: strings.TrimSpace(req.ContainerName),
+		HostPort:      req.HostPort,
+		ContainerPort: req.ContainerPort,
+	})
+	if err != nil {
+		log.Printf("site update mapping: %v", err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "failed to update mapping"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"site_id":        rec.ID,
+			"domain":         rec.Domain,
+			"container_id":   rec.ContainerID,
+			"container_name": rec.ContainerName,
+			"host_port":      rec.HostPort,
+			"container_port": rec.ContainerPort,
+		},
+	})
+}

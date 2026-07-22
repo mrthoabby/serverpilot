@@ -465,4 +465,45 @@
   </div>
 </div>
 
+<!-- Edit Mapping Modal -->
+<div class="modal-overlay" id="mappingEditModal">
+  <div class="modal">
+    <h3>Edit Mapping</h3>
+    <p class="modal-sub" id="mappingEditSub">Update container linkage and nginx host port</p>
+    <form id="mappingEditForm">
+      <input type="hidden" id="mappingEditSiteId">
+      <input type="hidden" id="mappingEditConfigName">
+      <div class="form-group">
+        <label for="mappingEditDomain">Domain</label>
+        <input type="text" id="mappingEditDomain" readonly>
+      </div>
+      <div class="form-group">
+        <label for="mappingEditContainerSelect">Running container</label>
+        <select id="mappingEditContainerSelect"></select>
+      </div>
+      <div class="form-group">
+        <label for="mappingEditContainerName">Container name</label>
+        <input type="text" id="mappingEditContainerName" placeholder="discovery-admin-ui">
+      </div>
+      <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+        <div>
+          <label for="mappingEditHostPort">Host port (nginx)</label>
+          <input type="number" id="mappingEditHostPort" min="1" max="65535" required>
+        </div>
+        <div>
+          <label for="mappingEditContainerPort">Container port</label>
+          <input type="number" id="mappingEditContainerPort" min="1" max="65535" value="3000" required>
+        </div>
+      </div>
+      <div style="margin-bottom:0.75rem;">
+        <button type="button" class="btn btn-sm btn-outline" id="mappingEditDetectPortBtn">Detect host port from container</button>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="mappingEditCancelBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="mappingEditSaveBtn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 {{end}}

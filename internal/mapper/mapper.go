@@ -20,6 +20,7 @@ type Mapping struct {
 	ContainerPort  string `json:"container_port"`
 	HostPort       string `json:"host_port"`
 	NginxDomain    string `json:"nginx_domain"`
+	ConfigName     string `json:"config_name,omitempty"`
 	NginxConfPath  string `json:"nginx_config_path"`
 	SSLEnabled     bool   `json:"ssl_enabled"`
 	SSLAutoRenew   bool   `json:"ssl_auto_renew"`
@@ -114,6 +115,14 @@ func ComputeAllMappingsWith(opts ComputeOptions) (*MappingsResult, error) {
 			} else {
 				m.Orphaned = true
 			}
+		} else if rec.ContainerName != "" {
+			m.ContainerName = rec.ContainerName
+			if c, ok := containerByName[rec.ContainerName]; ok {
+				m.ContainerID = c.ID
+				mappedIDs[c.ID] = true
+			} else {
+				m.Orphaned = true
+			}
 		}
 		if m.HostPort != "" && !activePorts[m.HostPort] {
 			m.Orphaned = true
@@ -186,6 +195,7 @@ func mappingFromRecord(rec sites.SiteRecord, site nginx.Site) Mapping {
 		ContainerID:    rec.ContainerID,
 		ContainerName:  rec.ContainerName,
 		NginxDomain:    rec.Domain,
+		ConfigName:     rec.ConfigName,
 		Template:       string(rec.Template),
 		RedirectActive: rec.State == sites.StateRedirectOverlay,
 	}
@@ -200,6 +210,9 @@ func mappingFromRecord(rec sites.SiteRecord, site nginx.Site) Mapping {
 		m.NginxConfPath = site.ConfigPath
 		m.SSLEnabled = site.SSLEnabled
 		m.SSLAutoRenew = site.SSLAutoRnw
+		if m.ConfigName == "" {
+			m.ConfigName = configBaseName(site)
+		}
 	}
 	return m
 }

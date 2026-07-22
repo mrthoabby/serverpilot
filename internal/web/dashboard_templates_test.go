@@ -58,6 +58,7 @@ func TestRenderDashboardHTML(t *testing.T) {
 		"id=\"dashboard\"",
 		"id=\"panel-containers\"",
 		"id=\"associateModal\"",
+		"id=\"mappingEditModal\"",
 		"/static/js/core.js?v=" + testDashboardVersion,
 		"/static/containers-sites.js?v=" + testDashboardVersion,
 		"/static/css/base.css?v=" + testDashboardVersion,
