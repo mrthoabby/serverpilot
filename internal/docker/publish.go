@@ -229,3 +229,60 @@ func insertPublishPort(args []string, publishSpec string) []string {
 	}
 	return out
 }
+
+// PublishedTCPHostPort returns the host-side TCP port currently published for
+// containerPort on the given container (by ID and/or name).
+func PublishedTCPHostPort(containerID, containerName, containerPort string) (int, string, error) {
+	containerPort = strings.TrimSpace(strings.Split(containerPort, "/")[0])
+	if containerPort == "" {
+		return 0, "", fmt.Errorf("container port is required")
+	}
+	if containerID != "" {
+		if port, id, err := publishedTCPFromInspect(containerID, containerPort); err == nil {
+			return port, id, nil
+		}
+	}
+	containers, err := ListContainers()
+	if err != nil {
+		return 0, "", err
+	}
+	name := strings.TrimPrefix(strings.TrimSpace(containerName), "/")
+	for _, c := range containers {
+		if containerID != "" && c.ID != containerID {
+			continue
+		}
+		if name != "" && c.Name != name {
+			continue
+		}
+		for _, p := range c.Ports {
+			if p.ContainerPort == containerPort && (p.Protocol == "" || p.Protocol == "tcp") && p.HostPort != "" {
+				hostPort, convErr := strconv.Atoi(p.HostPort)
+				if convErr != nil {
+					return 0, "", fmt.Errorf("invalid published host port")
+				}
+				return hostPort, c.ID, nil
+			}
+		}
+	}
+	if name == "" && containerID == "" {
+		return 0, "", fmt.Errorf("container not found")
+	}
+	return 0, "", fmt.Errorf("container has no published TCP port %s", containerPort)
+}
+
+func publishedTCPFromInspect(containerID, containerPort string) (int, string, error) {
+	ports, err := InspectAllPortMappings(containerID)
+	if err != nil {
+		return 0, "", err
+	}
+	for _, p := range ports {
+		if p.ContainerPort == containerPort && (p.Protocol == "" || p.Protocol == "tcp") && p.HostPort != "" {
+			hostPort, convErr := strconv.Atoi(p.HostPort)
+			if convErr != nil {
+				return 0, "", fmt.Errorf("invalid published host port")
+			}
+			return hostPort, containerID, nil
+		}
+	}
+	return 0, "", fmt.Errorf("container has no published TCP port %s", containerPort)
+}

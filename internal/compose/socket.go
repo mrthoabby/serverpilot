@@ -10,6 +10,9 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/mrthoabby/serverpilot/internal/sites"
+	"github.com/mrthoabby/serverpilot/internal/docker"
 )
 
 // ComposeSocketPath is where the ServerPilot daemon accepts local compose
@@ -39,6 +42,9 @@ type composeSocketRequest struct {
 	SkipEnsureDeps bool     `json:"skip_ensure_deps,omitempty"`
 	ExceptService  string   `json:"except_service,omitempty"`
 	Args           []string `json:"args,omitempty"`
+	ContainerName  string   `json:"container_name,omitempty"`
+	ContainerID    string   `json:"container_id,omitempty"`
+	ContainerPort  string   `json:"container_port,omitempty"`
 }
 
 type composeSocketResponse struct {
@@ -99,6 +105,27 @@ func handleComposeSocketConn(conn net.Conn) {
 	var req composeSocketRequest
 	if err := json.Unmarshal(line, &req); err != nil {
 		writeComposeSocketResponse(conn, composeSocketResponse{Error: "invalid json"})
+		return
+	}
+
+	switch req.Op {
+	case "sites_host_port", "sync_container_port":
+		if req.Op == "sites_host_port" {
+			sitesResp := sites.DispatchSocketRequest(sites.SocketRequest{
+				Op:            req.Op,
+				ContainerName: req.ContainerName,
+				ContainerID:   req.ContainerID,
+				ContainerPort: req.ContainerPort,
+			})
+			sites.WriteSocketResponse(conn, sitesResp)
+			return
+		}
+		port, err := docker.SyncLinkedContainerSites(req.ContainerName, req.ContainerID, req.ContainerPort)
+		if err != nil {
+			sites.WriteSocketResponse(conn, sites.SocketResponse{Error: err.Error()})
+			return
+		}
+		sites.WriteSocketResponse(conn, sites.SocketResponse{OK: true, HostPort: port})
 		return
 	}
 

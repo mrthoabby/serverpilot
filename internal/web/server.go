@@ -109,6 +109,7 @@ func (s *Server) Start() error {
 	mux.Handle("/api/mappings", s.authMiddleware(http.HandlerFunc(s.handleMappings)))
 	mux.Handle("/api/ssl/enable", s.requireReauth(http.HandlerFunc(s.handleSSLEnable)))
 	mux.Handle("/api/ssl/disable", s.requireSecureReauth(http.HandlerFunc(s.handleSSLDisable)))
+	mux.Handle("/api/sites/sync-port", s.requireReauth(http.HandlerFunc(s.handleSiteSyncPort)))
 	mux.Handle("/api/sites/create", s.requireReauth(http.HandlerFunc(s.handleSiteCreate)))
 	mux.Handle("/api/sites/redirect", s.requireReauth(http.HandlerFunc(s.handleSiteRedirectCreate)))
 	mux.Handle("/api/sites/enable", s.requireReauth(http.HandlerFunc(s.handleSiteEnable)))

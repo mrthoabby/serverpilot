@@ -421,3 +421,46 @@ func createSiteFromRequest(req siteCreateRequestV2) (sites.SiteRecord, error) {
 		ReplaceExisting:     req.ReplaceExisting,
 	})
 }
+
+type siteSyncPortRequest struct {
+	SiteID        string `json:"site_id"`
+	ContainerID   string `json:"container_id"`
+	ContainerName string `json:"container_name"`
+	ContainerPort string `json:"container_port"`
+}
+
+func (s *Server) handleSiteSyncPort(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+	var req siteSyncPortRequest
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	req.ContainerID = strings.TrimSpace(req.ContainerID)
+	req.ContainerName = strings.TrimSpace(req.ContainerName)
+	req.ContainerPort = strings.TrimSpace(req.ContainerPort)
+	if req.ContainerPort == "" {
+		req.ContainerPort = "3000"
+	}
+	if req.ContainerID == "" && req.ContainerName == "" {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "container_id or container_name is required"})
+		return
+	}
+
+	hostPort, err := docker.SyncLinkedContainerSites(req.ContainerName, req.ContainerID, req.ContainerPort)
+	if err != nil {
+		log.Printf("site sync port: %v", err)
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "failed to sync site port"})
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"host_port": hostPort,
+			"message":   "nginx repointed to container port",
+		},
+	})
+}

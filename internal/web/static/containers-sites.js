@@ -165,9 +165,41 @@
     row.appendChild(meta);
   }
 
-  function appendSiteActions(tdAct, site, configName, mapping) {
+  function appendSiteActions(tdAct, site, configName, mapping, container) {
     if (!site) return;
     if (site.redirect_target && !site.proxy_pass) return;
+
+    if (mapping && mapping.orphaned && container) {
+      var syncBtn = document.createElement("button");
+      syncBtn.className = "btn btn-sm btn-warning";
+      syncBtn.style.marginRight = "0.35rem";
+      setText(syncBtn, "Sync port");
+      syncBtn.title = "Repoint nginx to this container's current host port";
+      syncBtn.addEventListener("click", function() {
+        confirmAction(
+          "Sync port",
+          "Update nginx for \"" + site.domain + "\" to match the container's published port?",
+          async function() {
+            try {
+              await apiFetch("/api/sites/sync-port", {
+                method: "POST",
+                body: {
+                  site_id: mapping.site_id || "",
+                  container_id: container.id || "",
+                  container_name: container.name || "",
+                  container_port: String(mapping.container_port || "3000")
+                }
+              });
+              showToast("Nginx synced to container port", "success");
+              await refreshContainerView();
+            } catch (err) {
+              showToast("Sync failed: " + err.message, "error");
+            }
+          }
+        );
+      });
+      tdAct.appendChild(syncBtn);
+    }
 
     var toggleBtn = document.createElement("button");
     toggleBtn.className = "btn btn-sm " + (site.enabled ? "btn-warning" : "btn-success");
@@ -302,7 +334,7 @@
         actions.style.marginTop = "6px";
         if (site) {
           var configName = site.config_path ? site.config_path.split("/").pop() : site.domain;
-          appendSiteActions(actions, site, configName, m);
+          appendSiteActions(actions, site, configName, m, container);
         }
         row.appendChild(actions);
         panel.appendChild(row);
