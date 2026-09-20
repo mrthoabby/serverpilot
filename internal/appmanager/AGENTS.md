@@ -58,7 +58,14 @@ agents, configuration, and audit events. It must not replace the legacy
 
 ## UI boundary
 
-- The module is a new dashboard tab and keeps the existing Apps tab intact.
+- The module is independent from the legacy horizontal dashboard tabs. Open it
+  from the global module switcher/listbox, hide the legacy tab row while it is
+  active, and keep the existing Apps tab intact.
+- There is no global Application Manager Overview screen. The default landing
+  is the selected project; if no project exists, show Applications. An
+  application's own Overview tab remains valid as its local summary.
+- Inside the module, use the persistent sidebar with expandable Projects and
+  Applications submenus plus Repositories, GitHub, and Settings links.
 - Scope all styles below `.app-manager`. Use the dark design tokens in
   `internal/web/static/css/app-manager.css`, English UI copy, line icons, clear
   focus states, and icon+text status semantics. Do not add runtime CDN assets.

@@ -695,18 +695,64 @@ window.SP = window.SP || {};
     }
   });
 
-  // ── Tabs ──
-  document.querySelectorAll(".tab-btn").forEach(function(btn) {
-    btn.addEventListener("click", function() {
-      document.querySelectorAll(".tab-btn").forEach(function(b) { b.classList.remove("active"); });
-      document.querySelectorAll(".tab-panel").forEach(function(p) { p.classList.remove("active"); });
-      btn.classList.add("active");
-      activeTab = btn.dataset.tab;
-      document.getElementById("panel-" + activeTab).classList.add("active");
-      // Immediately load data for the selected tab (click = manual refresh).
-      if (tabLoaders[activeTab]) tabLoaders[activeTab]();
+  // ── Tabs and product module switcher ──
+  function closeModuleSwitcher() {
+    var trigger = document.getElementById("moduleSwitcherBtn");
+    var menu = document.getElementById("moduleSwitcherMenu");
+    if (!trigger || !menu) return;
+    trigger.setAttribute("aria-expanded", "false");
+    menu.hidden = true;
+  }
+
+  function updateModuleSwitcher(tab) {
+    var isApplicationManager = tab === "app-manager";
+    var label = document.getElementById("moduleSwitcherLabel");
+    var dashboard = document.getElementById("dashboard");
+    if (label) setText(label, isApplicationManager ? "Application Manager" : "Server tools");
+    if (dashboard) dashboard.classList.toggle("app-manager-active", isApplicationManager);
+    document.querySelectorAll("[data-module-tab]").forEach(function(option) {
+      var selected = option.dataset.moduleTab === (isApplicationManager ? "app-manager" : "containers");
+      option.classList.toggle("active", selected);
+      option.setAttribute("aria-selected", selected ? "true" : "false");
     });
+  }
+
+  function switchDashboardTab(tab) {
+    var panel = document.getElementById("panel-" + tab);
+    if (!panel) return;
+    document.querySelectorAll(".tab-btn").forEach(function(btn) { btn.classList.toggle("active", btn.dataset.tab === tab); });
+    document.querySelectorAll(".tab-panel").forEach(function(item) { item.classList.remove("active"); });
+    panel.classList.add("active");
+    activeTab = tab;
+    updateModuleSwitcher(tab);
+    closeModuleSwitcher();
+    if (tabLoaders[tab]) tabLoaders[tab]();
+  }
+
+  document.querySelectorAll(".tab-btn").forEach(function(btn) {
+    btn.addEventListener("click", function() { switchDashboardTab(btn.dataset.tab); });
   });
+
+  var moduleSwitcherBtn = document.getElementById("moduleSwitcherBtn");
+  var moduleSwitcherMenu = document.getElementById("moduleSwitcherMenu");
+  if (moduleSwitcherBtn && moduleSwitcherMenu) {
+    moduleSwitcherBtn.addEventListener("click", function() {
+      var open = moduleSwitcherBtn.getAttribute("aria-expanded") !== "true";
+      moduleSwitcherBtn.setAttribute("aria-expanded", open ? "true" : "false");
+      moduleSwitcherMenu.hidden = !open;
+    });
+    moduleSwitcherMenu.querySelectorAll("[data-module-tab]").forEach(function(option) {
+      option.addEventListener("click", function() { switchDashboardTab(option.dataset.moduleTab); });
+    });
+    document.addEventListener("pointerdown", function(event) {
+      if (!event.target.closest(".module-switcher")) closeModuleSwitcher();
+    });
+    document.addEventListener("keydown", function(event) {
+      if (event.key === "Escape") closeModuleSwitcher();
+    });
+  }
+  updateModuleSwitcher(activeTab);
+  window.openServerPilotModule = switchDashboardTab;
 
   // ── Data Loading ──
 

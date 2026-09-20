@@ -18,7 +18,6 @@
     currentProjectID: "",
     currentApplicationID: "",
     connection: null,
-    overview: {},
     repositories: [],
     applications: [],
     projects: [],
@@ -83,7 +82,6 @@
     if (state.loaded && !force) return;
     var responses = await Promise.all([
       apiFetch("/api/app-manager/github"),
-      apiFetch("/api/app-manager/overview"),
       apiFetch("/api/app-manager/repositories?limit=200"),
       apiFetch("/api/app-manager/applications?assignment=all&limit=200"),
       apiFetch("/api/app-manager/projects?limit=200"),
@@ -91,12 +89,11 @@
       apiFetch("/api/app-manager/releases?limit=100")
     ]);
     state.connection = dataOf(responses[0]);
-    state.overview = dataOf(responses[1]) || {};
-    state.repositories = dataOf(responses[2]) || [];
-    state.applications = dataOf(responses[3]) || [];
-    state.projects = dataOf(responses[4]) || [];
-    state.agents = dataOf(responses[5]) || [];
-    state.releases = dataOf(responses[6]) || [];
+    state.repositories = dataOf(responses[1]) || [];
+    state.applications = dataOf(responses[2]) || [];
+    state.projects = dataOf(responses[3]) || [];
+    state.agents = dataOf(responses[4]) || [];
+    state.releases = dataOf(responses[5]) || [];
     state.loaded = true;
     if (!state.currentProjectID && state.projects.length) state.currentProjectID = state.projects[0].id;
     updateIdentity();
@@ -458,8 +455,9 @@
       document.getElementById("amWizardNext").addEventListener("click", async function() { collect(); if (!valid()) return; if (draft.step === 7) { await save(); return; } draft.step++; renderStep(); });
       content.querySelectorAll("[data-wizard-repository]").forEach(function(item) { item.addEventListener("click", function() { draft.repository_id = item.dataset.wizardRepository; renderStep(); }); });
       content.querySelectorAll("[data-wizard-type]").forEach(function(item) { item.addEventListener("click", function() { draft.type = item.dataset.wizardType; renderStep(); }); });
-      content.addEventListener("input", updateNext, { once: true });
-      content.addEventListener("change", updateNext, { once: true });
+      var activePanel = content.querySelector(".am-wizard-panel");
+      activePanel.addEventListener("input", updateNext);
+      activePanel.addEventListener("change", updateNext);
       var add = document.getElementById("amAddEnvironment");
       if (add) add.addEventListener("click", function() { collect(); draft.environments.push(newEnvironment("", "test")); renderStep(); });
       content.querySelectorAll("[data-remove-environment]").forEach(function(item) { item.addEventListener("click", function() { collect(); if (draft.environments.length === 1) { showToast("At least one environment is required", "error"); return; } draft.environments.splice(Number(item.dataset.removeEnvironment), 1); renderStep(); }); });
