@@ -1,12 +1,14 @@
 package web
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"log"
 	"net/http"
 	"time"
 
+	"github.com/mrthoabby/serverpilot/internal/appmanager"
 	"github.com/mrthoabby/serverpilot/internal/auth"
 	"github.com/mrthoabby/serverpilot/internal/compose"
 	"github.com/mrthoabby/serverpilot/internal/portalloc"
@@ -25,6 +27,7 @@ type Server struct {
 	sessionStore *auth.SessionStore
 	emailOTP     *emailOTPManager
 	jobs         *jobRegistry
+	appManager   *appmanager.Service
 }
 
 // NewServer creates a new web server instance.
@@ -46,6 +49,19 @@ func NewServer(config *auth.Config, port int, version string) *Server {
 
 // Start starts the HTTP server and blocks until it returns.
 func (s *Server) Start() error {
+	manager, err := appmanager.OpenDefault()
+	if err != nil {
+		// Application Manager is additive. A migration or filesystem problem
+		// must not take the legacy dashboard offline.
+		log.Printf("application manager unavailable: initialization failed")
+	} else {
+		s.appManager = manager
+		defer manager.Close()
+		backgroundCtx, stopBackground := context.WithCancel(context.Background())
+		defer stopBackground()
+		manager.StartBackground(backgroundCtx)
+	}
+
 	mux := http.NewServeMux()
 
 	// Dashboard route.
@@ -62,6 +78,11 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/login/email/request-code", s.handleEmailLoginRequestCode)
 	mux.HandleFunc("/api/login/email/verify-code", s.handleEmailLoginVerifyCode)
 	mux.HandleFunc("/api/session/status", s.handleSessionStatus)
+	// GitHub webhooks and remote agents use their own signed/token
+	// authentication and therefore intentionally do not use dashboard sessions.
+	mux.HandleFunc("/webhooks/github/app-manager", s.handleAppManagerGitHubWebhook)
+	mux.HandleFunc("/agent-api/v1/pair", s.handleAppManagerAgentPair)
+	mux.HandleFunc("/agent-api/v1/ws", s.handleAppManagerAgentWS)
 
 	// Protected API routes.
 	mux.Handle("/api/logout", s.authMiddleware(http.HandlerFunc(s.handleLogout)))
@@ -78,6 +99,32 @@ func (s *Server) Start() error {
 	mux.Handle("/api/jobs", s.authMiddleware(http.HandlerFunc(s.handleJobsList)))
 	mux.Handle("/api/jobs/tail", s.authMiddleware(http.HandlerFunc(s.handleJobTail)))
 	mux.Handle("/api/jobs/dismiss", s.authMiddleware(http.HandlerFunc(s.handleJobDismiss)))
+	// Application Manager vNext. Read routes use the dashboard session;
+	// privileged mutations require recent reauthentication.
+	mux.Handle("/api/app-manager/overview", s.authMiddleware(http.HandlerFunc(s.handleAppManagerOverview)))
+	mux.Handle("/api/app-manager/github", s.authMiddleware(http.HandlerFunc(s.handleAppManagerGitHub)))
+	mux.Handle("/api/app-manager/github/configure", s.requireSecureReauth(http.HandlerFunc(s.handleAppManagerGitHubConfigure)))
+	mux.Handle("/api/app-manager/github/sync", s.requireSecureReauth(http.HandlerFunc(s.handleAppManagerGitHubSync)))
+	mux.Handle("/api/app-manager/repositories", s.authMiddleware(http.HandlerFunc(s.handleAppManagerRepositories)))
+	mux.Handle("/api/app-manager/applications", s.authMiddleware(http.HandlerFunc(s.handleAppManagerApplications)))
+	mux.Handle("/api/app-manager/applications/detail", s.authMiddleware(http.HandlerFunc(s.handleAppManagerApplicationDetail)))
+	mux.Handle("/api/app-manager/applications/create", s.requireSecureReauth(http.HandlerFunc(s.handleAppManagerApplicationCreate)))
+	mux.Handle("/api/app-manager/applications/workflow", s.authMiddleware(http.HandlerFunc(s.handleAppManagerWorkflow)))
+	mux.Handle("/api/app-manager/projects", s.authMiddleware(http.HandlerFunc(s.handleAppManagerProjects)))
+	mux.Handle("/api/app-manager/projects/create", s.requireSecureReauth(http.HandlerFunc(s.handleAppManagerProjectCreate)))
+	mux.Handle("/api/app-manager/configuration", s.authMiddleware(http.HandlerFunc(s.handleAppManagerConfiguration)))
+	mux.Handle("/api/app-manager/configuration/summary", s.authMiddleware(http.HandlerFunc(s.handleAppManagerConfigurationSummary)))
+	mux.Handle("/api/app-manager/configuration/replace", s.requireSecureReauth(http.HandlerFunc(s.handleAppManagerConfigurationReplace)))
+	mux.Handle("/api/app-manager/releases", s.authMiddleware(http.HandlerFunc(s.handleAppManagerReleases)))
+	mux.Handle("/api/app-manager/releases/detail", s.authMiddleware(http.HandlerFunc(s.handleAppManagerReleaseDetail)))
+	mux.Handle("/api/app-manager/artifacts", s.authMiddleware(http.HandlerFunc(s.handleAppManagerArtifacts)))
+	mux.Handle("/api/app-manager/artifacts/check", s.requireSecureReauth(http.HandlerFunc(s.handleAppManagerArtifactsCheck)))
+	mux.Handle("/api/app-manager/deployments", s.authMiddleware(http.HandlerFunc(s.handleAppManagerDeployments)))
+	mux.Handle("/api/app-manager/deployments/detail", s.authMiddleware(http.HandlerFunc(s.handleAppManagerDeploymentDetail)))
+	mux.Handle("/api/app-manager/deployments/create", s.requireSecureReauth(http.HandlerFunc(s.handleAppManagerDeploy)))
+	mux.Handle("/api/app-manager/deployments/rollback", s.requireSecureReauth(http.HandlerFunc(s.handleAppManagerRollback)))
+	mux.Handle("/api/app-manager/agents", s.authMiddleware(http.HandlerFunc(s.handleAppManagerAgents)))
+	mux.Handle("/api/app-manager/agents/pairing-token", s.requireSecureReauth(http.HandlerFunc(s.handleAppManagerPairingToken)))
 	mux.Handle("/api/containers", s.authMiddleware(http.HandlerFunc(s.handleContainers)))
 	mux.Handle("/api/containers/logs", s.authMiddleware(http.HandlerFunc(s.handleContainerLogs)))
 	mux.Handle("/api/containers/logs/clear", s.requireReauth(http.HandlerFunc(s.handleContainerLogsClear)))

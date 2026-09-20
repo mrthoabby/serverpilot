@@ -383,7 +383,6 @@ func Sync(req SyncRequest, progress Progress) (*Replica, error) {
 	if err := validateEnv(env); err != nil {
 		return nil, fmt.Errorf("validate replacement environment: %w", err)
 	}
-	previousPort := old.HostPort
 
 	tempName := old.Name + "-sp-sync-" + strconv.FormatInt(time.Now().Unix(), 10)
 	tempDir := replicaDir(old.ParentName, tempName)
@@ -407,10 +406,13 @@ func Sync(req SyncRequest, progress Progress) (*Replica, error) {
 		return nil, err
 	}
 	portOwner := replicaPortOwner(old.Name)
+	syncPortOwner := replicaPortOwner(tempName)
 	if progress != nil {
 		progress("Reserving replacement port...")
 	}
-	newPort, err := portalloc.ReserveOwner(portOwner, portalloc.DefaultMinPort, portalloc.DefaultMaxPort)
+	// Reserve under the temporary sync owner so we get a free host port while the
+	// current replica is still listening on its existing reservation.
+	newPort, err := portalloc.ReserveOwner(syncPortOwner, portalloc.DefaultMinPort, portalloc.DefaultMaxPort)
 	if err != nil {
 		_ = dockerRemoveImage(image)
 		_ = os.RemoveAll(tempDir)
@@ -419,7 +421,7 @@ func Sync(req SyncRequest, progress Progress) (*Replica, error) {
 	promoted := false
 	defer func() {
 		if !promoted {
-			_ = portalloc.AssignOwnerPort(portOwner, previousPort)
+			_ = portalloc.ReleaseOwner(syncPortOwner)
 		}
 	}()
 	if err := dockerRun(parent, tempName, image, env, newPort, old.ContainerPort, mounts, progress); err != nil {
@@ -484,6 +486,10 @@ func Sync(req SyncRequest, progress Progress) (*Replica, error) {
 	reg.Replicas[idx] = old
 	if err := saveRegistry(reg); err != nil {
 		return nil, err
+	}
+	_ = portalloc.ReleaseOwner(syncPortOwner)
+	if err := portalloc.AssignOwnerPort(portOwner, newPort); err != nil {
+		return nil, fmt.Errorf("update replica port reservation: %w", err)
 	}
 	_ = syncReplicaLabel(old)
 	promoted = true

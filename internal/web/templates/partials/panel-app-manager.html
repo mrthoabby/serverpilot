@@ -1,0 +1,67 @@
+{{define "panel_app_manager"}}
+<section class="tab-panel app-manager" id="panel-app-manager" aria-label="Application Manager">
+  <button class="am-mobile-menu" id="amMobileMenu" type="button" aria-controls="amSidebar" aria-expanded="false">
+    <img src="/static/icons/tabler/layout-grid.svg" alt=""><span>Navigation</span>
+  </button>
+  <div class="am-shell">
+    <aside class="am-sidebar" id="amSidebar">
+      <div class="am-identity">
+        <div class="am-monogram" id="amAccountMonogram" aria-hidden="true">SP</div>
+        <div><strong id="amAccountName">ServerPilot</strong><span id="amAccountHandle">Application Manager</span></div>
+        <button class="am-sidebar-close am-icon-button" id="amSidebarClose" type="button" aria-label="Close navigation"><img src="/static/icons/tabler/x.svg" alt=""></button>
+      </div>
+
+      <section class="am-sidebar-section open" id="amProjectsSection">
+        <div class="am-sidebar-section-head">
+          <button class="am-sidebar-section-toggle" id="amProjectSelector" type="button" aria-expanded="true">
+            <img src="/static/icons/tabler/folder-code.svg" alt=""><strong>Projects</strong><span class="am-count" id="amProjectCount">0</span><img class="am-chevron" src="/static/icons/tabler/chevron-up.svg" alt="">
+          </button>
+          <button class="am-sidebar-add" type="button" data-am-action="create-project" aria-label="Create project"><img src="/static/icons/tabler/plus.svg" alt=""></button>
+        </div>
+        <div class="am-sidebar-submenu" id="amProjectMenu">
+          <label class="am-sidebar-search"><img src="/static/icons/tabler/search.svg" alt=""><input id="amProjectSearch" type="search" placeholder="Search projects…" aria-label="Search projects"></label>
+          <div class="am-selector-options" id="amProjectOptions"></div>
+        </div>
+      </section>
+
+      <section class="am-sidebar-section" id="amApplicationsSection">
+        <div class="am-sidebar-section-head">
+          <button class="am-sidebar-section-toggle" id="amApplicationSelector" type="button" aria-expanded="false">
+            <img src="/static/icons/tabler/packages.svg" alt=""><strong>Applications</strong><span class="am-count" id="amApplicationCount">0</span><img class="am-chevron" src="/static/icons/tabler/chevron-down.svg" alt="">
+          </button>
+          <button class="am-sidebar-add" type="button" data-am-action="create-application" aria-label="Create application"><img src="/static/icons/tabler/plus.svg" alt=""></button>
+        </div>
+        <div class="am-sidebar-submenu" id="amApplicationMenu" hidden>
+          <label class="am-sidebar-search"><img src="/static/icons/tabler/search.svg" alt=""><input id="amApplicationSearch" type="search" placeholder="Search applications…" aria-label="Search applications"></label>
+          <div class="am-selector-options" id="amApplicationOptions"></div>
+        </div>
+      </section>
+
+      <div class="am-sidebar-divider"></div>
+      <nav class="am-nav" aria-label="Application Manager navigation">
+        <button type="button" data-am-view="repositories"><img src="/static/icons/tabler/folder-code.svg" alt="">Repositories</button>
+        <button type="button" data-am-view="github"><img src="/static/icons/tabler/brand-github.svg" alt="">GitHub</button>
+        <button type="button" data-am-view="settings"><img src="/static/icons/tabler/settings.svg" alt="">Settings</button>
+      </nav>
+      <div class="am-agent-summary"><span class="am-live-dot" aria-hidden="true"></span><span><strong id="amAgentSummary">Loading agents…</strong><small>All regions reporting</small></span></div>
+    </aside>
+    <button class="am-sidebar-backdrop" id="amSidebarBackdrop" type="button" aria-label="Close navigation"></button>
+    <main class="am-main">
+      <header class="am-topbar">
+        <label class="am-search"><img src="/static/icons/tabler/search.svg" alt=""><input id="amGlobalSearch" type="search" placeholder="Search projects, apps, repositories…"><kbd>⌘K</kbd></label>
+        <button class="am-profile" type="button" aria-label="Account menu" id="amProfileMonogram">SP</button>
+      </header>
+      <div class="am-content" id="amContent" aria-live="polite">
+        <div class="am-skeleton am-skeleton-page" aria-label="Loading Application Manager"></div>
+      </div>
+    </main>
+  </div>
+  <dialog class="am-dialog" id="amDialog" aria-labelledby="amDialogTitle">
+    <form method="dialog" class="am-dialog-frame" id="amDialogFrame">
+      <header><div><span class="am-eyebrow" id="amDialogEyebrow">Application Manager</span><h2 id="amDialogTitle">Dialog</h2></div><button value="cancel" class="am-icon-button" aria-label="Close"><img src="/static/icons/tabler/x.svg" alt=""></button></header>
+      <div class="am-dialog-body" id="amDialogBody"></div>
+      <footer id="amDialogFooter"></footer>
+    </form>
+  </dialog>
+</section>
+{{end}}

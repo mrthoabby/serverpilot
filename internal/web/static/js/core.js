@@ -383,6 +383,7 @@ window.SP = window.SP || {};
     mappings:   function(opts) { return loadMappings(opts); },
     resources:  function(opts) { return loadResources(opts); },
     apps:       function(opts) { loadManagedApps(); loadDependencies(); return loadApps(); },
+    "app-manager": function(opts) { return window.loadApplicationManager ? window.loadApplicationManager(opts) : null; },
     users:      function(opts) { loadSystemUsers(); return loadDeployUsers(); },
     cases:      function(opts) { return loadCases(); },
     db:         function(opts) { return loadDBConnections(); },

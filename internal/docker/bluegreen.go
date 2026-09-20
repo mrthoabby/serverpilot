@@ -2,9 +2,12 @@ package docker
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/mrthoabby/serverpilot/internal/deployhealth"
@@ -22,8 +25,13 @@ const (
 
 // BlueGreenRequest describes a standalone container blue-green release.
 type BlueGreenRequest struct {
-	Container     string
-	Image         string
+	Container string
+	Image     string
+	// EnvFile, when set, replaces the previous container environment. It is
+	// restricted to ServerPilot's app-manager runtime directory and must be a
+	// regular, root-only file. Keeping values out of argv prevents secrets from
+	// appearing in process listings.
+	EnvFile       string
 	HealthURL     string
 	HealthTimeout time.Duration
 	Drain         time.Duration
@@ -53,6 +61,11 @@ func releaseBlueGreen(req BlueGreenRequest, progress func(string)) error {
 	}
 	if hasExclusiveMounts(runtime) {
 		return fmt.Errorf("container has persistent mounts — use rolling update instead")
+	}
+	if req.EnvFile != "" {
+		if err := validateAppManagerEnvFile(req.EnvFile); err != nil {
+			return err
+		}
 	}
 
 	containerPort, protocol, oldHostPort, err := primaryPublishedTCP(runtime)
@@ -85,7 +98,7 @@ func releaseBlueGreen(req BlueGreenRequest, progress func(string)) error {
 		}
 	}
 	progress("Starting " + targetColor + " container " + targetName + "...")
-	if err := runReplacement(runtime, targetName, image, hostPort, containerPort, protocol); err != nil {
+	if err := runReplacement(runtime, targetName, image, hostPort, containerPort, protocol, req.EnvFile); err != nil {
 		cleanupPort()
 		return err
 	}
@@ -169,19 +182,19 @@ func hasExclusiveMounts(runtime containerRuntimeInspect) bool {
 	return false
 }
 
-func runReplacement(runtime containerRuntimeInspect, name, image string, hostPort int, containerPort, protocol string) error {
+func runReplacement(runtime containerRuntimeInspect, name, image string, hostPort int, containerPort, protocol, envFile string) error {
 	dockerBin, err := deps.DockerPath()
 	if err != nil {
 		return err
 	}
-	args := buildBlueGreenRunArgs(runtime, name, image, hostPort, containerPort, protocol)
+	args := buildBlueGreenRunArgs(runtime, name, image, hostPort, containerPort, protocol, envFile)
 	if _, err := exec.Command(dockerBin, args...).CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to run replacement container")
 	}
 	return nil
 }
 
-func buildBlueGreenRunArgs(runtime containerRuntimeInspect, name, image string, hostPort int, containerPort, protocol string) []string {
+func buildBlueGreenRunArgs(runtime containerRuntimeInspect, name, image string, hostPort int, containerPort, protocol, envFile string) []string {
 	args := []string{"run", "-d", "--name", name}
 	if runtime.Config.User != "" {
 		args = append(args, "--user", runtime.Config.User)
@@ -202,8 +215,12 @@ func buildBlueGreenRunArgs(runtime containerRuntimeInspect, name, image string, 
 	for k, v := range runtime.Config.Labels {
 		args = append(args, "--label", k+"="+v)
 	}
-	for _, item := range runtime.Config.Env {
-		args = append(args, "-e", item)
+	if envFile != "" {
+		args = append(args, "--env-file", envFile)
+	} else {
+		for _, item := range runtime.Config.Env {
+			args = append(args, "-e", item)
+		}
 	}
 	if networkModeAllowsPortPublish(runtime.HostConfig.NetworkMode) {
 		args = append(args, "-p", fmt.Sprintf("127.0.0.1:%d:%s/%s", hostPort, containerPort, protocol))
@@ -228,6 +245,31 @@ func buildBlueGreenRunArgs(runtime containerRuntimeInspect, name, image string, 
 	args = append(args, image)
 	args = append(args, runtime.Config.Cmd...)
 	return args
+}
+
+func validateAppManagerEnvFile(path string) error {
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("environment file path must be absolute")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("invalid environment file path")
+	}
+	root := "/var/lib/serverpilot/appmanager/tmp"
+	rel, err := filepath.Rel(root, abs)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("environment file is outside the managed runtime directory")
+	}
+	f, err := os.OpenFile(abs, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return fmt.Errorf("cannot open environment file")
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("environment file permissions are unsafe")
+	}
+	return nil
 }
 
 func removeContainer(name string, force bool) error {
