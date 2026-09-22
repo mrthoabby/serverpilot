@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS github_connection (
   avatar_url TEXT NOT NULL DEFAULT '',
   app_id INTEGER NOT NULL CHECK(app_id > 0),
   installation_id INTEGER NOT NULL CHECK(installation_id > 0),
+  registry_username TEXT NOT NULL DEFAULT '',
   private_key_cipher TEXT NOT NULL,
   webhook_secret_cipher TEXT NOT NULL,
   registry_pat_cipher TEXT NOT NULL DEFAULT '',

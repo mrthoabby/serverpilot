@@ -63,9 +63,9 @@ func (s *Service) prepareAgentDeploySpec(ctx context.Context, deploymentID strin
 	conn, connErr := s.GitHubConnection(ctx)
 	_, _, pat, secretErr := s.githubSecrets(ctx)
 	if connErr != nil || secretErr != nil {
-		conn.AccountLogin, pat = "", ""
+		conn, pat = GitHubConnection{}, ""
 	}
-	return AgentDeploySpec{DeploymentID: deploymentID, EnvironmentID: env.ID, ApplicationID: app.ID, ApplicationType: app.Type, ContainerName: env.ContainerName, ContainerPort: env.ContainerPort, Image: image, ImageDigest: artifact.ImageDigest, Domain: env.Domain, SiteEnabled: env.SiteEnabled, SSLEnabled: env.SSLEnabled, HealthPath: env.HealthPath, Variables: variables, RegistryUser: conn.AccountLogin, RegistryToken: pat}, nil
+	return AgentDeploySpec{DeploymentID: deploymentID, EnvironmentID: env.ID, ApplicationID: app.ID, ApplicationType: app.Type, ContainerName: env.ContainerName, ContainerPort: env.ContainerPort, Image: image, ImageDigest: artifact.ImageDigest, Domain: env.Domain, SiteEnabled: env.SiteEnabled, SSLEnabled: env.SSLEnabled, HealthPath: env.HealthPath, Variables: variables, RegistryUser: conn.RegistryUsername, RegistryToken: pat}, nil
 }
 
 // ExecuteAgentDeploy executes one allowlisted deployment job on the remote

@@ -78,7 +78,7 @@ func (s *Service) CheckWaitingArtifacts(ctx context.Context, limit int) error {
 				if ctx.Err() != nil {
 					return
 				}
-				digest, found, checkErr := checkGHCRManifestWithBackoff(ctx, conn.AccountLogin, pat, item.image)
+				digest, found, checkErr := checkGHCRManifestWithBackoff(ctx, conn.RegistryUsername, pat, item.image)
 				res := result{id: item.id, status: ArtifactWaiting}
 				switch {
 				case checkErr != nil:

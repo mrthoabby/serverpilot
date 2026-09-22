@@ -8,6 +8,11 @@ application environments, projects, releases, image artifacts, deployments,
 agents, configuration, and audit events. It must not replace the legacy
 `internal/apps` package or the existing Docker/Nginx dashboard.
 
+Application Manager is pre-production. Implement its current model directly:
+do not add compatibility fallbacks, legacy-field inference, or migrations for
+earlier Application Manager prototypes. Compatibility work belongs only to
+the established legacy ServerPilot flows.
+
 ## Non-negotiable domain rules
 
 - A repository may have many applications. Every application has exactly one
@@ -40,6 +45,13 @@ agents, configuration, and audit events. It must not replace the legacy
   SSL, pairing, and destructive actions.
 - GitHub webhooks require HMAC verification before payload processing and a
   unique delivery ID for idempotency.
+- The GitHub setup UI accepts only the App ID and private key. Discover the
+  account login, account type, avatar, and Installation ID from GitHub; never
+  trust manually copied identity metadata. Generate the webhook secret in
+  ServerPilot and reveal it only once for GitHub App setup.
+- GHCR credentials are optional for public images. Private-image access uses a
+  separate registry username plus a classic PAT with `read:packages`; the
+  token owner is not assumed to match the connected organization.
 - Secrets are write-only. Store them encrypted with AES-GCM under a dedicated
   0600 master key and never return plaintext through APIs or logs.
 - Docker operations use structured, allowlisted arguments, module ownership
@@ -72,6 +84,8 @@ agents, configuration, and audit events. It must not replace the legacy
 
 ## Validation
 
+- Do not run `go get` or otherwise add/update dependencies. The repository
+  owner manages dependency installation explicitly.
 - Format touched Go files with `gofmt`.
 - Run focused package tests, `go test ./...`, and `go vet ./...`.
 - Visually verify the rendered module at desktop, tablet, and mobile widths.

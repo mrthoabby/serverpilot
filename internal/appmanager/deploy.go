@@ -181,7 +181,7 @@ func (s *Service) pullImage(ctx context.Context, image string) error {
 	if connErr == nil && secretErr == nil && pat != "" {
 		loginCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
-		cmd := exec.CommandContext(loginCtx, dockerBin, "--config", configDir, "login", "ghcr.io", "--username", conn.AccountLogin, "--password-stdin")
+		cmd := exec.CommandContext(loginCtx, dockerBin, "--config", configDir, "login", "ghcr.io", "--username", conn.RegistryUsername, "--password-stdin")
 		cmd.Stdin = strings.NewReader(pat + "\n")
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("registry authentication failed")

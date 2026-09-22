@@ -98,16 +98,25 @@ func (s *Server) handleAppManagerGitHubConfigure(w http.ResponseWriter, r *http.
 	if !s.appManagerReady(w) {
 		return
 	}
-	var req appmanager.GitHubConnectionInput
+	var req appmanager.GitHubSetupInput
 	if err := jsonDecode(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
 		return
 	}
-	data, err := s.appManager.ConfigureGitHub(r.Context(), req)
+	data, err := s.appManager.SetupGitHub(r.Context(), req)
 	if err != nil {
+		if errors.Is(err, appmanager.ErrNotFound) {
+			writeJSON(w, http.StatusConflict, apiResponse{Error: "install the GitHub App on one account before connecting"})
+			return
+		}
+		if errors.Is(err, appmanager.ErrConflict) {
+			writeJSON(w, http.StatusConflict, apiResponse{Error: "the GitHub App must be installed on exactly one account"})
+			return
+		}
 		writeAppManagerError(w, err)
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, apiResponse{Data: data})
 }
 

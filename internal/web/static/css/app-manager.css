@@ -350,6 +350,29 @@
 .app-manager .am-field input:focus, .app-manager .am-field select:focus, .app-manager .am-field textarea:focus { outline: 2px solid rgba(59,91,255,.6); border-color: var(--am-primary); }
 .app-manager .am-field textarea { min-height: 100px; resize: vertical; }
 .app-manager .am-field small { color: var(--am-muted); }
+.app-manager .am-setup-form { margin-top: 18px; }
+.app-manager .am-connection-summary { margin-top: 16px; padding: 12px; display: grid; grid-template-columns: 40px minmax(0,1fr) auto; align-items: center; gap: 12px; background: var(--am-bg); border: 1px solid var(--am-border); border-radius: 10px; }
+.app-manager .am-connection-summary > div { min-width: 0; display: grid; }
+.app-manager .am-connection-summary small { color: var(--am-muted); }
+.app-manager .am-discovery-note { margin-top: 18px; padding: 14px; display: flex; align-items: flex-start; gap: 11px; color: var(--am-muted); background: rgba(59,91,255,.07); border: 1px solid rgba(59,91,255,.25); border-radius: 10px; }
+.app-manager .am-discovery-note strong, .app-manager .am-discovery-note span { display: block; }
+.app-manager .am-discovery-note strong { color: var(--am-text); margin-bottom: 2px; }
+.app-manager .am-disclosure { margin-top: 18px; overflow: hidden; background: var(--am-bg); border: 1px solid var(--am-border); border-radius: 10px; }
+.app-manager .am-disclosure summary { min-height: 58px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; }
+.app-manager .am-disclosure summary::-webkit-details-marker { display: none; }
+.app-manager .am-disclosure summary > span { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.app-manager .am-disclosure summary span span { min-width: 0; display: grid; }
+.app-manager .am-disclosure summary small { color: var(--am-muted); }
+.app-manager .am-disclosure[open] summary > img { transform: rotate(180deg); }
+.app-manager .am-disclosure > .am-form-grid { padding: 16px; border-top: 1px solid var(--am-border); }
+.app-manager .am-success-panel { padding: 14px; display: flex; align-items: flex-start; gap: 12px; color: var(--am-success); background: rgba(44,192,138,.09); border: 1px solid rgba(44,192,138,.28); border-radius: 10px; }
+.app-manager .am-success-panel > img { filter: none; }
+.app-manager .am-success-panel strong, .app-manager .am-success-panel span { display: block; }
+.app-manager .am-success-panel span { margin-top: 2px; color: var(--am-muted); }
+.app-manager .am-copy-field { margin-top: 16px; display: grid; gap: 7px; }
+.app-manager .am-copy-field > label { font-weight: 600; }
+.app-manager .am-copy-field > div { min-width: 0; display: grid; grid-template-columns: minmax(0,1fr) 38px; gap: 8px; }
+.app-manager .am-copy-field code { min-width: 0; min-height: 40px; padding: 9px 11px; overflow: auto; color: var(--am-text); background: var(--am-ink); border: 1px solid var(--am-border); border-radius: 8px; white-space: nowrap; }
 .app-manager .am-readonly { min-height: 44px; padding: 10px 12px; color: var(--am-muted); background: var(--am-bg); border: 1px solid var(--am-border); border-radius: 8px; }
 .app-manager .am-check { min-height: 38px; display: flex; align-items: center; gap: 9px; }
 .app-manager .am-check input { width: 18px; height: 18px; accent-color: var(--am-primary); }

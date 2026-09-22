@@ -50,6 +50,80 @@ type githubReleaseRecord struct {
 	PublishedAt time.Time
 }
 
+type githubInstallation struct {
+	ID      int64 `json:"id"`
+	Account struct {
+		Login     string `json:"login"`
+		Type      string `json:"type"`
+		AvatarURL string `json:"avatar_url"`
+	} `json:"account"`
+}
+
+// SetupGitHub discovers installation-owned metadata from GitHub instead of
+// trusting values copied into the dashboard. Network discovery completes
+// before credentials are persisted, so no database transaction spans the
+// external request.
+func (s *Service) SetupGitHub(ctx context.Context, in GitHubSetupInput) (GitHubSetupResult, error) {
+	in.RegistryUsername = strings.TrimSpace(in.RegistryUsername)
+	if in.AppID < 1 || validateGitHubPrivateKey(in.PrivateKey) != nil {
+		return GitHubSetupResult{}, fmt.Errorf("%w: invalid GitHub App credentials", ErrInvalid)
+	}
+	jwt, err := githubAppJWT(in.AppID, in.PrivateKey, s.now())
+	if err != nil {
+		return GitHubSetupResult{}, fmt.Errorf("%w: invalid GitHub App credentials", ErrInvalid)
+	}
+	var installations []githubInstallation
+	if err := githubJSON(ctx, secureGitHubClient(), http.MethodGet, "https://api.github.com/app/installations?per_page=100", jwt, nil, &installations); err != nil {
+		return GitHubSetupResult{}, err
+	}
+	installation, err := singleGitHubInstallation(installations)
+	if err != nil {
+		return GitHubSetupResult{}, err
+	}
+	webhookSecret, err := newWebhookSecret()
+	if err != nil {
+		return GitHubSetupResult{}, err
+	}
+	connection, err := s.ConfigureGitHub(ctx, GitHubConnectionInput{
+		AccountLogin:     installation.Account.Login,
+		AccountType:      installation.Account.Type,
+		AvatarURL:        installation.Account.AvatarURL,
+		AppID:            in.AppID,
+		InstallationID:   installation.ID,
+		PrivateKey:       in.PrivateKey,
+		WebhookSecret:    webhookSecret,
+		RegistryUsername: in.RegistryUsername,
+		RegistryPAT:      in.RegistryPAT,
+	})
+	if err != nil {
+		return GitHubSetupResult{}, err
+	}
+	return GitHubSetupResult{Connection: connection, WebhookSecret: webhookSecret}, nil
+}
+
+func singleGitHubInstallation(installations []githubInstallation) (githubInstallation, error) {
+	if len(installations) == 0 {
+		return githubInstallation{}, fmt.Errorf("%w: GitHub App has no installation", ErrNotFound)
+	}
+	if len(installations) != 1 {
+		return githubInstallation{}, fmt.Errorf("%w: GitHub App must have exactly one installation", ErrConflict)
+	}
+	installation := installations[0]
+	installation.Account.Login = strings.TrimSpace(installation.Account.Login)
+	if installation.ID < 1 || Slug(installation.Account.Login) == "" || len(installation.Account.Login) > 100 || (installation.Account.Type != "User" && installation.Account.Type != "Organization") || !validGitHubAvatarURL(installation.Account.AvatarURL) {
+		return githubInstallation{}, fmt.Errorf("%w: invalid GitHub installation", ErrInvalid)
+	}
+	return installation, nil
+}
+
+func newWebhookSecret() (string, error) {
+	var raw [32]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("generate webhook secret: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(raw[:]), nil
+}
+
 func (s *Service) HandleGitHubWebhook(ctx context.Context, signature, deliveryID, event string, body []byte) (RepositoryRelease, bool, error) {
 	if !validDeliveryID(deliveryID) || event != "release" || len(body) == 0 || len(body) > 1<<20 {
 		return RepositoryRelease{}, false, fmt.Errorf("%w: invalid webhook", ErrInvalid)

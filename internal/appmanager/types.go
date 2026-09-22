@@ -43,6 +43,7 @@ type GitHubConnection struct {
 	AvatarURL            string    `json:"avatar_url,omitempty"`
 	AppID                int64     `json:"app_id"`
 	InstallationID       int64     `json:"installation_id"`
+	RegistryUsername     string    `json:"registry_username,omitempty"`
 	PrivateKeyConfigured bool      `json:"private_key_configured"`
 	WebhookConfigured    bool      `json:"webhook_configured"`
 	RegistryConfigured   bool      `json:"registry_configured"`
@@ -232,14 +233,30 @@ type ConfigurationInput struct {
 }
 
 type GitHubConnectionInput struct {
-	AccountLogin   string `json:"account_login"`
-	AccountType    string `json:"account_type"`
-	AvatarURL      string `json:"avatar_url,omitempty"`
-	AppID          int64  `json:"app_id"`
-	InstallationID int64  `json:"installation_id"`
-	PrivateKey     string `json:"private_key"`
-	WebhookSecret  string `json:"webhook_secret"`
-	RegistryPAT    string `json:"registry_pat,omitempty"`
+	AccountLogin     string `json:"account_login"`
+	AccountType      string `json:"account_type"`
+	AvatarURL        string `json:"avatar_url,omitempty"`
+	AppID            int64  `json:"app_id"`
+	InstallationID   int64  `json:"installation_id"`
+	PrivateKey       string `json:"private_key"`
+	WebhookSecret    string `json:"webhook_secret"`
+	RegistryUsername string `json:"registry_username,omitempty"`
+	RegistryPAT      string `json:"registry_pat,omitempty"`
+}
+
+// GitHubSetupInput contains only values that cannot be discovered from the
+// authenticated GitHub App. Registry credentials remain optional because
+// public GHCR images support anonymous pulls.
+type GitHubSetupInput struct {
+	AppID            int64  `json:"app_id"`
+	PrivateKey       string `json:"private_key"`
+	RegistryUsername string `json:"registry_username,omitempty"`
+	RegistryPAT      string `json:"registry_pat,omitempty"`
+}
+
+type GitHubSetupResult struct {
+	Connection    GitHubConnection `json:"connection"`
+	WebhookSecret string           `json:"webhook_secret"`
 }
 
 type RepositoryInput struct {

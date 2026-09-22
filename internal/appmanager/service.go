@@ -44,6 +44,7 @@ func (s *Service) Close() error { return s.store.Close() }
 
 func (s *Service) ConfigureGitHub(ctx context.Context, in GitHubConnectionInput) (GitHubConnection, error) {
 	in.AccountLogin = strings.TrimSpace(in.AccountLogin)
+	in.RegistryUsername = strings.TrimSpace(in.RegistryUsername)
 	if Slug(in.AccountLogin) == "" || len(in.AccountLogin) > 100 || (in.AccountType != "User" && in.AccountType != "Organization") || in.AppID < 1 || in.InstallationID < 1 {
 		return GitHubConnection{}, fmt.Errorf("%w: invalid GitHub connection", ErrInvalid)
 	}
@@ -53,7 +54,7 @@ func (s *Service) ConfigureGitHub(ctx context.Context, in GitHubConnectionInput)
 	if len(in.WebhookSecret) < 24 || len(in.WebhookSecret) > 256 || strings.ContainsAny(in.WebhookSecret, "\r\n") {
 		return GitHubConnection{}, fmt.Errorf("%w: webhook secret must contain 24-256 characters", ErrInvalid)
 	}
-	if in.RegistryPAT != "" && (len(in.RegistryPAT) < 20 || len(in.RegistryPAT) > 255 || strings.ContainsAny(in.RegistryPAT, " \t\r\n")) {
+	if (in.RegistryPAT == "") != (in.RegistryUsername == "") || in.RegistryPAT != "" && (Slug(in.RegistryUsername) == "" || len(in.RegistryUsername) > 100 || len(in.RegistryPAT) < 20 || len(in.RegistryPAT) > 255 || strings.ContainsAny(in.RegistryPAT, " \t\r\n")) {
 		return GitHubConnection{}, fmt.Errorf("%w: invalid registry credential", ErrInvalid)
 	}
 	if in.AvatarURL != "" && !validGitHubAvatarURL(in.AvatarURL) {
@@ -86,10 +87,10 @@ func (s *Service) ConfigureGitHub(ctx context.Context, in GitHubConnectionInput)
 		}
 	}
 	_, err = s.store.db.ExecContext(ctx, `
-INSERT INTO github_connection(singleton,id,account_login,account_type,avatar_url,app_id,installation_id,private_key_cipher,webhook_secret_cipher,registry_pat_cipher,created_at,updated_at)
-VALUES(1,?,?,?,?,?,?,?,?,?,?,?)
-ON CONFLICT(singleton) DO UPDATE SET account_login=excluded.account_login,account_type=excluded.account_type,avatar_url=excluded.avatar_url,app_id=excluded.app_id,installation_id=excluded.installation_id,private_key_cipher=excluded.private_key_cipher,webhook_secret_cipher=excluded.webhook_secret_cipher,registry_pat_cipher=excluded.registry_pat_cipher,updated_at=excluded.updated_at`,
-		id, in.AccountLogin, in.AccountType, in.AvatarURL, in.AppID, in.InstallationID, privateKey, webhookSecret, registryPAT, now, now)
+INSERT INTO github_connection(singleton,id,account_login,account_type,avatar_url,app_id,installation_id,registry_username,private_key_cipher,webhook_secret_cipher,registry_pat_cipher,created_at,updated_at)
+VALUES(1,?,?,?,?,?,?,?,?,?,?,?,?)
+ON CONFLICT(singleton) DO UPDATE SET account_login=excluded.account_login,account_type=excluded.account_type,avatar_url=excluded.avatar_url,app_id=excluded.app_id,installation_id=excluded.installation_id,registry_username=excluded.registry_username,private_key_cipher=excluded.private_key_cipher,webhook_secret_cipher=excluded.webhook_secret_cipher,registry_pat_cipher=excluded.registry_pat_cipher,updated_at=excluded.updated_at`,
+		id, in.AccountLogin, in.AccountType, in.AvatarURL, in.AppID, in.InstallationID, in.RegistryUsername, privateKey, webhookSecret, registryPAT, now, now)
 	if err != nil {
 		return GitHubConnection{}, fmt.Errorf("save GitHub connection: %w", err)
 	}
@@ -112,8 +113,8 @@ func (s *Service) GitHubConnection(ctx context.Context) (GitHubConnection, error
 	var out GitHubConnection
 	var privateCipher, webhookCipher, registryCipher string
 	var lastSync sql.NullTime
-	err := s.store.db.QueryRowContext(ctx, `SELECT id,account_login,account_type,avatar_url,app_id,installation_id,private_key_cipher,webhook_secret_cipher,registry_pat_cipher,last_synced_at,created_at,updated_at FROM github_connection WHERE singleton=1`).Scan(
-		&out.ID, &out.AccountLogin, &out.AccountType, &out.AvatarURL, &out.AppID, &out.InstallationID, &privateCipher, &webhookCipher, &registryCipher, &lastSync, &out.CreatedAt, &out.UpdatedAt)
+	err := s.store.db.QueryRowContext(ctx, `SELECT id,account_login,account_type,avatar_url,app_id,installation_id,registry_username,private_key_cipher,webhook_secret_cipher,registry_pat_cipher,last_synced_at,created_at,updated_at FROM github_connection WHERE singleton=1`).Scan(
+		&out.ID, &out.AccountLogin, &out.AccountType, &out.AvatarURL, &out.AppID, &out.InstallationID, &out.RegistryUsername, &privateCipher, &webhookCipher, &registryCipher, &lastSync, &out.CreatedAt, &out.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return GitHubConnection{}, ErrNotFound
 	}
