@@ -17,6 +17,14 @@ const (
 	EnvironmentProduction EnvironmentType = "production"
 )
 
+type AutoDeployMode string
+
+const (
+	AutoDeployManual  AutoDeployMode = "manual"
+	AutoDeployTag     AutoDeployMode = "tag"
+	AutoDeployRelease AutoDeployMode = "release"
+)
+
 type ArtifactStatus string
 
 const (
@@ -110,7 +118,7 @@ type Environment struct {
 	SiteEnabled       bool            `json:"site_enabled"`
 	SSLEnabled        bool            `json:"ssl_enabled"`
 	HealthPath        string          `json:"health_path,omitempty"`
-	AutoDeploy        bool            `json:"auto_deploy"`
+	AutoDeployMode    AutoDeployMode  `json:"auto_deploy_mode"`
 	CurrentArtifactID *string         `json:"current_artifact_id,omitempty"`
 	CurrentVersion    string          `json:"current_version,omitempty"`
 	Status            string          `json:"status"`
@@ -137,14 +145,16 @@ type ResolvedVariable struct {
 }
 
 type RepositoryRelease struct {
-	ID           string                       `json:"id"`
-	RepositoryID string                       `json:"repository_id"`
-	Tag          string                       `json:"tag"`
-	CommitSHA    string                       `json:"commit_sha"`
-	Name         string                       `json:"name,omitempty"`
-	PublishedAt  time.Time                    `json:"published_at"`
-	CreatedAt    time.Time                    `json:"created_at"`
-	Artifacts    []ApplicationReleaseArtifact `json:"artifacts,omitempty"`
+	ID               string                       `json:"id"`
+	RepositoryID     string                       `json:"repository_id"`
+	Tag              string                       `json:"tag"`
+	CommitSHA        string                       `json:"commit_sha"`
+	Name             string                       `json:"name,omitempty"`
+	TagDetected      bool                         `json:"tag_detected"`
+	ReleasePublished bool                         `json:"release_published"`
+	PublishedAt      time.Time                    `json:"published_at"`
+	CreatedAt        time.Time                    `json:"created_at"`
+	Artifacts        []ApplicationReleaseArtifact `json:"artifacts,omitempty"`
 }
 
 type ApplicationReleaseArtifact struct {
@@ -208,15 +218,20 @@ type CreateApplicationInput struct {
 }
 
 type CreateEnvironmentInput struct {
-	Name        string               `json:"name"`
-	Type        EnvironmentType      `json:"type"`
-	AgentID     *string              `json:"agent_id,omitempty"`
-	Domain      string               `json:"domain,omitempty"`
-	SiteEnabled bool                 `json:"site_enabled"`
-	SSLEnabled  bool                 `json:"ssl_enabled"`
-	HealthPath  string               `json:"health_path,omitempty"`
-	AutoDeploy  bool                 `json:"auto_deploy"`
-	Variables   []ConfigurationInput `json:"configuration,omitempty"`
+	Name           string               `json:"name"`
+	Type           EnvironmentType      `json:"type"`
+	AgentID        *string              `json:"agent_id,omitempty"`
+	Domain         string               `json:"domain,omitempty"`
+	SiteEnabled    bool                 `json:"site_enabled"`
+	SSLEnabled     bool                 `json:"ssl_enabled"`
+	HealthPath     string               `json:"health_path,omitempty"`
+	AutoDeployMode AutoDeployMode       `json:"auto_deploy_mode"`
+	Variables      []ConfigurationInput `json:"configuration,omitempty"`
+}
+
+type UpdateEnvironmentDeployPolicyInput struct {
+	EnvironmentID string         `json:"environment_id"`
+	Mode          AutoDeployMode `json:"mode"`
 }
 
 type CreateProjectInput struct {

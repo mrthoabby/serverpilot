@@ -400,7 +400,10 @@ window.SP = window.SP || {};
     stopGlobalRefresh();
     globalRefreshTimer = setInterval(function() {
       // Skip auto-refresh for tabs that only need manual refresh.
-      var noAutoRefresh = { apps: true, cases: true };
+      // Application Manager owns multi-step drafts and dialogs. Re-rendering
+      // its entire panel would discard unsaved user input, so it refreshes
+      // only after explicit actions or the global Refresh button.
+      var noAutoRefresh = { apps: true, cases: true, "app-manager": true };
       if (activeTab && tabLoaders[activeTab] && !noAutoRefresh[activeTab]) {
         tabLoaders[activeTab]({ silent: true });
       }
@@ -633,7 +636,7 @@ window.SP = window.SP || {};
   onEl("checkUpdatesBtn", "click", checkForUpdates);
   onEl("copyPublicIpBtn", "click", copyPublicIp);
   onEl("refreshBtn", "click", function() {
-    if (tabLoaders[activeTab]) tabLoaders[activeTab]();
+    if (tabLoaders[activeTab]) tabLoaders[activeTab](activeTab === "app-manager" ? { force: true, manual: true } : undefined);
   });
   onEl("updateBtn", "click", async function() {
     var btn = document.getElementById("updateBtn");

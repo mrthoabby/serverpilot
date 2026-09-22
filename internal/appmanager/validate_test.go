@@ -10,7 +10,7 @@ func TestValidateApplicationAndProjectInvariants(t *testing.T) {
 	valid := CreateApplicationInput{
 		RepositoryID: strings.Repeat("a", 32), Name: "orders-api", Type: AppTypeRESTAPI,
 		Dockerfile: "Dockerfile", BuildContext: ".", ContainerPort: 8080,
-		Environments: []CreateEnvironmentInput{{Name: "qa", Type: EnvironmentTest}, {Name: "integration", Type: EnvironmentTest}},
+		Environments: []CreateEnvironmentInput{{Name: "qa", Type: EnvironmentTest, AutoDeployMode: AutoDeployManual}, {Name: "integration", Type: EnvironmentTest, AutoDeployMode: AutoDeployManual}},
 	}
 	withoutRepository := valid
 	withoutRepository.RepositoryID = ""
@@ -26,9 +26,14 @@ func TestValidateApplicationAndProjectInvariants(t *testing.T) {
 		t.Fatalf("multiple environments of the same type should be valid: %v", err)
 	}
 	invalidType := valid
-	invalidType.Environments = []CreateEnvironmentInput{{Name: "sandbox", Type: "development"}}
+	invalidType.Environments = []CreateEnvironmentInput{{Name: "sandbox", Type: "development", AutoDeployMode: AutoDeployManual}}
 	if !errors.Is(ValidateCreateApplication(invalidType), ErrInvalid) {
 		t.Fatal("unsupported environment type must be rejected")
+	}
+	unsafeWorkflowPath := valid
+	unsafeWorkflowPath.Dockerfile = "Dockerfile\npush: true"
+	if !errors.Is(ValidateCreateApplication(unsafeWorkflowPath), ErrInvalid) {
+		t.Fatal("workflow YAML injection through a build path must be rejected")
 	}
 	if !errors.Is(ValidateCreateProject(CreateProjectInput{Name: "Empty"}), ErrInvalid) {
 		t.Fatal("project without applications must be rejected")
@@ -86,5 +91,18 @@ func TestGitHubWebhookOfficialSignatureVector(t *testing.T) {
 	}
 	if verifyGitHubSignature("wrong", []byte("Hello, World!"), signature) {
 		t.Fatal("invalid webhook secret must not validate")
+	}
+}
+
+func TestVersionTagValidation(t *testing.T) {
+	for _, tag := range []string{"v1.0.0", "v2.14.3-rc.1", "v10.2.0-build.7"} {
+		if !validVersionTag(tag) {
+			t.Fatalf("expected valid version tag: %s", tag)
+		}
+	}
+	for _, tag := range []string{"1.0.0", "v1", "v1.2", "v1.2.3-", "v1.2.3+build.7", "v01.2.3", "latest", "production"} {
+		if validVersionTag(tag) {
+			t.Fatalf("expected invalid version tag: %s", tag)
+		}
 	}
 }

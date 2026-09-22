@@ -38,9 +38,17 @@ func TestAppManagerCreateApplicationUsesStrictJSON(t *testing.T) {
 
 func TestAppManagerMutationRejectsWrongMethod(t *testing.T) {
 	server := &Server{}
-	recorder := httptest.NewRecorder()
-	server.handleAppManagerDeploy(recorder, httptest.NewRequest(http.MethodGet, "/api/app-manager/deployments/create", nil))
-	if recorder.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("expected method rejection, got %d", recorder.Code)
+	for _, test := range []struct {
+		path    string
+		handler http.HandlerFunc
+	}{
+		{path: "/api/app-manager/deployments/create", handler: server.handleAppManagerDeploy},
+		{path: "/api/app-manager/environments/deploy-policy", handler: server.handleAppManagerEnvironmentDeployPolicy},
+	} {
+		recorder := httptest.NewRecorder()
+		test.handler(recorder, httptest.NewRequest(http.MethodGet, test.path, nil))
+		if recorder.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected method rejection for %s, got %d", test.path, recorder.Code)
+		}
 	}
 }

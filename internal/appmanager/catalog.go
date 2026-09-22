@@ -20,26 +20,8 @@ func (s *Service) SyncRepositories(ctx context.Context, inputs []RepositoryInput
 	}
 	defer tx.Rollback()
 	for _, in := range inputs {
-		in.Owner = strings.TrimSpace(in.Owner)
-		in.Name = strings.TrimSpace(in.Name)
-		if in.GitHubID < 1 || Slug(in.Owner) == "" || Slug(in.Name) == "" || len(in.DefaultBranch) > 255 || !validRepositoryURL(in.HTMLURL, in.Owner, in.Name) {
-			return fmt.Errorf("%w: invalid repository", ErrInvalid)
-		}
-		id, err := repositoryIDByGitHub(ctx, tx, in.GitHubID)
-		if err != nil {
+		if _, err := s.upsertRepositoryTx(ctx, tx, in, now); err != nil {
 			return err
-		}
-		if id == "" {
-			id, err = newID()
-			if err != nil {
-				return err
-			}
-		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO repositories(id,github_id,owner,name,full_name,default_branch,language,private,html_url,archived,last_synced_at,created_at,updated_at)
-VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(github_id) DO UPDATE SET owner=excluded.owner,name=excluded.name,full_name=excluded.full_name,default_branch=excluded.default_branch,language=excluded.language,private=excluded.private,html_url=excluded.html_url,archived=excluded.archived,last_synced_at=excluded.last_synced_at,updated_at=excluded.updated_at`,
-			id, in.GitHubID, in.Owner, in.Name, in.Owner+"/"+in.Name, in.DefaultBranch, in.Language, in.Private, in.HTMLURL, in.Archived, now, now, now)
-		if err != nil {
-			return fmt.Errorf("save repository: %w", err)
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE github_connection SET last_synced_at=?, updated_at=? WHERE singleton=1`, now, now); err != nil {
@@ -49,6 +31,31 @@ VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(github_id) DO UPDATE SET owner=exc
 		return fmt.Errorf("commit repository sync: %w", err)
 	}
 	return nil
+}
+
+func (s *Service) upsertRepositoryTx(ctx context.Context, tx *sql.Tx, in RepositoryInput, now time.Time) (string, error) {
+	in.Owner = strings.TrimSpace(in.Owner)
+	in.Name = strings.TrimSpace(in.Name)
+	if in.GitHubID < 1 || Slug(in.Owner) == "" || Slug(in.Name) == "" || len(in.Owner) > 100 || len(in.Name) > 100 || len(in.DefaultBranch) > 255 || len(in.Language) > 100 || !validRepositoryURL(in.HTMLURL, in.Owner, in.Name) {
+		return "", fmt.Errorf("%w: invalid repository", ErrInvalid)
+	}
+	id, err := repositoryIDByGitHub(ctx, tx, in.GitHubID)
+	if err != nil {
+		return "", err
+	}
+	if id == "" {
+		id, err = newID()
+		if err != nil {
+			return "", err
+		}
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO repositories(id,github_id,owner,name,full_name,default_branch,language,private,html_url,archived,last_synced_at,created_at,updated_at)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(github_id) DO UPDATE SET owner=excluded.owner,name=excluded.name,full_name=excluded.full_name,default_branch=excluded.default_branch,language=excluded.language,private=excluded.private,html_url=excluded.html_url,archived=excluded.archived,last_synced_at=excluded.last_synced_at,updated_at=excluded.updated_at`,
+		id, in.GitHubID, in.Owner, in.Name, in.Owner+"/"+in.Name, in.DefaultBranch, in.Language, in.Private, in.HTMLURL, in.Archived, now, now, now)
+	if err != nil {
+		return "", fmt.Errorf("save repository: %w", err)
+	}
+	return id, nil
 }
 
 func repositoryIDByGitHub(ctx context.Context, tx *sql.Tx, githubID int64) (string, error) {
@@ -133,8 +140,13 @@ func (s *Service) CreateApplication(ctx context.Context, in CreateApplicationInp
 		}
 		envSlug := Slug(environment.Name)
 		containerName := managedContainerName(slug, envSlug, id)
-		_, err = tx.ExecContext(ctx, `INSERT INTO application_environments(id,application_id,name,slug,type,agent_id,container_name,container_port,domain,site_enabled,ssl_enabled,health_path,auto_deploy,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'idle',?,?)`,
-			envID, id, strings.TrimSpace(environment.Name), envSlug, environment.Type, environment.AgentID, containerName, in.ContainerPort, strings.ToLower(environment.Domain), environment.SiteEnabled, environment.SSLEnabled, environment.HealthPath, environment.AutoDeploy, now, now)
+		autoDeploy := environment.AutoDeployMode != AutoDeployManual
+		autoDeploySource := environment.AutoDeployMode
+		if autoDeploySource == AutoDeployManual {
+			autoDeploySource = AutoDeployRelease
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO application_environments(id,application_id,name,slug,type,agent_id,container_name,container_port,domain,site_enabled,ssl_enabled,health_path,auto_deploy,auto_deploy_source,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'idle',?,?)`,
+			envID, id, strings.TrimSpace(environment.Name), envSlug, environment.Type, environment.AgentID, containerName, in.ContainerPort, strings.ToLower(environment.Domain), environment.SiteEnabled, environment.SSLEnabled, environment.HealthPath, autoDeploy, autoDeploySource, now, now)
 		if err != nil {
 			return Application{}, mapConstraintError(err, "environment already exists")
 		}
@@ -157,6 +169,40 @@ func managedContainerName(appSlug, envSlug, appID string) string {
 		base = strings.TrimRight(base[:108], "-")
 	}
 	return base + "-" + appID[:8]
+}
+
+func (s *Service) UpdateEnvironmentDeployPolicy(ctx context.Context, in UpdateEnvironmentDeployPolicyInput) error {
+	if !validID(in.EnvironmentID) || in.Mode != AutoDeployManual && in.Mode != AutoDeployTag && in.Mode != AutoDeployRelease {
+		return fmt.Errorf("%w: invalid deployment policy", ErrInvalid)
+	}
+	autoDeploy := in.Mode != AutoDeployManual
+	source := in.Mode
+	if source == AutoDeployManual {
+		source = AutoDeployRelease
+	}
+	tx, err := s.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin deployment policy update: %w", err)
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE application_environments SET auto_deploy=?,auto_deploy_source=?,updated_at=? WHERE id=?`, autoDeploy, source, s.now(), in.EnvironmentID)
+	if err != nil {
+		return fmt.Errorf("update deployment policy: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("confirm deployment policy update: %w", err)
+	}
+	if count != 1 {
+		return fmt.Errorf("%w: environment", ErrNotFound)
+	}
+	if err := insertAudit(ctx, tx, "dashboard", "environment.deploy_policy", "environment", in.EnvironmentID, string(in.Mode)); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit deployment policy update: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) ListApplications(ctx context.Context, assignment string, limit, offset int) ([]Application, error) {
@@ -240,7 +286,7 @@ func (s *Service) attachEnvironments(ctx context.Context, apps []Application) er
 	if len(byID) == 0 {
 		return nil
 	}
-	query := `SELECT e.id,e.application_id,e.name,e.slug,e.type,e.agent_id,e.container_name,e.container_port,e.host_port,e.domain,e.site_enabled,e.ssl_enabled,e.health_path,e.auto_deploy,e.current_artifact_id,COALESCE(rr.tag,''),e.status,e.last_deployment_at,e.created_at,e.updated_at FROM application_environments e LEFT JOIN application_release_artifacts ara ON ara.id=e.current_artifact_id LEFT JOIN repository_releases rr ON rr.id=ara.release_id WHERE e.application_id IN (` + strings.Join(placeholders, ",") + `) ORDER BY e.application_id,CASE e.type WHEN 'production' THEN 1 WHEN 'staging' THEN 2 ELSE 3 END,e.name`
+	query := `SELECT e.id,e.application_id,e.name,e.slug,e.type,e.agent_id,e.container_name,e.container_port,e.host_port,e.domain,e.site_enabled,e.ssl_enabled,e.health_path,CASE WHEN e.auto_deploy=0 THEN 'manual' ELSE e.auto_deploy_source END,e.current_artifact_id,COALESCE(rr.tag,''),e.status,e.last_deployment_at,e.created_at,e.updated_at FROM application_environments e LEFT JOIN application_release_artifacts ara ON ara.id=e.current_artifact_id LEFT JOIN repository_releases rr ON rr.id=ara.release_id WHERE e.application_id IN (` + strings.Join(placeholders, ",") + `) ORDER BY e.application_id,CASE e.type WHEN 'production' THEN 1 WHEN 'staging' THEN 2 ELSE 3 END,e.name`
 	rows, err := s.store.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("list environments: %w", err)
@@ -251,7 +297,7 @@ func (s *Service) attachEnvironments(ctx context.Context, apps []Application) er
 		var agentID, artifactID sql.NullString
 		var hostPort sql.NullInt64
 		var deployedAt sql.NullTime
-		if err := rows.Scan(&item.ID, &item.ApplicationID, &item.Name, &item.Slug, &item.Type, &agentID, &item.ContainerName, &item.ContainerPort, &hostPort, &item.Domain, &item.SiteEnabled, &item.SSLEnabled, &item.HealthPath, &item.AutoDeploy, &artifactID, &item.CurrentVersion, &item.Status, &deployedAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.ApplicationID, &item.Name, &item.Slug, &item.Type, &agentID, &item.ContainerName, &item.ContainerPort, &hostPort, &item.Domain, &item.SiteEnabled, &item.SSLEnabled, &item.HealthPath, &item.AutoDeployMode, &artifactID, &item.CurrentVersion, &item.Status, &deployedAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return fmt.Errorf("scan environment: %w", err)
 		}
 		if agentID.Valid {

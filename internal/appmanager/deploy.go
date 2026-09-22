@@ -432,6 +432,7 @@ func (s *Service) StartBackground(ctx context.Context) {
 					reconcileCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 					if _, err := s.GitHubConnection(reconcileCtx); err == nil {
 						_ = s.SyncGitHubRepositories(reconcileCtx)
+						_ = s.SyncGitHubTags(reconcileCtx)
 						_ = s.SyncGitHubReleases(reconcileCtx)
 					}
 					cancel()

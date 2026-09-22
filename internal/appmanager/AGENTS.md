@@ -13,13 +13,6 @@ do not add compatibility fallbacks, legacy-field inference, or migrations for
 earlier Application Manager prototypes. Compatibility work belongs only to
 the established legacy ServerPilot flows.
 
-The current cleanup release deliberately resets `/var/lib/serverpilot/appmanager`
-once on its first daemon start and writes
-`.cleanup-vnext-registry-username` so later restarts preserve new data. This is
-temporary pre-production code: do not broaden its path or apply it to legacy
-state. Remove the cleanup function and marker check only when the repository
-owner explicitly requests the follow-up cleanup removal.
-
 ## Non-negotiable domain rules
 
 - A repository may have many applications. Every application has exactly one
@@ -37,8 +30,13 @@ owner explicitly requests the follow-up cleanup removal.
   values overwrite matching keys. Keep this merge O(p+e) with a map.
 - Applications have no scope namespace and runtime variables never receive
   `PJ_`, `AP_`, or similar prefixes.
-- A GitHub release is shared by repository and tag. Each linked application
-  receives an image artifact state, not an independent semantic version.
+- A repository tag and a GitHub Release with the same tag are one shared
+  repository version. Each linked application receives an image artifact
+  state, not an independent semantic version.
+- Every application environment has exactly one deployment policy: `manual`,
+  automatic on semantic version tag (`vMAJOR.MINOR.PATCH`), or automatic on a
+  published GitHub Release. A tag-triggered deployment must not be repeated
+  when the matching Release is later published.
 - Managed images use
   `ghcr.io/{owner}/sp-{repository}-{application}:{release-tag}` and deployments
   prefer the immutable digest once resolved.
@@ -52,6 +50,12 @@ owner explicitly requests the follow-up cleanup removal.
   SSL, pairing, and destructive actions.
 - GitHub webhooks require HMAC verification before payload processing and a
   unique delivery ID for idempotency.
+- Subscribe the GitHub App to `Push`, `Release`, and `Repository`. For Push,
+  process only newly created semantic version tag refs and reject silently
+  moved tags. Process only `published` release actions and repository actions
+  `created`, `deleted`, `archived`, and `unarchived`; acknowledge other signed
+  actions without mutating state. Deleted repositories remain as archived
+  records so linked applications and audit history are preserved.
 - The GitHub setup UI accepts only the App ID and private key. Discover the
   account login, account type, avatar, and Installation ID from GitHub; never
   trust manually copied identity metadata. Generate the webhook secret in

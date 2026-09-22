@@ -17,6 +17,10 @@
     view: "project",
     currentProjectID: "",
     currentApplicationID: "",
+    currentApplicationTab: "overview",
+    currentEnvironmentID: "",
+    currentReleaseID: "",
+    currentDeploymentID: "",
     connection: null,
     repositories: [],
     applications: [],
@@ -60,6 +64,32 @@
   function appTypeLabel(type) { return type === "nextjs" ? "Next.js Frontend" : "REST API"; }
   function appTypeShortLabel(type) { return type === "nextjs" ? "Web" : "API"; }
   function appTypeIcon(type) { return icon(type === "nextjs" ? "world" : "server"); }
+  function autoDeployLabel(mode) {
+    if (mode === "tag") return "Version tag";
+    if (mode === "release") return "Published release";
+    return "Manual";
+  }
+  function repositoryIdentity(repo) {
+    var name = h(repo.full_name);
+    var link = repo.html_url ? '<a class="am-repository-link" href="' + h(repo.html_url) + '" target="_blank" rel="noopener noreferrer"><span class="am-mono">' + name + '</span>' + icon("external-link") + '</a>' : '<span class="am-mono">' + name + '</span>';
+    return '<span class="am-repository-identity">' + link + '<button type="button" class="am-icon-button am-copy-button" data-copy-repository="' + name + '" aria-label="Copy repository name" title="Copy repository name">' + icon("copy") + '</button></span>';
+  }
+  async function copyText(value) {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+    var field = document.createElement("textarea");
+    field.value = value;
+    field.setAttribute("readonly", "");
+    field.style.position = "fixed";
+    field.style.opacity = "0";
+    document.body.appendChild(field);
+    field.select();
+    var copied = document.execCommand("copy");
+    field.remove();
+    if (!copied) throw new Error("Repository name could not be copied");
+  }
   function button(text, actionName, primary, iconName, attrs) {
     return '<button type="button" class="am-button' + (primary ? " am-button-primary" : "") + '" data-am-action="' + h(actionName) + '"' + (attrs || "") + '>' + (iconName ? icon(iconName) : "") + h(text) + '</button>';
   }
@@ -137,6 +167,11 @@
   function renderCurrent() {
     if (!state.connection && state.view !== "github") { renderOnboarding(); return; }
     markNavigation(state.view);
+    if (state.view === "wizard") return;
+    if (state.view === "application" && state.currentApplicationID) { renderApplicationDetail(state.currentApplicationID, state.currentApplicationTab, state.currentEnvironmentID); return; }
+    if (state.view === "environment" && state.currentApplicationID && state.currentEnvironmentID) { renderEnvironmentDetail(state.currentApplicationID, state.currentEnvironmentID); return; }
+    if (state.view === "release" && state.currentReleaseID) { renderReleaseDetail(state.currentReleaseID); return; }
+    if (state.view === "deployment" && state.currentDeploymentID) { renderDeploymentDetail(state.currentDeploymentID); return; }
     if (state.view === "repositories") { renderRepositories(); return; }
     if (state.view === "github") { renderGitHub(); return; }
     if (state.view === "settings") { renderSettings(); return; }
@@ -147,13 +182,13 @@
 
   function renderOnboarding() {
     markNavigation("github");
-    content.innerHTML = pageHeader("Connect GitHub", "Install the ServerPilot GitHub App to discover repositories and release images.", button("Configure GitHub App", "configure-github", true, "brand-github")) +
-      '<div class="am-panel" style="padding:28px;max-width:840px"><div class="am-page-title-row"><span class="am-page-mark">' + icon("brand-github") + '</span><div><h2 style="margin-bottom:4px">One account, only authorized repositories</h2><p class="am-muted">Credentials are encrypted on this server. Signed webhooks create shared repository releases and per-application image artifacts.</p></div></div></div>';
+    content.innerHTML = pageHeader("Connect GitHub", "Install the ServerPilot GitHub App to discover repositories and version images.", button("Configure GitHub App", "configure-github", true, "brand-github")) +
+      '<div class="am-panel" style="padding:28px;max-width:840px"><div class="am-page-title-row"><span class="am-page-mark">' + icon("brand-github") + '</span><div><h2 style="margin-bottom:4px">One account, only authorized repositories</h2><p class="am-muted">Credentials are encrypted on this server. Signed tag and Release webhooks create one shared repository version with per-application image artifacts.</p></div></div></div>';
   }
 
   function applicationCard(app) {
     var env = preferredEnvironment(app.environments || []);
-    return '<button type="button" class="am-card" data-application-id="' + h(app.id) + '"><div class="am-card-top"><div class="am-card-title"><span class="am-type-tile">' + appTypeIcon(app.type) + '</span><div><strong>' + h(app.name) + '</strong></div></div>' + statusBadge(env ? env.status : "attention") + '</div><p class="am-card-description">' + h(app.description || "No description provided.") + '</p><div class="am-chips"><span class="am-chip">' + appTypeIcon(app.type) + h(appTypeShortLabel(app.type)) + '</span><span class="am-chip am-mono">' + icon("brand-github") + h(app.repository) + '</span></div><div class="am-card-rule"></div><div class="am-card-footer"><span>' + (env ? environmentChip(env) : '<span class="am-chip">No environment</span>') + '</span><strong class="am-mono">' + h(env && env.current_version ? env.current_version : "No release") + '</strong><span>' + icon("clock") + h(env && env.last_deployed_at ? relative(env.last_deployed_at) : "Not deployed") + '</span></div></button>';
+    return '<button type="button" class="am-card" data-application-id="' + h(app.id) + '"><div class="am-card-top"><div class="am-card-title"><span class="am-type-tile">' + appTypeIcon(app.type) + '</span><div><strong>' + h(app.name) + '</strong></div></div>' + statusBadge(env ? env.status : "attention") + '</div><p class="am-card-description">' + h(app.description || "No description provided.") + '</p><div class="am-chips"><span class="am-chip">' + appTypeIcon(app.type) + h(appTypeShortLabel(app.type)) + '</span><span class="am-chip am-mono">' + icon("brand-github") + h(app.repository) + '</span></div><div class="am-card-rule"></div><div class="am-card-footer"><span>' + (env ? environmentChip(env) : '<span class="am-chip">No environment</span>') + '</span><strong class="am-mono">' + h(env && env.current_version ? env.current_version : "No version") + '</strong><span>' + icon("clock") + h(env && env.last_deployed_at ? relative(env.last_deployed_at) : "Not deployed") + '</span></div></button>';
   }
 
   function renderProjectDetail(projectID) {
@@ -190,7 +225,7 @@
     var query = state.query.toLowerCase();
     var repos = state.repositories.filter(function(repo) { return !query || repo.full_name.toLowerCase().includes(query) || (repo.language || "").toLowerCase().includes(query); });
     var rows = repos.map(function(repo) {
-      return '<tr><td><strong class="am-mono">' + h(repo.full_name) + '</strong><div class="am-muted">' + (repo.private ? "Private" : "Public") + '</div></td><td class="am-mono">' + h(repo.default_branch) + '</td><td>' + h(repo.language || "—") + '</td><td>' + h(repo.application_count) + '</td><td>' + h(relative(repo.last_synced_at)) + '</td><td class="am-table-actions">' + button("Create application", "create-application", false, "plus", ' data-repository-id="' + h(repo.id) + '"') + '</td></tr>';
+      return '<tr><td>' + repositoryIdentity(repo) + '<div class="am-muted">' + (repo.private ? "Private" : "Public") + '</div></td><td class="am-mono">' + h(repo.default_branch) + '</td><td>' + h(repo.language || "—") + '</td><td>' + h(repo.application_count) + '</td><td>' + h(relative(repo.last_synced_at)) + '</td><td class="am-table-actions">' + button("Create application", "create-application", false, "plus", ' data-repository-id="' + h(repo.id) + '"') + '</td></tr>';
     }).join("");
     content.innerHTML = pageHeader("Repositories", "Repositories authorized through the connected GitHub App.", button("Sync now", "sync-github", false, "refresh")) + (rows ? '<div class="am-table-wrap"><table class="am-table"><thead><tr><th>Repository</th><th>Branch</th><th>Language</th><th>Applications</th><th>Last sync</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' : emptyState("No repositories", "Grant repository access in the GitHub App installation.", "sync-github", "Sync now"));
   }
@@ -201,7 +236,7 @@
     if (!state.connection) { renderOnboarding(); return; }
     var conn = state.connection;
     var rows = state.repositories.map(function(repo) {
-      return '<div class="am-list-row"><span class="am-list-avatar">' + h(initials(repo.name)) + '</span><div class="am-list-row-main"><strong class="am-mono">' + h(repo.full_name) + '</strong><span class="am-muted">Default branch ' + h(repo.default_branch) + ' · ' + h(repo.language || "Unknown") + '</span></div><span class="am-chip">' + icon(repo.private ? "lock" : "world") + (repo.private ? "Private" : "Public") + '</span></div>';
+      return '<div class="am-list-row"><span class="am-list-avatar">' + h(initials(repo.name)) + '</span><div class="am-list-row-main">' + repositoryIdentity(repo) + '<span class="am-muted">Default branch ' + h(repo.default_branch) + ' · ' + h(repo.language || "Unknown") + '</span></div><span class="am-chip">' + icon(repo.private ? "lock" : "world") + (repo.private ? "Private" : "Public") + '</span></div>';
     }).join("");
     var headerActions = button("Sync now", "sync-github", false, "refresh") + button("Manage installation", "configure-github", false, "settings");
     content.innerHTML = pageHeader("GitHub", "Manage the GitHub App installation, connected account and authorized repositories.", "") +
@@ -222,12 +257,12 @@
 
   function environmentCards(app, latestReady) {
     return (app.environments || []).map(function(env) {
-      return '<div class="am-card"><div class="am-card-top"><div>' + environmentChip(env) + '<h2 style="margin:12px 0 4px">' + h(env.name) + '</h2></div>' + statusBadge(env.status) + '</div><div class="am-card-rule"></div><div class="am-form-grid"><div><span class="am-muted">Server</span><div>' + h(env.agent_id || "This server") + '</div></div><div><span class="am-muted">Version</span><div class="am-mono">' + h(env.current_version || "Not deployed") + '</div></div><div><span class="am-muted">Domain</span><div class="am-truncate">' + h(env.domain || "No domain") + '</div></div><div><span class="am-muted">Auto-deploy</span><div>' + (env.auto_deploy ? "Enabled" : "Disabled") + '</div></div></div><div class="am-actions am-card-actions"><button class="am-button" type="button" data-environment-id="' + h(env.id) + '" data-parent-application-id="' + h(app.id) + '">View environment</button>' + button("Deploy", "deploy", true, "rocket", ' data-environment-id="' + h(env.id) + '" data-artifact-id="' + h(latestReady ? latestReady.id : "") + '"' + (latestReady ? "" : " disabled")) + '</div></div>';
+      return '<div class="am-card"><div class="am-card-top"><div>' + environmentChip(env) + '<h2 style="margin:12px 0 4px">' + h(env.name) + '</h2></div>' + statusBadge(env.status) + '</div><div class="am-card-rule"></div><div class="am-form-grid"><div><span class="am-muted">Server</span><div>' + h(env.agent_id || "This server") + '</div></div><div><span class="am-muted">Version</span><div class="am-mono">' + h(env.current_version || "Not deployed") + '</div></div><div><span class="am-muted">Domain</span><div class="am-truncate">' + h(env.domain || "No domain") + '</div></div><div><span class="am-muted">Deploy policy</span><div>' + h(autoDeployLabel(env.auto_deploy_mode)) + '</div></div></div><div class="am-actions am-card-actions"><button class="am-button" type="button" data-environment-id="' + h(env.id) + '" data-parent-application-id="' + h(app.id) + '">View environment</button>' + button("Deploy", "deploy", true, "rocket", ' data-environment-id="' + h(env.id) + '" data-artifact-id="' + h(latestReady ? latestReady.id : "") + '"' + (latestReady ? "" : " disabled")) + '</div></div>';
     }).join("");
   }
 
   function releaseTable(rows) {
-    return rows ? '<div class="am-table-wrap"><table class="am-table"><thead><tr><th>Version</th><th>Image</th><th>Image status</th><th>Digest</th><th>Detected</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : emptyState("No releases detected", "Publish a GitHub Release after installing the generated workflow.", null, null);
+    return rows ? '<div class="am-table-wrap"><table class="am-table"><thead><tr><th>Version</th><th>Image</th><th>Image status</th><th>Digest</th><th>Detected</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : emptyState("No versions detected", "Push a semantic version tag after installing the generated workflow.", null, null);
   }
   function deploymentTable(rows) {
     return rows ? '<div class="am-table-wrap"><table class="am-table"><thead><tr><th>Status</th><th>Environment</th><th>Trigger</th><th>Actor</th><th>Digest</th><th>Started</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : emptyState("No deployments yet", "Deployments appear after a release image is ready.", null, null);
@@ -266,6 +301,8 @@
       var latestReady = artifacts.find(function(item) { return item.status === "ready"; });
       state.currentApplicationID = app.id;
       state.currentProjectID = app.project_id || state.currentProjectID;
+      state.currentApplicationTab = tab;
+      state.currentEnvironmentID = selectedEnv ? selectedEnv.id : "";
       state.view = "application";
       setSidebarSection("applications", true);
       renderSelectors();
@@ -284,7 +321,7 @@
         return '<tr data-deployment-id="' + h(item.id) + '"><td>' + statusBadge(item.status) + '</td><td>' + h(environment ? environment.name : "Unknown") + '</td><td>' + h(label(item.trigger)) + '</td><td>' + h(item.actor) + '</td><td class="am-mono" title="' + h(item.image_digest || "") + '">' + h(item.image_digest ? shortDigest(item.image_digest) : "Pending") + '</td><td>' + h(relative(item.created_at)) + '</td></tr>';
       }).join("");
       var body = "";
-      if (tab === "overview") body = '<section class="am-section"><div class="am-section-head"><h2>Environments</h2></div><div class="am-grid">' + cards + '</div></section><section class="am-section"><div class="am-section-head"><h2>Latest release images</h2></div>' + releaseTable(artifactRows) + '</section>';
+      if (tab === "overview") body = '<section class="am-section"><div class="am-section-head"><h2>Environments</h2></div><div class="am-grid">' + cards + '</div></section><section class="am-section"><div class="am-section-head"><h2>Latest version images</h2></div>' + releaseTable(artifactRows) + '</section>';
       if (tab === "environments") body = '<section class="am-section"><div class="am-section-head"><div><h2>Environments</h2><div class="am-muted">Every environment owns one standalone container.</div></div></div><div class="am-grid">' + cards + '</div></section>';
       if (tab === "deployments") body = '<section class="am-section"><div class="am-section-head"><h2>Deployments</h2></div>' + deploymentTable(deploymentRows) + '</section>';
       if (tab === "activity") body = '<section class="am-section"><div class="am-panel am-feed">' + (deployments.map(function(item) { return '<button class="am-feed-item am-feed-button" type="button" data-deployment-id="' + h(item.id) + '"><span class="am-feed-dot"></span><div><strong>' + h(label(item.trigger)) + ' deployment</strong><div class="am-muted">' + h(item.actor) + '</div></div><div>' + statusBadge(item.status) + '<div class="am-muted">' + h(relative(item.created_at)) + '</div></div></button>'; }).join("") || '<div class="am-feed-item"><span class="am-feed-dot"></span><div>No activity yet</div></div>') + '</div></section>';
@@ -316,11 +353,14 @@
       var config = dataOf(responses[3]) || {};
       var env = (app.environments || []).find(function(item) { return item.id === environmentID; });
       if (!env) throw new Error("Environment not found");
+      state.currentApplicationID = app.id;
+      state.currentEnvironmentID = env.id;
+      state.view = "environment";
       var latestReady = artifacts.find(function(item) { return item.status === "ready"; });
       var rows = deployments.map(function(item) { return '<tr data-deployment-id="' + h(item.id) + '"><td>' + statusBadge(item.status) + '</td><td>' + h(label(item.trigger)) + '</td><td>' + h(item.actor) + '</td><td class="am-mono">' + h(item.image_digest ? shortDigest(item.image_digest) : "Pending") + '</td><td>' + h(relative(item.created_at)) + '</td></tr>'; }).join("");
       var merged = mergeConfiguration(config.project, config.environment);
-      var actions = '<button class="am-button" type="button" data-back-application="' + h(app.id) + '">' + icon("chevron-left") + 'Back</button>' + button("Rollback", "rollback", false, "refresh", ' data-environment-id="' + h(env.id) + '"') + button("Deploy", "deploy", true, "rocket", ' data-environment-id="' + h(env.id) + '" data-artifact-id="' + h(latestReady ? latestReady.id : "") + '"' + (latestReady ? "" : " disabled"));
-      content.innerHTML = pageHeader(env.name, "Standalone container environment for " + app.name + ".", actions, app.name + " › Environments › " + env.name) + '<div class="am-chips">' + environmentChip(env) + statusBadge(env.status) + '</div><div class="am-grid am-summary-grid"><div class="am-card"><span class="am-muted">Version</span><h3 class="am-mono">' + h(env.current_version || "Not deployed") + '</h3></div><div class="am-card"><span class="am-muted">Domain</span><h3 class="am-mono am-truncate">' + h(env.domain || "No domain") + '</h3></div></div><section class="am-section"><div class="am-section-head"><h2>Deployment history</h2></div>' + deploymentTable(rows) + '</section><section class="am-section"><div class="am-section-head"><div><h2>Runtime configuration</h2><div class="am-muted">Project values are applied first; this environment wins on duplicate keys.</div></div>' + button("Manage values", "configure-environment", false, "settings", ' data-environment-id="' + h(env.id) + '"') + '</div><div class="am-list-panel">' + configurationRows(merged, false) + configurationRows(merged, true) + '</div></section>';
+      var actions = '<button class="am-button" type="button" data-back-application="' + h(app.id) + '">' + icon("chevron-left") + 'Back</button>' + button("Deploy policy", "deploy-policy", false, "settings", ' data-environment-id="' + h(env.id) + '" data-deploy-mode="' + h(env.auto_deploy_mode) + '"') + button("Rollback", "rollback", false, "refresh", ' data-environment-id="' + h(env.id) + '"') + button("Deploy", "deploy", true, "rocket", ' data-environment-id="' + h(env.id) + '" data-artifact-id="' + h(latestReady ? latestReady.id : "") + '"' + (latestReady ? "" : " disabled"));
+      content.innerHTML = pageHeader(env.name, "Standalone container environment for " + app.name + ".", actions, app.name + " › Environments › " + env.name) + '<div class="am-chips">' + environmentChip(env) + statusBadge(env.status) + '</div><div class="am-grid am-summary-grid"><div class="am-card"><span class="am-muted">Version</span><h3 class="am-mono">' + h(env.current_version || "Not deployed") + '</h3></div><div class="am-card"><span class="am-muted">Domain</span><h3 class="am-mono am-truncate">' + h(env.domain || "No domain") + '</h3></div><div class="am-card"><span class="am-muted">Deploy policy</span><h3>' + h(autoDeployLabel(env.auto_deploy_mode)) + '</h3></div></div><section class="am-section"><div class="am-section-head"><h2>Deployment history</h2></div>' + deploymentTable(rows) + '</section><section class="am-section"><div class="am-section-head"><div><h2>Runtime configuration</h2><div class="am-muted">Project values are applied first; this environment wins on duplicate keys.</div></div>' + button("Manage values", "configure-environment", false, "settings", ' data-environment-id="' + h(env.id) + '"') + '</div><div class="am-list-panel">' + configurationRows(merged, false) + configurationRows(merged, true) + '</div></section>';
     } catch (err) { errorState(err.message); }
   }
 
@@ -328,10 +368,13 @@
     loading();
     try {
       var release = dataOf(await apiFetch("/api/app-manager/releases/detail?id=" + encodeURIComponent(id)));
+      state.currentReleaseID = release.id;
+      state.view = "release";
       var rows = (release.artifacts || []).map(function(item) {
         return '<tr data-application-id="' + h(item.application_id) + '"><td><strong>' + h(item.application) + '</strong></td><td class="am-mono am-truncate">' + h(item.image_reference) + '</td><td>' + statusBadge(item.status) + '</td><td class="am-mono">' + h(shortDigest(item.image_digest)) + '</td><td>' + h(item.failure_code || "—") + '</td></tr>';
       }).join("");
-      content.innerHTML = pageHeader("Release " + release.tag, release.name || "Shared repository release version.", button("Applications", "applications", false, "chevron-left"), "Releases › " + release.tag) + '<div class="am-panel am-release-meta"><div><span>Commit</span><strong class="am-mono">' + h(release.commit_sha || "—") + '</strong></div><div><span>Published</span><strong>' + h(relative(release.published_at)) + '</strong></div></div><section class="am-section"><div class="am-section-head"><div><h2>Application image artifacts</h2><div class="am-muted">The release version is shared; image readiness remains independent.</div></div></div><div class="am-table-wrap"><table class="am-table"><thead><tr><th>Application</th><th>Expected image</th><th>Status</th><th>Digest</th><th>Failure</th></tr></thead><tbody>' + rows + '</tbody></table></div></section>';
+      var sources = (release.tag_detected ? '<span class="am-chip">Version tag detected</span>' : '') + (release.release_published ? '<span class="am-chip">GitHub Release published</span>' : '');
+      content.innerHTML = pageHeader("Version " + release.tag, release.name || "Shared repository version.", button("Applications", "applications", false, "chevron-left"), "Versions › " + release.tag) + '<div class="am-chips">' + sources + '</div><div class="am-panel am-release-meta"><div><span>Commit</span><strong class="am-mono">' + h(release.commit_sha || "—") + '</strong></div><div><span>Last detected</span><strong>' + h(relative(release.published_at)) + '</strong></div></div><section class="am-section"><div class="am-section-head"><div><h2>Application image artifacts</h2><div class="am-muted">The version is shared; each application image is verified independently.</div></div></div><div class="am-table-wrap"><table class="am-table"><thead><tr><th>Application</th><th>Expected image</th><th>Status</th><th>Digest</th><th>Failure</th></tr></thead><tbody>' + rows + '</tbody></table></div></section>';
     } catch (err) { errorState(err.message); }
   }
 
@@ -339,6 +382,8 @@
     loading();
     try {
       var deployment = dataOf(await apiFetch("/api/app-manager/deployments/detail?id=" + encodeURIComponent(id)));
+      state.currentDeploymentID = deployment.id;
+      state.view = "deployment";
       content.innerHTML = pageHeader("Deployment", "Immutable image deployment executed by ServerPilot.", button("Applications", "applications", false, "chevron-left"), "Deployments › " + deployment.id.slice(0, 8)) + '<div class="am-chips">' + statusBadge(deployment.status) + '<span class="am-chip">' + h(label(deployment.trigger)) + '</span></div><div class="am-grid am-summary-grid"><div class="am-card"><span class="am-muted">Environment</span><h3 class="am-mono am-truncate">' + h(deployment.environment_id) + '</h3></div><div class="am-card"><span class="am-muted">Actor</span><h3>' + h(deployment.actor) + '</h3></div></div><section class="am-section"><div class="am-panel am-log-panel"><div><span>Container</span><strong class="am-mono">' + h(deployment.container_name || "Pending") + '</strong></div><div><span>Image digest</span><strong class="am-mono am-truncate">' + h(deployment.image_digest || "Pending") + '</strong></div><pre class="am-mono">' + h(deployment.log_summary || "No operational log is available. Secret values are never recorded.") + '</pre></div></section>';
     } catch (err) { errorState(err.message); }
   }
@@ -382,11 +427,11 @@
         var setup = dataOf(await apiFetch("/api/app-manager/github/configure", { method: "POST", body: { app_id: Number(document.getElementById("amGhAppID").value), private_key: document.getElementById("amGhPrivateKey").value, registry_username: registryUsername, registry_pat: registryPAT } }));
         await reload();
         var webhookURL = window.location.origin + "/webhooks/github/app-manager";
-        openDialog("Connection ready", "Finish webhook setup", '<div class="am-success-panel">' + icon("circle-check") + '<div><strong>Connected to @' + h(setup.connection.account_login) + '</strong><span>ServerPilot detected the ' + h(setup.connection.account_type.toLowerCase()) + ' installation automatically.</span></div></div><div class="am-alert">Copy these values to the GitHub App webhook settings now. The secret is shown only once.</div><div class="am-copy-field"><label>Payload URL</label><div><code id="amWebhookURL"></code><button class="am-icon-button" type="button" id="amCopyWebhookURL" aria-label="Copy webhook URL">' + icon("copy") + '</button></div></div><div class="am-copy-field"><label>Webhook secret</label><div><code id="amWebhookSecret"></code><button class="am-icon-button" type="button" id="amCopyWebhookSecret" aria-label="Copy webhook secret">' + icon("copy") + '</button></div></div>', '<button class="am-button am-button-primary" value="cancel">Done</button>');
+        openDialog("Connection ready", "Finish webhook setup", '<div class="am-success-panel">' + icon("circle-check") + '<div><strong>Connected to @' + h(setup.connection.account_login) + '</strong><span>ServerPilot detected the ' + h(setup.connection.account_type.toLowerCase()) + ' installation automatically.</span></div></div><div class="am-alert">Copy these values to the GitHub App webhook settings now. The secret is shown only once.</div><div class="am-alert"><strong>Permissions &amp; events:</strong> grant repository Contents read access and subscribe to Push, Release and Repository.</div><div class="am-copy-field"><label>Payload URL</label><div><code id="amWebhookURL"></code><button class="am-icon-button" type="button" id="amCopyWebhookURL" aria-label="Copy webhook URL">' + icon("copy") + '</button></div></div><div class="am-copy-field"><label>Webhook secret</label><div><code id="amWebhookSecret"></code><button class="am-icon-button" type="button" id="amCopyWebhookSecret" aria-label="Copy webhook secret">' + icon("copy") + '</button></div></div>', '<button class="am-button am-button-primary" value="cancel">Done</button>');
         document.getElementById("amWebhookURL").textContent = webhookURL;
         document.getElementById("amWebhookSecret").textContent = setup.webhook_secret;
-        document.getElementById("amCopyWebhookURL").addEventListener("click", function() { navigator.clipboard.writeText(webhookURL).then(function() { showToast("Webhook URL copied", "success"); }); });
-        document.getElementById("amCopyWebhookSecret").addEventListener("click", function() { navigator.clipboard.writeText(setup.webhook_secret).then(function() { showToast("Webhook secret copied", "success"); }); });
+        document.getElementById("amCopyWebhookURL").addEventListener("click", function() { copyText(webhookURL).then(function() { showToast("Webhook URL copied", "success"); }).catch(function(err) { showToast(err.message, "error"); }); });
+        document.getElementById("amCopyWebhookSecret").addEventListener("click", function() { copyText(setup.webhook_secret).then(function() { showToast("Webhook secret copied", "success"); }).catch(function(err) { showToast(err.message, "error"); }); });
       } catch (err) { showToast(err.message, "error"); target.disabled = false; }
     });
   }
@@ -425,13 +470,13 @@
     var draft = { step: 0, repository_id: preselectedRepository || "", name: "", description: "", type: "nextjs", dockerfile: "Dockerfile", build_context: ".", container_port: 3000, project_id: "", environments: [newEnvironment("test", "test"), newEnvironment("staging", "staging"), newEnvironment("production", "production")] };
     var titles = ["Repository", "Basics", "Type", "Build", "Environments", "Configuration", "GitHub Actions", "Review"];
     var descriptions = ["Choose from repositories authorized through the GitHub App.", "Name the application and optionally assign it to a project.", "Select the runtime profile used for sensible defaults.", "Define the immutable image build inputs.", "Create one or more Test, Staging or Production environments.", "Configure servers, routing and runtime values.", "Review the copy-ready workflow generated by ServerPilot.", "Confirm every setting before creating the application."];
-    function newEnvironment(name, type) { return { name: name, type: type, domain: "", site_enabled: false, ssl_enabled: false, health_path: "/", auto_deploy: false, agent_id: "", variables: "", secrets: "" }; }
+    function newEnvironment(name, type) { return { name: name, type: type, domain: "", site_enabled: false, ssl_enabled: false, health_path: "/", auto_deploy_mode: "manual", agent_id: "", variables: "", secrets: "" }; }
     function field(id) { var element = document.getElementById(id); return element ? element.value.trim() : ""; }
     function collect() {
       if (draft.step === 1) { draft.name = field("amAppName"); draft.description = field("amAppDescription"); draft.project_id = field("amAppProject"); }
       if (draft.step === 3) { draft.dockerfile = field("amAppDockerfile"); draft.build_context = field("amAppContext"); draft.container_port = Number(field("amAppPort")); }
       if (draft.step === 4) draft.environments = Array.from(content.querySelectorAll(".am-environment-editor")).map(function(box) { return Object.assign({}, draft.environments[Number(box.dataset.index)], { name: box.querySelector('[data-field="name"]').value.trim(), type: box.querySelector('[data-field="type"]').value }); });
-      if (draft.step === 5) draft.environments = Array.from(content.querySelectorAll(".am-environment-editor")).map(function(box) { var old = draft.environments[Number(box.dataset.index)]; return Object.assign({}, old, { agent_id: box.querySelector('[data-field="agent"]').value, domain: box.querySelector('[data-field="domain"]').value.trim(), site_enabled: box.querySelector('[data-field="site"]').checked, ssl_enabled: box.querySelector('[data-field="ssl"]').checked, health_path: box.querySelector('[data-field="health"]').value.trim(), auto_deploy: box.querySelector('[data-field="auto"]').checked, variables: box.querySelector('[data-field="variables"]').value, secrets: box.querySelector('[data-field="secrets"]').value }); });
+      if (draft.step === 5) draft.environments = Array.from(content.querySelectorAll(".am-environment-editor")).map(function(box) { var old = draft.environments[Number(box.dataset.index)]; return Object.assign({}, old, { agent_id: box.querySelector('[data-field="agent"]').value, domain: box.querySelector('[data-field="domain"]').value.trim(), site_enabled: box.querySelector('[data-field="site"]').checked, ssl_enabled: box.querySelector('[data-field="ssl"]').checked, health_path: box.querySelector('[data-field="health"]').value.trim(), auto_deploy_mode: box.querySelector('[data-field="auto-mode"]').value, variables: box.querySelector('[data-field="variables"]').value, secrets: box.querySelector('[data-field="secrets"]').value }); });
     }
     function valid() {
       if (draft.step === 0) return Boolean(draft.repository_id);
@@ -463,8 +508,8 @@
         return '<div class="am-form-grid"><div class="am-field"><label for="amAppDockerfile">Dockerfile path</label><input id="amAppDockerfile" value="' + h(draft.dockerfile) + '"></div><div class="am-field"><label for="amAppContext">Build context</label><input id="amAppContext" value="' + h(draft.build_context) + '"></div><div class="am-field"><label for="amAppPort">Container port</label><input id="amAppPort" type="number" min="1" max="65535" value="' + h(draft.container_port) + '"></div><div class="am-field"><label>GHCR image</label><input class="am-mono" value="' + h(preview) + '" readonly></div></div>';
       }
       if (draft.step === 4) return '<div class="am-alert">Names are customizable; every environment must be Test, Staging or Production.</div>' + draft.environments.map(function(env, index) { return '<div class="am-environment-editor" data-index="' + index + '"><div class="am-form-grid"><div class="am-field"><label>Name</label><input data-field="name" value="' + h(env.name) + '"></div><div class="am-field"><label>Type</label><select data-field="type">' + ["test", "staging", "production"].map(function(type) { return '<option ' + (type === env.type ? "selected" : "") + '>' + type + '</option>'; }).join("") + '</select></div></div><button class="am-button am-button-danger" type="button" data-remove-environment="' + index + '" style="margin-top:12px">Remove</button></div>'; }).join("") + '<button class="am-button" type="button" id="amAddEnvironment" style="margin-top:12px">' + icon("plus") + 'Add environment</button>';
-      if (draft.step === 5) return draft.environments.map(function(env, index) { return '<div class="am-environment-editor" data-index="' + index + '"><h3>' + h(env.name) + ' ' + environmentChip(env) + '</h3><div class="am-form-grid"><div class="am-field"><label>Server</label><select data-field="agent"><option value="">This server</option>' + state.agents.filter(function(agent) { return agent.id !== "local"; }).map(function(agent) { return '<option value="' + h(agent.id) + '" ' + (agent.id === env.agent_id ? "selected" : "") + '>' + h(agent.name) + '</option>'; }).join("") + '</select></div><div class="am-field"><label>Domain</label><input data-field="domain" value="' + h(env.domain) + '" placeholder="app.example.com"></div><div class="am-field"><label>Health path</label><input data-field="health" value="' + h(env.health_path) + '"></div><div class="am-field"><label>Variables</label><textarea data-field="variables" placeholder="LOG_LEVEL=info">' + h(env.variables) + '</textarea></div><div class="am-field"><label>Secrets</label><textarea data-field="secrets" placeholder="DATABASE_URL=…">' + h(env.secrets) + '</textarea></div><div class="am-field"><label class="am-check"><input type="checkbox" data-field="site" ' + (env.site_enabled ? "checked" : "") + '> Managed site</label><label class="am-check"><input type="checkbox" data-field="ssl" ' + (env.ssl_enabled ? "checked" : "") + '> SSL</label><label class="am-check"><input type="checkbox" data-field="auto" ' + (env.auto_deploy ? "checked" : "") + '> Auto-deploy releases</label></div></div></div>'; }).join("");
-      if (draft.step === 6) return '<div class="am-list-panel"><div class="am-list-header"><div><h2 style="margin:0">Per-application GitHub Actions workflow</h2><div class="am-muted">Builds this application and publishes the release tag with OCI labels.</div></div>' + icon("brand-github") + '</div><div style="padding:20px"><p class="am-muted">The generated workflow never bakes runtime variables or secrets into the image. It publishes using the <span class="am-mono">sp-repository-application:&lt;release-tag&gt;</span> convention.</p></div></div>';
+      if (draft.step === 5) return draft.environments.map(function(env, index) { return '<div class="am-environment-editor" data-index="' + index + '"><h3>' + h(env.name) + ' ' + environmentChip(env) + '</h3><div class="am-form-grid"><div class="am-field"><label>Server</label><select data-field="agent"><option value="">This server</option>' + state.agents.filter(function(agent) { return agent.id !== "local"; }).map(function(agent) { return '<option value="' + h(agent.id) + '" ' + (agent.id === env.agent_id ? "selected" : "") + '>' + h(agent.name) + '</option>'; }).join("") + '</select></div><div class="am-field"><label>Domain</label><input data-field="domain" value="' + h(env.domain) + '" placeholder="app.example.com"></div><div class="am-field"><label>Health path</label><input data-field="health" value="' + h(env.health_path) + '"></div><div class="am-field"><label>Automatic deployment</label><select data-field="auto-mode"><option value="manual" ' + (env.auto_deploy_mode === "manual" ? "selected" : "") + '>Manual</option><option value="tag" ' + (env.auto_deploy_mode === "tag" ? "selected" : "") + '>On version tag</option><option value="release" ' + (env.auto_deploy_mode === "release" ? "selected" : "") + '>On published release</option></select><span class="am-field-help">Version tags must use semantic form such as v2.14.3.</span></div><div class="am-field"><label>Variables</label><textarea data-field="variables" placeholder="LOG_LEVEL=info">' + h(env.variables) + '</textarea></div><div class="am-field"><label>Secrets</label><textarea data-field="secrets" placeholder="DATABASE_URL=…">' + h(env.secrets) + '</textarea></div><div class="am-field"><label class="am-check"><input type="checkbox" data-field="site" ' + (env.site_enabled ? "checked" : "") + '> Managed site</label><label class="am-check"><input type="checkbox" data-field="ssl" ' + (env.ssl_enabled ? "checked" : "") + '> SSL</label></div></div></div>'; }).join("");
+      if (draft.step === 6) return '<div class="am-list-panel"><div class="am-list-header"><div><h2 style="margin:0">Per-application GitHub Actions workflow</h2><div class="am-muted">Builds this application whenever a semantic version tag is pushed.</div></div>' + icon("brand-github") + '</div><div style="padding:20px"><p class="am-muted">The generated workflow never bakes runtime variables or secrets into the image. It publishes using the <span class="am-mono">sp-repository-application:&lt;version-tag&gt;</span> convention. ServerPilot verifies the GHCR image digest before any automatic deployment.</p></div></div>';
       return '<div class="am-form-grid"><div><span class="am-muted">Application</span><h3>' + h(draft.name) + '</h3></div><div><span class="am-muted">Type</span><h3>' + h(appTypeLabel(draft.type)) + '</h3></div><div><span class="am-muted">Repository</span><h3 class="am-mono">' + h((state.repositories.find(function(repo) { return repo.id === draft.repository_id; }) || {}).full_name || "") + '</h3></div><div><span class="am-muted">Project</span><h3>' + h((state.projects.find(function(project) { return project.id === draft.project_id; }) || {}).name || "No project") + '</h3></div></div><div class="am-card-rule"></div><div class="am-chips">' + draft.environments.map(environmentChip).join("") + '</div>';
     }
     function updateNext() { var next = document.getElementById("amWizardNext"); if (next) next.disabled = !valid(); }
@@ -486,7 +531,7 @@
     async function save() {
       var next = document.getElementById("amWizardNext"); next.disabled = true;
       try {
-        var payload = { repository_id: draft.repository_id, name: draft.name, description: draft.description, type: draft.type, dockerfile: draft.dockerfile, build_context: draft.build_context, container_port: draft.container_port, environments: draft.environments.map(function(env) { return { name: env.name, type: env.type, agent_id: env.agent_id || null, domain: env.domain, site_enabled: env.site_enabled, ssl_enabled: env.ssl_enabled, health_path: env.health_path, auto_deploy: env.auto_deploy, configuration: parseVariables(env.variables, false).concat(parseVariables(env.secrets, true)) }; }) };
+        var payload = { repository_id: draft.repository_id, name: draft.name, description: draft.description, type: draft.type, dockerfile: draft.dockerfile, build_context: draft.build_context, container_port: draft.container_port, environments: draft.environments.map(function(env) { return { name: env.name, type: env.type, agent_id: env.agent_id || null, domain: env.domain, site_enabled: env.site_enabled, ssl_enabled: env.ssl_enabled, health_path: env.health_path, auto_deploy_mode: env.auto_deploy_mode, configuration: parseVariables(env.variables, false).concat(parseVariables(env.secrets, true)) }; }) };
         if (draft.project_id) payload.project_id = draft.project_id;
         var created = dataOf(await apiFetch("/api/app-manager/applications/create", { method: "POST", body: payload }));
         showToast("Application created", "success"); await fetchAll(true);
@@ -512,6 +557,19 @@
         } catch (err) { showToast(err.message, "error"); }
       });
     }).catch(function(err) { showToast(err.message, "error"); });
+  }
+
+  function deployPolicyDialog(environmentID, currentMode) {
+    var body = '<div class="am-field"><label for="amDeployPolicy">Automatic deployment</label><select id="amDeployPolicy"><option value="manual" ' + (currentMode === "manual" ? "selected" : "") + '>Manual</option><option value="tag" ' + (currentMode === "tag" ? "selected" : "") + '>On version tag</option><option value="release" ' + (currentMode === "release" ? "selected" : "") + '>On published release</option></select><span class="am-field-help">Images are verified in GHCR and resolved to an immutable digest before deployment.</span></div>';
+    openDialog("Deployment", "Choose deploy policy", body, '<button class="am-button" value="cancel">Cancel</button><button class="am-button am-button-primary" type="button" id="amSaveDeployPolicy">Save policy</button>');
+    document.getElementById("amSaveDeployPolicy").addEventListener("click", async function() {
+      try {
+        await apiFetch("/api/app-manager/environments/deploy-policy", { method: "POST", body: { environment_id: environmentID, mode: document.getElementById("amDeployPolicy").value } });
+        closeDialog();
+        showToast("Deploy policy updated", "success");
+        await renderEnvironmentDetail(state.currentApplicationID, environmentID);
+      } catch (err) { showToast(err.message, "error"); }
+    });
   }
 
   function pairAgentDialog() {
@@ -545,16 +603,17 @@
     }
     if (name === "sync-github") {
       target.disabled = true;
-      try { await apiFetch("/api/app-manager/github/sync", { method: "POST", body: {} }); showToast("Repositories synchronized", "success"); await reload(); } catch (err) { showToast(err.message, "error"); target.disabled = false; }
+      try { await apiFetch("/api/app-manager/github/sync", { method: "POST", body: {} }); showToast("Repositories and versions synchronized", "success"); await reload(); } catch (err) { showToast(err.message, "error"); target.disabled = false; }
       return;
     }
     if (name === "pair-agent") { pairAgentDialog(); return; }
     if (name === "configure-environment") { configurationDialog("environment", target.dataset.environmentId, "Environment variables"); return; }
+    if (name === "deploy-policy") { deployPolicyDialog(target.dataset.environmentId, target.dataset.deployMode); return; }
     if (name === "configure-project") { configurationDialog("project", target.dataset.projectId, "Project global variables"); return; }
     if (name === "check-artifacts") { try { await apiFetch("/api/app-manager/artifacts/check", { method: "POST", body: {} }); showToast("Registry images checked", "success"); await renderApplicationDetail(content.dataset.applicationId); } catch (err) { showToast(err.message, "error"); } return; }
-    if (name === "copy-workflow") { try { var result = dataOf(await apiFetch("/api/app-manager/applications/workflow?application_id=" + encodeURIComponent(content.dataset.applicationId))); await navigator.clipboard.writeText(result.workflow); showToast("Workflow copied", "success"); } catch (err) { showToast(err.message, "error"); } return; }
+    if (name === "copy-workflow") { try { var result = dataOf(await apiFetch("/api/app-manager/applications/workflow?application_id=" + encodeURIComponent(content.dataset.applicationId))); await copyText(result.workflow); showToast("Workflow copied", "success"); } catch (err) { showToast(err.message, "error"); } return; }
     if (name === "deploy") {
-      if (!target.dataset.artifactId || !window.confirm("Deploy this release image to the selected environment?")) return;
+      if (!target.dataset.artifactId || !window.confirm("Deploy this version image to the selected environment?")) return;
       target.disabled = true;
       try { await apiFetch("/api/app-manager/deployments/create", { method: "POST", body: { environment_id: target.dataset.environmentId, artifact_id: target.dataset.artifactId, trigger: "manual" } }); showToast("Deployment started", "success"); await reload(); } catch (err) { showToast(err.message, "error"); target.disabled = false; }
       return;
@@ -567,6 +626,13 @@
   }
 
   root.addEventListener("click", function(event) {
+    var copyRepository = event.target.closest("[data-copy-repository]");
+    if (copyRepository) {
+      event.preventDefault();
+      event.stopPropagation();
+      copyText(copyRepository.dataset.copyRepository).then(function() { showToast("Repository name copied", "success"); }).catch(function(err) { showToast(err.message, "error"); });
+      return;
+    }
     var actionTarget = event.target.closest("[data-am-action]"); if (actionTarget) { action(actionTarget); return; }
     var viewTarget = event.target.closest("[data-am-view]"); if (viewTarget) { state.view = viewTarget.dataset.amView; closeMobileSidebar(); renderCurrent(); return; }
     var filterTarget = event.target.closest("[data-am-filter]"); if (filterTarget) { state.applicationFilter = filterTarget.dataset.amFilter; renderApplications(); return; }
@@ -602,8 +668,17 @@
   document.getElementById("amSidebarBackdrop").addEventListener("click", closeMobileSidebar);
 
   window.loadApplicationManager = async function(options) {
+    options = options || {};
+    // The shell calls tab loaders when switching modules. The Application
+    // Manager DOM is already preserved, so loading it again would destroy the
+    // current detail view or an in-progress wizard draft.
+    if (state.loaded && !options.force) return;
+    if (state.loaded && (state.view === "wizard" || dialog.open)) {
+      if (options.manual) showToast("Finish or cancel the open form before refreshing", "warning");
+      return;
+    }
     loading();
-    try { await fetchAll(options && options.force); renderCurrent(); }
+    try { await fetchAll(options.force); renderCurrent(); }
     catch (err) { errorState(err.message); }
   };
   window.SP.loadApplicationManager = window.loadApplicationManager;

@@ -14,7 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 type Store struct {
 	db *sql.DB
@@ -76,8 +76,23 @@ func (s *Store) migrate(ctx context.Context) error {
 		return fmt.Errorf("begin schema migration: %w", err)
 	}
 	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TIMESTAMP NOT NULL)`); err != nil {
+		return fmt.Errorf("initialize schema migrations: %w", err)
+	}
+	var currentVersion sql.NullInt64
+	if err := tx.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&currentVersion); err != nil {
+		return fmt.Errorf("read schema version: %w", err)
+	}
+	if currentVersion.Valid && currentVersion.Int64 > schemaVersion {
+		return fmt.Errorf("database schema version %d is newer than supported version %d", currentVersion.Int64, schemaVersion)
+	}
 	if _, err := tx.ExecContext(ctx, schemaSQL); err != nil {
 		return fmt.Errorf("apply schema migration: %w", err)
+	}
+	if currentVersion.Valid && currentVersion.Int64 < 2 {
+		if _, err := tx.ExecContext(ctx, schemaV2SQL); err != nil {
+			return fmt.Errorf("apply schema migration 2: %w", err)
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, applied_at) VALUES(?, ?) ON CONFLICT(version) DO NOTHING`, schemaVersion, time.Now().UTC()); err != nil {
 		return fmt.Errorf("record schema migration: %w", err)
@@ -182,6 +197,7 @@ CREATE TABLE IF NOT EXISTS application_environments (
   ssl_enabled INTEGER NOT NULL DEFAULT 0,
   health_path TEXT NOT NULL DEFAULT '',
   auto_deploy INTEGER NOT NULL DEFAULT 0,
+  auto_deploy_source TEXT NOT NULL DEFAULT 'release' CHECK(auto_deploy_source IN ('tag','release')),
   current_artifact_id TEXT,
   status TEXT NOT NULL DEFAULT 'idle',
   last_deployment_at TIMESTAMP,
@@ -209,6 +225,8 @@ CREATE TABLE IF NOT EXISTS repository_releases (
   tag TEXT NOT NULL,
   commit_sha TEXT NOT NULL,
   name TEXT NOT NULL DEFAULT '',
+  tag_detected INTEGER NOT NULL DEFAULT 0,
+  release_published INTEGER NOT NULL DEFAULT 0,
   published_at TIMESTAMP NOT NULL,
   created_at TIMESTAMP NOT NULL,
   UNIQUE(repository_id, tag)
@@ -246,6 +264,7 @@ CREATE TABLE IF NOT EXISTS deployments (
 CREATE INDEX IF NOT EXISTS idx_deployments_environment ON deployments(environment_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_deployments_status ON deployments(status, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_deployments_one_active ON deployments(environment_id) WHERE status IN ('queued','running');
+CREATE UNIQUE INDEX IF NOT EXISTS idx_deployments_auto_artifact ON deployments(environment_id, artifact_id) WHERE trigger='auto';
 CREATE TABLE IF NOT EXISTS pairing_tokens (
   id TEXT PRIMARY KEY,
   token_hash BLOB NOT NULL UNIQUE,
@@ -281,4 +300,11 @@ CREATE TABLE IF NOT EXISTS audit_events (
   created_at TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_events(created_at DESC);
+`
+
+const schemaV2SQL = `
+ALTER TABLE application_environments ADD COLUMN auto_deploy_source TEXT NOT NULL DEFAULT 'release' CHECK(auto_deploy_source IN ('tag','release'));
+ALTER TABLE repository_releases ADD COLUMN tag_detected INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE repository_releases ADD COLUMN release_published INTEGER NOT NULL DEFAULT 1;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_deployments_auto_artifact ON deployments(environment_id, artifact_id) WHERE trigger='auto';
 `

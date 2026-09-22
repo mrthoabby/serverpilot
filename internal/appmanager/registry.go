@@ -23,23 +23,25 @@ const (
 )
 
 type artifactCheck struct {
-	id        string
-	image     string
-	createdAt time.Time
+	id               string
+	image            string
+	createdAt        time.Time
+	tagDetected      bool
+	releasePublished bool
 }
 
 func (s *Service) CheckWaitingArtifacts(ctx context.Context, limit int) error {
 	if limit < 1 || limit > 200 {
 		limit = 50
 	}
-	rows, err := s.store.db.QueryContext(ctx, `SELECT id,image_reference,created_at FROM application_release_artifacts WHERE status=? ORDER BY created_at LIMIT ?`, ArtifactWaiting, limit)
+	rows, err := s.store.db.QueryContext(ctx, `SELECT ara.id,ara.image_reference,ara.created_at,rr.tag_detected,rr.release_published FROM application_release_artifacts ara JOIN repository_releases rr ON rr.id=ara.release_id WHERE ara.status=? ORDER BY ara.created_at LIMIT ?`, ArtifactWaiting, limit)
 	if err != nil {
 		return fmt.Errorf("list waiting artifacts: %w", err)
 	}
 	var checks []artifactCheck
 	for rows.Next() {
 		var item artifactCheck
-		if err := rows.Scan(&item.id, &item.image, &item.createdAt); err != nil {
+		if err := rows.Scan(&item.id, &item.image, &item.createdAt, &item.tagDetected, &item.releasePublished); err != nil {
 			_ = rows.Close()
 			return fmt.Errorf("scan waiting artifact: %w", err)
 		}
@@ -62,6 +64,8 @@ func (s *Service) CheckWaitingArtifacts(ctx context.Context, limit int) error {
 	type result struct {
 		id, digest, code string
 		status           ArtifactStatus
+		tagDetected      bool
+		releasePublished bool
 	}
 	jobs := make(chan artifactCheck)
 	results := make(chan result, len(checks))
@@ -79,7 +83,7 @@ func (s *Service) CheckWaitingArtifacts(ctx context.Context, limit int) error {
 					return
 				}
 				digest, found, checkErr := checkGHCRManifestWithBackoff(ctx, conn.RegistryUsername, pat, item.image)
-				res := result{id: item.id, status: ArtifactWaiting}
+				res := result{id: item.id, status: ArtifactWaiting, tagDetected: item.tagDetected, releasePublished: item.releasePublished}
 				switch {
 				case checkErr != nil:
 					res.code = "registry_unavailable"
@@ -111,7 +115,7 @@ func (s *Service) CheckWaitingArtifacts(ctx context.Context, limit int) error {
 			return fmt.Errorf("update artifact status: %w", err)
 		}
 		if res.status == ArtifactReady {
-			if err := s.queueAutoDeployments(ctx, res.id); err != nil {
+			if err := s.queueArtifactAutoDeployments(ctx, res.id, res.tagDetected, res.releasePublished); err != nil {
 				return err
 			}
 		}
@@ -251,13 +255,16 @@ func requestRegistryToken(ctx context.Context, client *http.Client, username, pa
 	return payload.Token, nil
 }
 
-func (s *Service) queueAutoDeployments(ctx context.Context, artifactID string) error {
+func (s *Service) queueAutoDeployments(ctx context.Context, artifactID string, mode AutoDeployMode) error {
+	if mode != AutoDeployTag && mode != AutoDeployRelease {
+		return fmt.Errorf("%w: invalid automatic deployment mode", ErrInvalid)
+	}
 	tx, err := s.store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin automatic deployment queue: %w", err)
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT e.id FROM application_environments e JOIN application_release_artifacts ara ON ara.application_id=e.application_id WHERE ara.id=? AND e.auto_deploy=1`, artifactID)
+	rows, err := tx.QueryContext(ctx, `SELECT e.id FROM application_environments e JOIN application_release_artifacts ara ON ara.application_id=e.application_id WHERE ara.id=? AND e.auto_deploy=1 AND e.auto_deploy_source=?`, artifactID, mode)
 	if err != nil {
 		return fmt.Errorf("load automatic deployment targets: %w", err)
 	}
@@ -286,6 +293,53 @@ func (s *Service) queueAutoDeployments(ctx context.Context, artifactID string) e
 	return tx.Commit()
 }
 
+func (s *Service) queueArtifactAutoDeployments(ctx context.Context, artifactID string, tagDetected, releasePublished bool) error {
+	if tagDetected {
+		if err := s.queueAutoDeployments(ctx, artifactID, AutoDeployTag); err != nil {
+			return err
+		}
+	}
+	if releasePublished {
+		if err := s.queueAutoDeployments(ctx, artifactID, AutoDeployRelease); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) queueReadyAutoDeploymentsForVersionTx(ctx context.Context, tx *sql.Tx, releaseID string, mode AutoDeployMode) error {
+	if mode != AutoDeployTag && mode != AutoDeployRelease {
+		return fmt.Errorf("%w: invalid automatic deployment mode", ErrInvalid)
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT e.id,ara.id FROM application_release_artifacts ara JOIN application_environments e ON e.application_id=ara.application_id WHERE ara.release_id=? AND ara.status=? AND e.auto_deploy=1 AND e.auto_deploy_source=? ORDER BY e.id,ara.id`, releaseID, ArtifactReady, mode)
+	if err != nil {
+		return fmt.Errorf("load ready version deployment targets: %w", err)
+	}
+	type target struct{ environmentID, artifactID string }
+	var targets []target
+	for rows.Next() {
+		var item target
+		if err := rows.Scan(&item.environmentID, &item.artifactID); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan ready version deployment target: %w", err)
+		}
+		targets = append(targets, item)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, item := range targets {
+		id, err := newID()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO deployments(id,environment_id,artifact_id,status,trigger,actor,created_at) VALUES(?,?,?,'queued','auto','github',?) ON CONFLICT DO NOTHING`, id, item.environmentID, item.artifactID, s.now()); err != nil && !strings.Contains(strings.ToLower(err.Error()), "constraint") {
+			return fmt.Errorf("queue ready version deployment: %w", err)
+		}
+	}
+	return nil
+}
+
 func (s *Service) MarkArtifact(ctx context.Context, artifactID, digest string, status ArtifactStatus, failureCode string) error {
 	if !validID(artifactID) {
 		return fmt.Errorf("%w: invalid artifact", ErrInvalid)
@@ -308,7 +362,11 @@ func (s *Service) MarkArtifact(ctx context.Context, artifactID, digest string, s
 		return fmt.Errorf("%w: artifact", ErrNotFound)
 	}
 	if status == ArtifactReady {
-		return s.queueAutoDeployments(ctx, artifactID)
+		var tagDetected, releasePublished bool
+		if err := s.store.db.QueryRowContext(ctx, `SELECT rr.tag_detected,rr.release_published FROM application_release_artifacts ara JOIN repository_releases rr ON rr.id=ara.release_id WHERE ara.id=?`, artifactID).Scan(&tagDetected, &releasePublished); err != nil {
+			return fmt.Errorf("load artifact version triggers: %w", err)
+		}
+		return s.queueArtifactAutoDeployments(ctx, artifactID, tagDetected, releasePublished)
 	}
 	return nil
 }
@@ -322,8 +380,8 @@ func (s *Service) artifactForDeployment(ctx context.Context, environmentID, arti
 	var app Application
 	var agentID, projectID, artifactCurrent sql.NullString
 	var hostPort sql.NullInt64
-	err := s.store.db.QueryRowContext(ctx, `SELECT e.id,e.application_id,e.name,e.slug,e.type,e.agent_id,e.container_name,e.container_port,e.host_port,e.domain,e.site_enabled,e.ssl_enabled,e.health_path,e.auto_deploy,e.current_artifact_id,e.status,e.created_at,e.updated_at,a.project_id,a.repository_id,a.name,a.slug,a.type,a.image_name,ara.id,ara.release_id,ara.application_id,ara.image_reference,ara.image_digest,ara.status,ara.created_at,ara.updated_at FROM application_environments e JOIN applications a ON a.id=e.application_id JOIN application_release_artifacts ara ON ara.id=? AND ara.application_id=a.id WHERE e.id=?`, artifactID, environmentID).Scan(
-		&env.ID, &env.ApplicationID, &env.Name, &env.Slug, &env.Type, &agentID, &env.ContainerName, &env.ContainerPort, &hostPort, &env.Domain, &env.SiteEnabled, &env.SSLEnabled, &env.HealthPath, &env.AutoDeploy, &artifactCurrent, &env.Status, &env.CreatedAt, &env.UpdatedAt, &projectID, &app.RepositoryID, &app.Name, &app.Slug, &app.Type, &app.ImageName, &art.ID, &art.ReleaseID, &art.ApplicationID, &art.ImageReference, &art.ImageDigest, &art.Status, &art.CreatedAt, &art.UpdatedAt)
+	err := s.store.db.QueryRowContext(ctx, `SELECT e.id,e.application_id,e.name,e.slug,e.type,e.agent_id,e.container_name,e.container_port,e.host_port,e.domain,e.site_enabled,e.ssl_enabled,e.health_path,CASE WHEN e.auto_deploy=0 THEN 'manual' ELSE e.auto_deploy_source END,e.current_artifact_id,e.status,e.created_at,e.updated_at,a.project_id,a.repository_id,a.name,a.slug,a.type,a.image_name,ara.id,ara.release_id,ara.application_id,ara.image_reference,ara.image_digest,ara.status,ara.created_at,ara.updated_at FROM application_environments e JOIN applications a ON a.id=e.application_id JOIN application_release_artifacts ara ON ara.id=? AND ara.application_id=a.id WHERE e.id=?`, artifactID, environmentID).Scan(
+		&env.ID, &env.ApplicationID, &env.Name, &env.Slug, &env.Type, &agentID, &env.ContainerName, &env.ContainerPort, &hostPort, &env.Domain, &env.SiteEnabled, &env.SSLEnabled, &env.HealthPath, &env.AutoDeployMode, &artifactCurrent, &env.Status, &env.CreatedAt, &env.UpdatedAt, &projectID, &app.RepositoryID, &app.Name, &app.Slug, &app.Type, &app.ImageName, &art.ID, &art.ReleaseID, &art.ApplicationID, &art.ImageReference, &art.ImageDigest, &art.Status, &art.CreatedAt, &art.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Environment{}, ApplicationReleaseArtifact{}, Application{}, fmt.Errorf("%w: deployment target", ErrNotFound)
 	}

@@ -43,11 +43,41 @@ type githubReleasePayload struct {
 	} `json:"release"`
 }
 
+type githubRepositoryPayload struct {
+	Action     string `json:"action"`
+	Repository struct {
+		ID            int64  `json:"id"`
+		Name          string `json:"name"`
+		FullName      string `json:"full_name"`
+		DefaultBranch string `json:"default_branch"`
+		Language      string `json:"language"`
+		Private       bool   `json:"private"`
+		HTMLURL       string `json:"html_url"`
+		Archived      bool   `json:"archived"`
+		Owner         struct {
+			Login string `json:"login"`
+		} `json:"owner"`
+	} `json:"repository"`
+}
+
+type githubPushPayload struct {
+	Ref        string `json:"ref"`
+	After      string `json:"after"`
+	Created    bool   `json:"created"`
+	Deleted    bool   `json:"deleted"`
+	Repository struct {
+		ID       int64  `json:"id"`
+		FullName string `json:"full_name"`
+	} `json:"repository"`
+}
+
 type githubReleaseRecord struct {
-	Tag         string
-	CommitSHA   string
-	Name        string
-	PublishedAt time.Time
+	Tag              string
+	CommitSHA        string
+	Name             string
+	PublishedAt      time.Time
+	TagDetected      bool
+	ReleasePublished bool
 }
 
 type githubInstallation struct {
@@ -125,7 +155,7 @@ func newWebhookSecret() (string, error) {
 }
 
 func (s *Service) HandleGitHubWebhook(ctx context.Context, signature, deliveryID, event string, body []byte) (RepositoryRelease, bool, error) {
-	if !validDeliveryID(deliveryID) || event != "release" || len(body) == 0 || len(body) > 1<<20 {
+	if !validDeliveryID(deliveryID) || (event != "release" && event != "repository" && event != "push") || len(body) == 0 || len(body) > 1<<20 {
 		return RepositoryRelease{}, false, fmt.Errorf("%w: invalid webhook", ErrInvalid)
 	}
 	_, secret, _, err := s.githubSecrets(ctx)
@@ -135,17 +165,28 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, signature, deliveryID
 	if !verifyGitHubSignature(secret, body, signature) {
 		return RepositoryRelease{}, false, fmt.Errorf("%w: invalid webhook signature", ErrInvalid)
 	}
-	var payload githubReleasePayload
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&payload); err != nil {
-		// GitHub adds fields over time. Decode the signed payload normally after
-		// the strict envelope attempt, then validate every consumed field.
-		if err := json.Unmarshal(body, &payload); err != nil {
-			return RepositoryRelease{}, false, fmt.Errorf("%w: invalid webhook payload", ErrInvalid)
-		}
+	switch event {
+	case "release":
+		return s.handleGitHubReleaseWebhook(ctx, deliveryID, body)
+	case "repository":
+		return s.handleGitHubRepositoryWebhook(ctx, deliveryID, body)
+	case "push":
+		return s.handleGitHubPushWebhook(ctx, deliveryID, body)
+	default:
+		return RepositoryRelease{}, false, fmt.Errorf("%w: unsupported webhook", ErrInvalid)
 	}
-	if payload.Action != "published" || payload.Release.Draft || payload.Repository.ID < 1 || len(payload.Repository.FullName) > 201 || !validReleaseTag(payload.Release.TagName) || len(payload.Release.TargetCommitish) > 128 || len(payload.Release.Name) > 200 || payload.Release.PublishedAt.IsZero() {
+}
+
+func (s *Service) handleGitHubReleaseWebhook(ctx context.Context, deliveryID string, body []byte) (RepositoryRelease, bool, error) {
+	var payload githubReleasePayload
+	if err := decodeGitHubPayload(body, &payload); err != nil {
+		return RepositoryRelease{}, false, err
+	}
+	if payload.Action != "published" {
+		duplicate, err := s.acknowledgeGitHubWebhook(ctx, deliveryID, "release")
+		return RepositoryRelease{}, duplicate, err
+	}
+	if payload.Release.Draft || payload.Repository.ID < 1 || len(payload.Repository.FullName) > 201 || !validReleaseTag(payload.Release.TagName) || len(payload.Release.TargetCommitish) > 128 || len(payload.Release.Name) > 200 || payload.Release.PublishedAt.IsZero() {
 		return RepositoryRelease{}, false, fmt.Errorf("%w: unsupported release payload", ErrInvalid)
 	}
 	tx, err := s.store.db.BeginTx(ctx, nil)
@@ -153,11 +194,12 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, signature, deliveryID
 		return RepositoryRelease{}, false, fmt.Errorf("begin webhook transaction: %w", err)
 	}
 	defer tx.Rollback()
-	var seen int
-	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM processed_webhooks WHERE delivery_id=?`, deliveryID).Scan(&seen); err == nil {
+	duplicate, err := webhookProcessedTx(ctx, tx, deliveryID)
+	if err != nil {
+		return RepositoryRelease{}, false, err
+	}
+	if duplicate {
 		return RepositoryRelease{}, true, nil
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return RepositoryRelease{}, false, fmt.Errorf("check webhook delivery: %w", err)
 	}
 	var repositoryID string
 	if err := tx.QueryRowContext(ctx, `SELECT id FROM repositories WHERE github_id=? AND full_name=?`, payload.Repository.ID, payload.Repository.FullName).Scan(&repositoryID); errors.Is(err, sql.ErrNoRows) {
@@ -165,13 +207,16 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, signature, deliveryID
 	} else if err != nil {
 		return RepositoryRelease{}, false, fmt.Errorf("load webhook repository: %w", err)
 	}
-	record := githubReleaseRecord{Tag: payload.Release.TagName, CommitSHA: payload.Release.TargetCommitish, Name: payload.Release.Name, PublishedAt: payload.Release.PublishedAt}
+	record := githubReleaseRecord{Tag: payload.Release.TagName, CommitSHA: payload.Release.TargetCommitish, Name: payload.Release.Name, PublishedAt: payload.Release.PublishedAt, ReleasePublished: true}
 	releaseID, err := s.ensureRepositoryReleaseTx(ctx, tx, repositoryID, record)
 	if err != nil {
 		return RepositoryRelease{}, false, err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO processed_webhooks(delivery_id,event_type,processed_at) VALUES(?,?,?)`, deliveryID, event, s.now()); err != nil {
-		return RepositoryRelease{}, false, fmt.Errorf("record webhook delivery: %w", err)
+	if err := s.queueReadyAutoDeploymentsForVersionTx(ctx, tx, releaseID, AutoDeployRelease); err != nil {
+		return RepositoryRelease{}, false, err
+	}
+	if err := s.recordWebhookDeliveryTx(ctx, tx, deliveryID, "release"); err != nil {
+		return RepositoryRelease{}, false, err
 	}
 	if err := insertAudit(ctx, tx, "github", "release.receive", "release", releaseID, payload.Release.TagName); err != nil {
 		return RepositoryRelease{}, false, err
@@ -183,15 +228,203 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, signature, deliveryID
 	return release, false, err
 }
 
+func (s *Service) handleGitHubPushWebhook(ctx context.Context, deliveryID string, body []byte) (RepositoryRelease, bool, error) {
+	var payload githubPushPayload
+	if err := decodeGitHubPayload(body, &payload); err != nil {
+		return RepositoryRelease{}, false, err
+	}
+	const tagPrefix = "refs/tags/"
+	tag := strings.TrimPrefix(payload.Ref, tagPrefix)
+	if !payload.Created || payload.Deleted || !strings.HasPrefix(payload.Ref, tagPrefix) || !validVersionTag(tag) {
+		duplicate, err := s.acknowledgeGitHubWebhook(ctx, deliveryID, "push")
+		return RepositoryRelease{}, duplicate, err
+	}
+	if payload.Repository.ID < 1 || len(payload.Repository.FullName) > 201 || !validGitCommitSHA(payload.After) {
+		return RepositoryRelease{}, false, fmt.Errorf("%w: unsupported tag payload", ErrInvalid)
+	}
+	tx, err := s.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return RepositoryRelease{}, false, fmt.Errorf("begin tag webhook transaction: %w", err)
+	}
+	defer tx.Rollback()
+	duplicate, err := webhookProcessedTx(ctx, tx, deliveryID)
+	if err != nil {
+		return RepositoryRelease{}, false, err
+	}
+	if duplicate {
+		return RepositoryRelease{}, true, nil
+	}
+	var repositoryID string
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM repositories WHERE github_id=? AND full_name=?`, payload.Repository.ID, payload.Repository.FullName).Scan(&repositoryID); errors.Is(err, sql.ErrNoRows) {
+		return RepositoryRelease{}, false, fmt.Errorf("%w: repository", ErrNotFound)
+	} else if err != nil {
+		return RepositoryRelease{}, false, fmt.Errorf("load tag repository: %w", err)
+	}
+	releaseID, err := s.ensureRepositoryReleaseTx(ctx, tx, repositoryID, githubReleaseRecord{Tag: tag, CommitSHA: payload.After, PublishedAt: s.now(), TagDetected: true})
+	if err != nil {
+		return RepositoryRelease{}, false, err
+	}
+	if err := s.queueReadyAutoDeploymentsForVersionTx(ctx, tx, releaseID, AutoDeployTag); err != nil {
+		return RepositoryRelease{}, false, err
+	}
+	if err := s.recordWebhookDeliveryTx(ctx, tx, deliveryID, "push"); err != nil {
+		return RepositoryRelease{}, false, err
+	}
+	if err := insertAudit(ctx, tx, "github", "version.tag_detected", "release", releaseID, tag); err != nil {
+		return RepositoryRelease{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return RepositoryRelease{}, false, fmt.Errorf("commit tag webhook: %w", err)
+	}
+	release, err := s.GetRelease(ctx, releaseID)
+	return release, false, err
+}
+
+func (s *Service) handleGitHubRepositoryWebhook(ctx context.Context, deliveryID string, body []byte) (RepositoryRelease, bool, error) {
+	var payload githubRepositoryPayload
+	if err := decodeGitHubPayload(body, &payload); err != nil {
+		return RepositoryRelease{}, false, err
+	}
+	archived := payload.Repository.Archived
+	switch payload.Action {
+	case "created", "unarchived":
+		archived = false
+	case "deleted", "archived":
+		archived = true
+	default:
+		duplicate, err := s.acknowledgeGitHubWebhook(ctx, deliveryID, "repository")
+		return RepositoryRelease{}, duplicate, err
+	}
+	owner := strings.TrimSpace(payload.Repository.Owner.Login)
+	name := strings.TrimSpace(payload.Repository.Name)
+	if payload.Repository.FullName != owner+"/"+name {
+		return RepositoryRelease{}, false, fmt.Errorf("%w: invalid repository payload", ErrInvalid)
+	}
+	in := RepositoryInput{
+		GitHubID:      payload.Repository.ID,
+		Owner:         owner,
+		Name:          name,
+		DefaultBranch: payload.Repository.DefaultBranch,
+		Language:      payload.Repository.Language,
+		Private:       payload.Repository.Private,
+		HTMLURL:       payload.Repository.HTMLURL,
+		Archived:      archived,
+	}
+	tx, err := s.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return RepositoryRelease{}, false, fmt.Errorf("begin repository webhook transaction: %w", err)
+	}
+	defer tx.Rollback()
+	duplicate, err := webhookProcessedTx(ctx, tx, deliveryID)
+	if err != nil {
+		return RepositoryRelease{}, false, err
+	}
+	if duplicate {
+		return RepositoryRelease{}, true, nil
+	}
+	now := s.now()
+	repositoryID, err := s.upsertRepositoryTx(ctx, tx, in, now)
+	if err != nil {
+		return RepositoryRelease{}, false, err
+	}
+	if err := s.recordWebhookDeliveryTx(ctx, tx, deliveryID, "repository"); err != nil {
+		return RepositoryRelease{}, false, err
+	}
+	if err := insertAudit(ctx, tx, "github", "repository."+payload.Action, "repository", repositoryID, payload.Repository.FullName); err != nil {
+		return RepositoryRelease{}, false, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE github_connection SET last_synced_at=?, updated_at=? WHERE singleton=1`, now, now); err != nil {
+		return RepositoryRelease{}, false, fmt.Errorf("update synchronization state: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return RepositoryRelease{}, false, fmt.Errorf("commit repository webhook: %w", err)
+	}
+	return RepositoryRelease{}, false, nil
+}
+
+func decodeGitHubPayload(body []byte, target any) error {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(target); err == nil {
+		return nil
+	}
+	// GitHub adds fields over time. Decode the signed payload normally after
+	// the strict envelope attempt, then validate every field that is consumed.
+	if err := json.Unmarshal(body, target); err != nil {
+		return fmt.Errorf("%w: invalid webhook payload", ErrInvalid)
+	}
+	return nil
+}
+
+func webhookProcessedTx(ctx context.Context, tx *sql.Tx, deliveryID string) (bool, error) {
+	var seen int
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM processed_webhooks WHERE delivery_id=?`, deliveryID).Scan(&seen); err == nil {
+		return true, nil
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return false, fmt.Errorf("check webhook delivery: %w", err)
+	}
+	return false, nil
+}
+
+func (s *Service) recordWebhookDeliveryTx(ctx context.Context, tx *sql.Tx, deliveryID, event string) error {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO processed_webhooks(delivery_id,event_type,processed_at) VALUES(?,?,?)`, deliveryID, event, s.now()); err != nil {
+		return fmt.Errorf("record webhook delivery: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) acknowledgeGitHubWebhook(ctx context.Context, deliveryID, event string) (bool, error) {
+	tx, err := s.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin webhook acknowledgement: %w", err)
+	}
+	defer tx.Rollback()
+	duplicate, err := webhookProcessedTx(ctx, tx, deliveryID)
+	if err != nil || duplicate {
+		return duplicate, err
+	}
+	if err := s.recordWebhookDeliveryTx(ctx, tx, deliveryID, event); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit webhook acknowledgement: %w", err)
+	}
+	return false, nil
+}
+
 func (s *Service) ensureRepositoryReleaseTx(ctx context.Context, tx *sql.Tx, repositoryID string, record githubReleaseRecord) (string, error) {
 	var releaseID string
-	err := tx.QueryRowContext(ctx, `SELECT id FROM repository_releases WHERE repository_id=? AND tag=?`, repositoryID, record.Tag).Scan(&releaseID)
+	var existingCommit string
+	var tagDetected, releasePublished bool
+	err := tx.QueryRowContext(ctx, `SELECT id,commit_sha,tag_detected,release_published FROM repository_releases WHERE repository_id=? AND tag=?`, repositoryID, record.Tag).Scan(&releaseID, &existingCommit, &tagDetected, &releasePublished)
 	if errors.Is(err, sql.ErrNoRows) {
 		releaseID, err = newID()
 		if err != nil {
 			return "", err
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO repository_releases(id,repository_id,tag,commit_sha,name,published_at,created_at) VALUES(?,?,?,?,?,?,?)`, releaseID, repositoryID, record.Tag, record.CommitSHA, record.Name, record.PublishedAt.UTC(), s.now())
+		_, err = tx.ExecContext(ctx, `INSERT INTO repository_releases(id,repository_id,tag,commit_sha,name,tag_detected,release_published,published_at,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, releaseID, repositoryID, record.Tag, record.CommitSHA, record.Name, record.TagDetected, record.ReleasePublished, record.PublishedAt.UTC(), s.now())
+	} else if err == nil {
+		if record.TagDetected && tagDetected && existingCommit != record.CommitSHA {
+			return "", fmt.Errorf("%w: version tag moved", ErrConflict)
+		}
+		if record.TagDetected {
+			publishedAt := record.PublishedAt.UTC()
+			if releasePublished {
+				_, err = tx.ExecContext(ctx, `UPDATE repository_releases SET commit_sha=?,tag_detected=1 WHERE id=?`, record.CommitSHA, releaseID)
+			} else {
+				_, err = tx.ExecContext(ctx, `UPDATE repository_releases SET commit_sha=?,tag_detected=1,published_at=? WHERE id=?`, record.CommitSHA, publishedAt, releaseID)
+			}
+		}
+		if err == nil && record.ReleasePublished {
+			commitSHA := record.CommitSHA
+			if tagDetected || record.TagDetected {
+				commitSHA = existingCommit
+				if record.TagDetected {
+					commitSHA = record.CommitSHA
+				}
+			}
+			_, err = tx.ExecContext(ctx, `UPDATE repository_releases SET commit_sha=?,name=?,release_published=1,published_at=? WHERE id=?`, commitSHA, record.Name, record.PublishedAt.UTC(), releaseID)
+		}
 	}
 	if err != nil {
 		return "", fmt.Errorf("save repository release: %w", err)
@@ -262,7 +495,7 @@ func (s *Service) GetRelease(ctx context.Context, id string) (RepositoryRelease,
 		return RepositoryRelease{}, fmt.Errorf("%w: invalid release", ErrInvalid)
 	}
 	var out RepositoryRelease
-	err := s.store.db.QueryRowContext(ctx, `SELECT id,repository_id,tag,commit_sha,name,published_at,created_at FROM repository_releases WHERE id=?`, id).Scan(&out.ID, &out.RepositoryID, &out.Tag, &out.CommitSHA, &out.Name, &out.PublishedAt, &out.CreatedAt)
+	err := s.store.db.QueryRowContext(ctx, `SELECT id,repository_id,tag,commit_sha,name,tag_detected,release_published,published_at,created_at FROM repository_releases WHERE id=?`, id).Scan(&out.ID, &out.RepositoryID, &out.Tag, &out.CommitSHA, &out.Name, &out.TagDetected, &out.ReleasePublished, &out.PublishedAt, &out.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return RepositoryRelease{}, fmt.Errorf("%w: release", ErrNotFound)
 	}
@@ -293,7 +526,7 @@ func (s *Service) ListReleases(ctx context.Context, repositoryID string, limit, 
 		return nil, fmt.Errorf("%w: invalid repository", ErrInvalid)
 	}
 	limit, offset = boundedPage(limit, offset)
-	query := `SELECT id,repository_id,tag,commit_sha,name,published_at,created_at FROM repository_releases`
+	query := `SELECT id,repository_id,tag,commit_sha,name,tag_detected,release_published,published_at,created_at FROM repository_releases`
 	args := []any{}
 	if repositoryID != "" {
 		query += ` WHERE repository_id=?`
@@ -309,7 +542,7 @@ func (s *Service) ListReleases(ctx context.Context, repositoryID string, limit, 
 	var result []RepositoryRelease
 	for rows.Next() {
 		var item RepositoryRelease
-		if err := rows.Scan(&item.ID, &item.RepositoryID, &item.Tag, &item.CommitSHA, &item.Name, &item.PublishedAt, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.RepositoryID, &item.Tag, &item.CommitSHA, &item.Name, &item.TagDetected, &item.ReleasePublished, &item.PublishedAt, &item.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan release: %w", err)
 		}
 		result = append(result, item)
@@ -350,8 +583,9 @@ func (s *Service) GeneratedWorkflow(ctx context.Context, applicationID string) (
 	workflow := fmt.Sprintf(`name: ServerPilot image
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: read
@@ -372,11 +606,11 @@ jobs:
           context: %s
           file: %s
           push: true
-          tags: %s:${{ github.event.release.tag_name }}
+          tags: %s:${{ github.ref_name }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ github.event.release.tag_name }}
+            org.opencontainers.image.version=${{ github.ref_name }}
             io.serverpilot.managed=true
             io.serverpilot.application=%s
 `, app.Slug, app.BuildContext, app.Dockerfile, app.ImageName, app.ID)
@@ -426,7 +660,7 @@ func (s *Service) SyncGitHubReleases(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	rows, err := s.store.db.QueryContext(ctx, `SELECT id,owner,name FROM repositories WHERE archived=0 ORDER BY id LIMIT 5000`)
+	rows, err := s.store.db.QueryContext(ctx, `SELECT DISTINCT r.id,r.owner,r.name FROM repositories r JOIN applications a ON a.repository_id=r.id WHERE r.archived=0 ORDER BY r.id LIMIT 1000`)
 	if err != nil {
 		return fmt.Errorf("list repositories for release reconciliation: %w", err)
 	}
@@ -466,7 +700,74 @@ func (s *Service) SyncGitHubReleases(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("begin release reconciliation: %w", err)
 			}
-			_, ensureErr := s.ensureRepositoryReleaseTx(ctx, tx, repository.id, githubReleaseRecord{Tag: release.Tag, CommitSHA: release.CommitSHA, Name: release.Name, PublishedAt: release.PublishedAt})
+			releaseID, ensureErr := s.ensureRepositoryReleaseTx(ctx, tx, repository.id, githubReleaseRecord{Tag: release.Tag, CommitSHA: release.CommitSHA, Name: release.Name, PublishedAt: release.PublishedAt, ReleasePublished: true})
+			if ensureErr == nil {
+				ensureErr = s.queueReadyAutoDeploymentsForVersionTx(ctx, tx, releaseID, AutoDeployRelease)
+			}
+			if ensureErr == nil {
+				ensureErr = tx.Commit()
+			} else {
+				_ = tx.Rollback()
+			}
+			if ensureErr != nil {
+				return ensureErr
+			}
+		}
+	}
+	return nil
+}
+
+// SyncGitHubTags reconciles recent version tags for repositories that are
+// actually linked to applications. This recovers from missed push webhooks
+// without scanning repositories that cannot produce a deployment.
+func (s *Service) SyncGitHubTags(ctx context.Context) error {
+	client, token, err := s.githubInstallationAccess(ctx)
+	if err != nil {
+		return err
+	}
+	rows, err := s.store.db.QueryContext(ctx, `SELECT DISTINCT r.id,r.owner,r.name FROM repositories r JOIN applications a ON a.repository_id=r.id WHERE r.archived=0 ORDER BY r.id LIMIT 1000`)
+	if err != nil {
+		return fmt.Errorf("list repositories for tag reconciliation: %w", err)
+	}
+	type repositoryRef struct{ id, owner, name string }
+	var repositories []repositoryRef
+	for rows.Next() {
+		var repository repositoryRef
+		if err := rows.Scan(&repository.id, &repository.owner, &repository.name); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan tag repository: %w", err)
+		}
+		repositories = append(repositories, repository)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, repository := range repositories {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		endpoint := "https://api.github.com/repos/" + url.PathEscape(repository.owner) + "/" + url.PathEscape(repository.name) + "/tags?per_page=100&page=1"
+		var tags []struct {
+			Name   string `json:"name"`
+			Commit struct {
+				SHA string `json:"sha"`
+			} `json:"commit"`
+		}
+		if err := githubJSON(ctx, client, http.MethodGet, endpoint, token, nil, &tags); err != nil {
+			return err
+		}
+		for _, tag := range tags {
+			if !validVersionTag(tag.Name) || !validGitCommitSHA(tag.Commit.SHA) {
+				continue
+			}
+			tx, err := s.store.db.BeginTx(ctx, nil)
+			if err != nil {
+				return fmt.Errorf("begin tag reconciliation: %w", err)
+			}
+			releaseID, ensureErr := s.ensureRepositoryReleaseTx(ctx, tx, repository.id, githubReleaseRecord{Tag: tag.Name, CommitSHA: tag.Commit.SHA, PublishedAt: s.now(), TagDetected: true})
+			if ensureErr == nil {
+				ensureErr = s.queueReadyAutoDeploymentsForVersionTx(ctx, tx, releaseID, AutoDeployTag)
+			}
 			if ensureErr == nil {
 				ensureErr = tx.Commit()
 			} else {

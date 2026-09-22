@@ -109,6 +109,7 @@ func (s *Server) Start() error {
 	mux.Handle("/api/app-manager/applications", s.authMiddleware(http.HandlerFunc(s.handleAppManagerApplications)))
 	mux.Handle("/api/app-manager/applications/detail", s.authMiddleware(http.HandlerFunc(s.handleAppManagerApplicationDetail)))
 	mux.Handle("/api/app-manager/applications/create", s.requireSecureReauth(http.HandlerFunc(s.handleAppManagerApplicationCreate)))
+	mux.Handle("/api/app-manager/environments/deploy-policy", s.requireSecureReauth(http.HandlerFunc(s.handleAppManagerEnvironmentDeployPolicy)))
 	mux.Handle("/api/app-manager/applications/workflow", s.authMiddleware(http.HandlerFunc(s.handleAppManagerWorkflow)))
 	mux.Handle("/api/app-manager/projects", s.authMiddleware(http.HandlerFunc(s.handleAppManagerProjects)))
 	mux.Handle("/api/app-manager/projects/create", s.requireSecureReauth(http.HandlerFunc(s.handleAppManagerProjectCreate)))

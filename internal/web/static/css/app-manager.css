@@ -251,6 +251,13 @@
 .app-manager .am-button-danger { color: #ffb9bb; border-color: rgba(229,72,77,.4); }
 .app-manager .am-button:disabled { opacity: .45; cursor: not-allowed; }
 .app-manager .am-icon-button { width: 36px; height: 36px; display: grid; place-items: center; color: var(--am-muted); background: transparent; border: 1px solid var(--am-border); border-radius: 8px; cursor: pointer; }
+.app-manager .am-icon-button img { width: 17px; height: 17px; }
+.app-manager .am-repository-identity { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.app-manager .am-repository-link { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--am-text); text-decoration: none; }
+.app-manager .am-repository-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-manager .am-repository-link img { width: 15px; height: 15px; flex: 0 0 auto; opacity: .7; }
+.app-manager .am-repository-link:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+.app-manager .am-copy-button { width: 30px; height: 30px; flex: 0 0 auto; }
 
 .app-manager .am-section { margin-top: 26px; }
 .app-manager .am-section-head { margin-bottom: 13px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
@@ -350,6 +357,7 @@
 .app-manager .am-field input:focus, .app-manager .am-field select:focus, .app-manager .am-field textarea:focus { outline: 2px solid rgba(59,91,255,.6); border-color: var(--am-primary); }
 .app-manager .am-field textarea { min-height: 100px; resize: vertical; }
 .app-manager .am-field small { color: var(--am-muted); }
+.app-manager .am-field-help { color: var(--am-muted); font-size: 12px; line-height: 1.45; }
 .app-manager .am-setup-form { margin-top: 18px; }
 .app-manager .am-connection-summary { margin-top: 16px; padding: 12px; display: grid; grid-template-columns: 40px minmax(0,1fr) auto; align-items: center; gap: 12px; background: var(--am-bg); border: 1px solid var(--am-border); border-radius: 10px; }
 .app-manager .am-connection-summary > div { min-width: 0; display: grid; }

@@ -132,6 +132,14 @@ func (s *Server) handleAppManagerGitHubSync(w http.ResponseWriter, r *http.Reque
 		writeAppManagerError(w, err)
 		return
 	}
+	if err := s.appManager.SyncGitHubTags(r.Context()); err != nil {
+		writeAppManagerError(w, err)
+		return
+	}
+	if err := s.appManager.SyncGitHubReleases(r.Context()); err != nil {
+		writeAppManagerError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Data: map[string]bool{"synchronized": true}})
 }
 
@@ -212,6 +220,26 @@ func (s *Server) handleAppManagerApplicationCreate(w http.ResponseWriter, r *htt
 		return
 	}
 	writeJSON(w, http.StatusCreated, apiResponse{Data: data})
+}
+
+func (s *Server) handleAppManagerEnvironmentDeployPolicy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResponse{Error: "method not allowed"})
+		return
+	}
+	if !s.appManagerReady(w) {
+		return
+	}
+	var req appmanager.UpdateEnvironmentDeployPolicyInput
+	if err := jsonDecode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResponse{Error: "invalid request body"})
+		return
+	}
+	if err := s.appManager.UpdateEnvironmentDeployPolicy(r.Context(), req); err != nil {
+		writeAppManagerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Data: map[string]bool{"updated": true}})
 }
 
 func (s *Server) handleAppManagerWorkflow(w http.ResponseWriter, r *http.Request) {

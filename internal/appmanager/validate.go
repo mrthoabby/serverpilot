@@ -65,6 +65,9 @@ func ValidateEnvironmentInput(in CreateEnvironmentInput) error {
 	if in.Type != EnvironmentTest && in.Type != EnvironmentStaging && in.Type != EnvironmentProduction {
 		return fmt.Errorf("%w: invalid environment type", ErrInvalid)
 	}
+	if in.AutoDeployMode != AutoDeployManual && in.AutoDeployMode != AutoDeployTag && in.AutoDeployMode != AutoDeployRelease {
+		return fmt.Errorf("%w: invalid automatic deployment mode", ErrInvalid)
+	}
 	if in.AgentID != nil && !validID(*in.AgentID) {
 		return fmt.Errorf("%w: invalid agent", ErrInvalid)
 	}
@@ -233,6 +236,12 @@ func validateRelativeBuildPath(value string, allowDot bool) error {
 	if value == "" || len(value) > 240 || filepath.IsAbs(value) || strings.Contains(value, "\\") {
 		return ErrInvalid
 	}
+	for _, r := range value {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '/' || r == '.' || r == '_' || r == '-' {
+			continue
+		}
+		return ErrInvalid
+	}
 	clean := filepath.Clean(value)
 	if clean == "." && allowDot {
 		return nil
@@ -297,6 +306,69 @@ func validReleaseTag(value string) bool {
 		return false
 	}
 	return true
+}
+
+// validVersionTag intentionally accepts only semantic version tags prefixed
+// with v. Other Git tags remain ordinary source-control markers and must not
+// create deployable versions in ServerPilot.
+func validVersionTag(value string) bool {
+	if !validReleaseTag(value) || len(value) < 6 || value[0] != 'v' {
+		return false
+	}
+	versionAndBuild := strings.Split(value[1:], "+")
+	if len(versionAndBuild) > 2 || len(versionAndBuild) == 2 && !validVersionIdentifiers(versionAndBuild[1], false) {
+		return false
+	}
+	coreAndPrerelease := strings.SplitN(versionAndBuild[0], "-", 2)
+	if len(coreAndPrerelease) == 2 && !validVersionIdentifiers(coreAndPrerelease[1], true) {
+		return false
+	}
+	parts := strings.Split(coreAndPrerelease[0], ".")
+	if len(parts) != 3 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" || len(part) > 1 && part[0] == '0' {
+			return false
+		}
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func validVersionIdentifiers(value string, rejectNumericLeadingZero bool) bool {
+	if value == "" {
+		return false
+	}
+	for _, identifier := range strings.Split(value, ".") {
+		if identifier == "" || rejectNumericLeadingZero && len(identifier) > 1 && identifier[0] == '0' && identifierIsNumeric(identifier) {
+			return false
+		}
+		for _, r := range identifier {
+			if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' {
+				continue
+			}
+			return false
+		}
+	}
+	return true
+}
+
+func identifierIsNumeric(value string) bool {
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func validGitCommitSHA(value string) bool {
+	return (len(value) == 40 || len(value) == 64) && isLowerHex(value)
 }
 
 func validImageRepository(value string) bool {
