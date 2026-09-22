@@ -13,6 +13,13 @@ do not add compatibility fallbacks, legacy-field inference, or migrations for
 earlier Application Manager prototypes. Compatibility work belongs only to
 the established legacy ServerPilot flows.
 
+The current cleanup release deliberately resets `/var/lib/serverpilot/appmanager`
+once on its first daemon start and writes
+`.cleanup-vnext-registry-username` so later restarts preserve new data. This is
+temporary pre-production code: do not broaden its path or apply it to legacy
+state. Remove the cleanup function and marker check only when the repository
+owner explicitly requests the follow-up cleanup removal.
+
 ## Non-negotiable domain rules
 
 - A repository may have many applications. Every application has exactly one

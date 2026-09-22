@@ -8,15 +8,21 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
 const (
-	defaultDBPath  = "/var/lib/serverpilot/appmanager/appmanager.db"
-	defaultKeyPath = "/var/lib/serverpilot/appmanager/master.key"
-	maxPageSize    = 200
+	defaultStateDir       = "/var/lib/serverpilot/appmanager"
+	defaultDBPath         = defaultStateDir + "/appmanager.db"
+	defaultKeyPath        = defaultStateDir + "/master.key"
+	previewCleanupMarker  = ".cleanup-vnext-registry-username"
+	previewCleanupMessage = "Application Manager preview state reset for the registry credential schema"
+	maxPageSize           = 200
 )
 
 type Service struct {
@@ -25,7 +31,77 @@ type Service struct {
 	now   func() time.Time
 }
 
-func OpenDefault() (*Service, error) { return Open(defaultDBPath, defaultKeyPath) }
+func OpenDefault() (*Service, error) {
+	if err := cleanupPreproductionState(defaultStateDir); err != nil {
+		return nil, err
+	}
+	return Open(defaultDBPath, defaultKeyPath)
+}
+
+// cleanupPreproductionState is a temporary, one-shot reset for the
+// pre-production Application Manager schema. The marker prevents ordinary
+// daemon restarts from deleting data created by this version. Remove this
+// function and its OpenDefault call after the cleanup release has shipped.
+func cleanupPreproductionState(stateDir string) error {
+	if stateDir == "" || !filepath.IsAbs(stateDir) || filepath.Clean(stateDir) == "/" {
+		return fmt.Errorf("invalid application manager cleanup directory")
+	}
+	parent := filepath.Dir(stateDir)
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return fmt.Errorf("prepare application manager cleanup parent: %w", err)
+	}
+	parentInfo, err := os.Lstat(parent)
+	if err != nil || !parentInfo.IsDir() || parentInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("application manager cleanup parent is unsafe")
+	}
+	if info, err := os.Lstat(stateDir); err == nil {
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("application manager cleanup directory is unsafe")
+		}
+		marker := filepath.Join(stateDir, previewCleanupMarker)
+		if markerInfo, markerErr := os.Lstat(marker); markerErr == nil {
+			if !markerInfo.Mode().IsRegular() || markerInfo.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("application manager cleanup marker is unsafe")
+			}
+			return nil
+		} else if !os.IsNotExist(markerErr) {
+			return fmt.Errorf("inspect application manager cleanup marker: %w", markerErr)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect application manager cleanup directory: %w", err)
+	}
+	if err := os.RemoveAll(stateDir); err != nil {
+		return fmt.Errorf("reset pre-production application manager state: %w", err)
+	}
+	if err := os.Mkdir(stateDir, 0o700); err != nil {
+		return fmt.Errorf("recreate application manager state directory: %w", err)
+	}
+	markerPath := filepath.Join(stateDir, previewCleanupMarker)
+	marker, err := os.OpenFile(markerPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("create application manager cleanup marker: %w", err)
+	}
+	removeMarker := true
+	defer func() {
+		if removeMarker {
+			_ = os.Remove(markerPath)
+		}
+	}()
+	if _, err := marker.WriteString(previewCleanupMessage + "\n"); err != nil {
+		_ = marker.Close()
+		return fmt.Errorf("write application manager cleanup marker: %w", err)
+	}
+	if err := marker.Sync(); err != nil {
+		_ = marker.Close()
+		return fmt.Errorf("sync application manager cleanup marker: %w", err)
+	}
+	if err := marker.Close(); err != nil {
+		return fmt.Errorf("close application manager cleanup marker: %w", err)
+	}
+	removeMarker = false
+	log.Printf("application manager: cleared pre-production state for the current schema")
+	return nil
+}
 
 func Open(dbPath, keyPath string) (*Service, error) {
 	store, err := OpenStore(dbPath)
