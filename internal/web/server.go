@@ -51,8 +51,8 @@ func NewServer(config *auth.Config, port int, version string) *Server {
 func (s *Server) Start() error {
 	manager, err := appmanager.OpenDefault()
 	if err != nil {
-		// Application Manager is additive. A migration or filesystem problem
-		// must not take the legacy dashboard offline.
+		// Keep authentication and Database available if Application Manager
+		// cannot initialize, while reporting the control-plane failure safely.
 		log.Printf("application manager unavailable: initialization failed")
 	} else {
 		s.appManager = manager
@@ -204,18 +204,6 @@ func (s *Server) Start() error {
 	mux.Handle("/api/settings/ssl-enable", s.requireReauth(http.HandlerFunc(s.handleSettingsSSLEnable)))
 	mux.Handle("/api/settings/block-insecure", s.requireSecureReauth(http.HandlerFunc(s.handleSettingsBlockInsecure)))
 	mux.Handle("/api/settings/host-guard", s.requireSecureReauth(http.HandlerFunc(s.handleSettingsHostGuard)))
-	mux.Handle("/api/dependencies", s.authMiddleware(http.HandlerFunc(s.handleDependenciesList)))
-	mux.Handle("/api/dependencies/install", s.requireSecureReauth(http.HandlerFunc(s.handleDependencyInstall)))
-	mux.Handle("/api/gdapp/activate", s.requireReauth(http.HandlerFunc(s.handleGDAppActivate)))
-	mux.Handle("/api/gdapp/deactivate", s.requireSecureReauth(http.HandlerFunc(s.handleGDAppDeactivate)))
-
-	// Deploy users.
-	mux.Handle("/api/users", s.authMiddleware(http.HandlerFunc(s.handleDeployUsers)))
-	mux.Handle("/api/users/create", s.requireSecureReauth(http.HandlerFunc(s.handleDeployUserCreate)))
-	mux.Handle("/api/users/import", s.requireSecureReauth(http.HandlerFunc(s.handleDeployUserImport)))
-	mux.Handle("/api/users/system", s.authMiddleware(http.HandlerFunc(s.handleSystemUsersList)))
-	mux.Handle("/api/users/groups/toggle", s.requireSecureReauth(http.HandlerFunc(s.handleSystemUserGroupToggle)))
-
 	// Database query module — saved connections (DSN encrypted in vault),
 	// query runner with timeouts and result caps, audit log.
 	mux.Handle("/api/db/connections", s.authMiddleware(http.HandlerFunc(s.handleDBConnectionsList)))
@@ -226,54 +214,6 @@ func (s *Server) Start() error {
 	mux.Handle("/api/db/cell-update", s.requireSecureReauth(http.HandlerFunc(s.handleDBCellUpdate)))
 	mux.Handle("/api/db/schema", s.authMiddleware(http.HandlerFunc(s.handleDBSchema)))
 	mux.Handle("/api/db/audit", s.authMiddleware(http.HandlerFunc(s.handleDBAudit)))
-	mux.Handle("/api/users/reset-password", s.requireSecureReauth(http.HandlerFunc(s.handleDeployUserResetPassword)))
-	mux.Handle("/api/users/delete", s.requireSecureReauth(http.HandlerFunc(s.handleDeployUserDelete)))
-	mux.Handle("/api/users/ssh-keys", s.authMiddleware(http.HandlerFunc(s.handleDeployUserSSHKeys)))
-	mux.Handle("/api/users/ssh-keys/add", s.requireSecureReauth(http.HandlerFunc(s.handleDeployUserAddSSHKey)))
-	// Server-side SSH keypair generation + encrypted vault for re-display.
-	mux.Handle("/api/users/ssh-keys/generate", s.requireSecureReauth(http.HandlerFunc(s.handleDeployUserGenerateKey)))
-	mux.Handle("/api/users/ssh-keys/private", s.requireSecureReauth(http.HandlerFunc(s.handleDeployUserPrivateKey)))
-	mux.Handle("/api/users/ssh-keys/private/delete", s.requireSecureReauth(http.HandlerFunc(s.handleDeployUserPrivateKeyDelete)))
-	mux.Handle("/api/users/ssh-keys/vault-status", s.authMiddleware(http.HandlerFunc(s.handleDeployUserKeyVaultStatus)))
-
-	// Google Cloud Firewall (conditional — only works if gcloud is installed).
-	mux.Handle("/api/gcloud/status", s.authMiddleware(http.HandlerFunc(s.handleGCloudStatus)))
-	mux.Handle("/api/gcloud/firewall", s.authMiddleware(http.HandlerFunc(s.handleFirewallRules)))
-	mux.Handle("/api/gcloud/firewall/open", s.requireSecureReauth(http.HandlerFunc(s.handleFirewallOpen)))
-	mux.Handle("/api/gcloud/firewall/close", s.requireSecureReauth(http.HandlerFunc(s.handleFirewallClose)))
-
-	// Installed applications.
-	mux.Handle("/api/apps", s.authMiddleware(http.HandlerFunc(s.handleApps)))
-	mux.Handle("/api/apps/uninstall", s.requireSecureReauth(http.HandlerFunc(s.handleAppUninstall)))
-
-	// Managed applications (/opt directories with .env files).
-	mux.Handle("/api/managed-apps", s.authMiddleware(http.HandlerFunc(s.handleManagedApps)))
-	mux.Handle("/api/managed-apps/create", s.requireSecureReauth(http.HandlerFunc(s.handleManagedAppCreate)))
-	mux.Handle("/api/managed-apps/delete", s.requireSecureReauth(http.HandlerFunc(s.handleManagedAppDelete)))
-	mux.Handle("/api/managed-apps/env", s.authMiddleware(http.HandlerFunc(s.handleEnvFileRead)))
-	mux.Handle("/api/managed-apps/env/create", s.requireSecureReauth(http.HandlerFunc(s.handleEnvFileCreate)))
-	mux.Handle("/api/managed-apps/env/save", s.requireSecureReauth(http.HandlerFunc(s.handleEnvFileSave)))
-	mux.Handle("/api/managed-apps/env/delete", s.requireSecureReauth(http.HandlerFunc(s.handleEnvFileDelete)))
-	mux.Handle("/api/managed-apps/files", s.authMiddleware(http.HandlerFunc(s.handleManagedAppFiles)))
-
-	// Cases — operator notes/scenarios (public or private).
-	mux.Handle("/api/cases", s.authMiddleware(http.HandlerFunc(s.handleCasesList)))
-	mux.Handle("/api/cases/create", s.authMiddleware(http.HandlerFunc(s.handleCasesCreate)))
-	mux.Handle("/api/cases/update", s.authMiddleware(http.HandlerFunc(s.handleCasesUpdate)))
-	mux.Handle("/api/cases/delete", s.authMiddleware(http.HandlerFunc(s.handleCasesDelete)))
-
-	// Permissions — per-user grants on managed app folders + system apps.
-	// Every endpoint is behind authMiddleware AND CSRFMiddleware. Dangerous
-	// grants additionally require a single-use confirm token (see handler).
-	mux.Handle("/api/permissions/capabilities", s.authMiddleware(http.HandlerFunc(s.handlePermissionsCapabilities)))
-	mux.Handle("/api/permissions/managed-app", s.authMiddleware(http.HandlerFunc(s.handlePermissionsManagedApp)))
-	mux.Handle("/api/permissions/system-apps", s.authMiddleware(http.HandlerFunc(s.handlePermissionsSystemApps)))
-	mux.Handle("/api/permissions/system-app", s.authMiddleware(http.HandlerFunc(s.handlePermissionsSystemApp)))
-	mux.Handle("/api/permissions/confirm", s.requireSecureReauth(http.HandlerFunc(s.handlePermissionsConfirm)))
-	mux.Handle("/api/permissions/fs/grant", s.requireSecureReauth(http.HandlerFunc(s.handlePermissionsFSGrant)))
-	mux.Handle("/api/permissions/system/grant", s.requireSecureReauth(http.HandlerFunc(s.handlePermissionsSystemGrant)))
-	mux.Handle("/api/permissions/audit", s.authMiddleware(http.HandlerFunc(s.handlePermissionsAudit)))
-
 	// Terminal — WebSocket PTY bridge.
 	// requireReauth ensures a valid session + recent re-authentication before
 	// the WS upgrade; the handler itself validates Origin via nhooyr.io/websocket.

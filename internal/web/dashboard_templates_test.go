@@ -22,12 +22,7 @@ var dashboardJSFiles = []string{
 	"static/js/modules/container-logs.js",
 	"static/js/modules/site-modals.js",
 	"static/js/modules/modals.js",
-	"static/js/modules/apps.js",
-	"static/js/modules/ssh.js",
 	"static/js/modules/database.js",
-	"static/js/modules/permissions.js",
-	"static/js/modules/users.js",
-	"static/js/modules/gcp-firewall.js",
 	"static/js/modules/settings.js",
 	"static/js/modules/charts.js",
 	"static/js/modules/memory.js",
@@ -35,9 +30,9 @@ var dashboardJSFiles = []string{
 	"static/js/modules/stats.js",
 	"static/js/modules/resources.js",
 	"static/js/modules/jobs.js",
+	"static/js/modules/app-manager.js",
 	"static/js/bootstrap.js",
 	"static/containers-sites.js",
-	"static/js/cases.js",
 	"static/js/terminal.js",
 }
 
@@ -56,18 +51,43 @@ func TestRenderDashboardHTML(t *testing.T) {
 		"<!DOCTYPE html>",
 		"id=\"loginScreen\"",
 		"id=\"dashboard\"",
-		"id=\"panel-containers\"",
-		"id=\"associateModal\"",
-		"id=\"mappingEditModal\"",
+		"id=\"panel-app-manager\"",
+		"id=\"panel-db\"",
+		"id=\"amResourcesView\"",
+		"id=\"amPlatformSettingsView\"",
+		"id=\"amTerminalSettingsView\"",
+		"data-module-tab=\"app-manager\"",
+		"data-module-tab=\"db\"",
 		"/static/js/core.js?v=" + testDashboardVersion,
 		"/static/containers-sites.js?v=" + testDashboardVersion,
 		"/static/css/base.css?v=" + testDashboardVersion,
 		"id=\"settingsEmailLoginForm\"",
+		"id=\"amDeploymentGuideTemplate\"",
+		"How deployment works",
+		"GitHub Actions workflow",
+		"Environments and runtime configuration",
+		"Version, deployment and rollback",
 		"</html>",
 	}
 	for _, want := range checks {
 		if !strings.Contains(body, want) {
 			t.Fatalf("dashboard HTML missing %q", want)
+		}
+	}
+	removed := []string{
+		"id=\"panel-containers\"",
+		"id=\"panel-apps\"",
+		"id=\"panel-users\"",
+		"id=\"panel-cases\"",
+		"data-module-tab=\"containers\"",
+		">Server tools<",
+		"/static/js/modules/apps.js",
+		"/static/js/modules/users.js",
+		"/static/js/cases.js",
+	}
+	for _, unwanted := range removed {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("dashboard HTML still contains retired legacy surface %q", unwanted)
 		}
 	}
 }

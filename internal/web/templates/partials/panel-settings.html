@@ -1,7 +1,7 @@
 {{define "panel_settings"}}
-    <div class="tab-panel" id="panel-settings">
+    <section class="am-content am-native-view am-settings-native" id="amPlatformSettingsView" aria-labelledby="amPlatformSettingsTitle" hidden>
       <div class="card">
-        <div class="card-header"><h2>ServerPilot Settings</h2></div>
+        <div class="card-header"><h2 id="amPlatformSettingsTitle">Server &amp; security</h2></div>
         <div style="padding: 1.25rem;">
           <p style="color:var(--text-secondary); font-size:0.875rem; margin-bottom: 1.25rem;">
             Configure the domain, SSL certificate, and security for your ServerPilot dashboard.
@@ -169,7 +169,5 @@
           </div>
         </div>
       </div>
-    </div>
-
-    <!-- Terminal Tab -->
+    </section>
 {{end}}

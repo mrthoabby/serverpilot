@@ -99,8 +99,20 @@
   function emptyState(title, description, actionName, actionLabel) {
     return '<div class="am-empty"><div><div class="am-empty-symbol">' + icon("package") + '</div><h2>' + h(title) + '</h2><p>' + h(description) + '</p>' + (actionName ? button(actionLabel, actionName, true, "plus") : "") + '</div></div>';
   }
-  function loading() { content.innerHTML = '<div class="am-skeleton" aria-label="Loading"></div>'; }
+  function nativeViews() {
+    return ["amResourcesView", "amPlatformSettingsView", "amTerminalSettingsView"].map(function(id) { return document.getElementById(id); }).filter(Boolean);
+  }
+  function showDynamicContent() {
+    content.hidden = false;
+    nativeViews().forEach(function(view) { view.hidden = true; });
+  }
+  function showNativeView(id) {
+    content.hidden = true;
+    nativeViews().forEach(function(view) { view.hidden = view.id !== id; });
+  }
+  function loading() { showDynamicContent(); content.innerHTML = '<div class="am-skeleton" aria-label="Loading"></div>'; }
   function errorState(message) {
+    showDynamicContent();
     content.innerHTML = pageHeader("Something went wrong", "Application Manager could not load this view.", button("Retry", "retry", true, "refresh")) + '<div class="am-alert am-alert-danger">' + h(message || "Please retry.") + '</div>';
   }
   function preferredEnvironment(environments) {
@@ -165,7 +177,8 @@
   }
 
   function renderCurrent() {
-    if (!state.connection && state.view !== "github") { renderOnboarding(); return; }
+    showDynamicContent();
+    if (!state.connection && state.view !== "github" && state.view !== "settings" && state.view !== "resources") { renderOnboarding(); return; }
     markNavigation(state.view);
     if (state.view === "wizard") return;
     if (state.view === "application" && state.currentApplicationID) { renderApplicationDetail(state.currentApplicationID, state.currentApplicationTab, state.currentEnvironmentID); return; }
@@ -173,6 +186,7 @@
     if (state.view === "release" && state.currentReleaseID) { renderReleaseDetail(state.currentReleaseID); return; }
     if (state.view === "deployment" && state.currentDeploymentID) { renderDeploymentDetail(state.currentDeploymentID); return; }
     if (state.view === "repositories") { renderRepositories(); return; }
+    if (state.view === "resources") { renderResources(); return; }
     if (state.view === "github") { renderGitHub(); return; }
     if (state.view === "settings") { renderSettings(); return; }
     if (state.view === "applications") { renderApplications(); return; }
@@ -181,6 +195,7 @@
   }
 
   function renderOnboarding() {
+    showDynamicContent();
     markNavigation("github");
     content.innerHTML = pageHeader("Connect GitHub", "Install the ServerPilot GitHub App to discover repositories and version images.", button("Configure GitHub App", "configure-github", true, "brand-github")) +
       '<div class="am-panel" style="padding:28px;max-width:840px"><div class="am-page-title-row"><span class="am-page-mark">' + icon("brand-github") + '</span><div><h2 style="margin-bottom:4px">One account, only authorized repositories</h2><p class="am-muted">Credentials are encrypted on this server. Signed tag and Release webhooks create one shared repository version with per-application image artifacts.</p></div></div></div>';
@@ -192,6 +207,7 @@
   }
 
   function renderProjectDetail(projectID) {
+    showDynamicContent();
     var project = state.projects.find(function(item) { return item.id === projectID; });
     if (!project) { errorState("Project not found"); return; }
     state.view = "project";
@@ -207,6 +223,7 @@
   }
 
   function renderApplications() {
+    showDynamicContent();
     state.view = "applications";
     markNavigation("applications");
     setSidebarSection("applications", true);
@@ -220,6 +237,7 @@
   }
 
   function renderRepositories() {
+    showDynamicContent();
     state.view = "repositories";
     markNavigation("repositories");
     var query = state.query.toLowerCase();
@@ -231,6 +249,7 @@
   }
 
   function renderGitHub() {
+    showDynamicContent();
     state.view = "github";
     markNavigation("github");
     if (!state.connection) { renderOnboarding(); return; }
@@ -244,15 +263,62 @@
       '<section class="am-section am-list-panel"><div class="am-list-header"><div><h2 style="margin:0">Authorized repositories</h2><div class="am-muted">Only these repositories can be linked to applications.</div></div>' + button("Edit access", "configure-github", false) + '</div>' + rows + '</section>';
   }
 
+  function setupStatus(text, kind) {
+    var status = kind === "complete" ? "am-status-success" : kind === "optional" || kind === "available" ? "am-status-info" : "am-status-warning";
+    return '<span class="am-status ' + status + '">' + h(text) + '</span>';
+  }
+
+  function setupStep(number, iconName, title, description, status, actionHTML) {
+    return '<div class="am-setup-step"><span class="am-setup-step-number">' + h(number) + '</span><span class="am-setup-step-icon">' + icon(iconName) + '</span><div class="am-setup-step-copy"><strong>' + h(title) + '</strong><span>' + h(description) + '</span></div><div class="am-setup-step-meta">' + status + (actionHTML || "") + '</div></div>';
+  }
+
+  function renderResources() {
+    state.view = "resources";
+    markNavigation("resources");
+    showNativeView("amResourcesView");
+    if (window.loadResources) window.loadResources({ force: true });
+  }
+
   function renderSettings() {
+    showDynamicContent();
     state.view = "settings";
     markNavigation("settings");
+    var connectedAgents = state.agents.filter(function(agent) { return agent.status === "online" || agent.status === "local"; });
+    var environmentCount = state.applications.reduce(function(total, app) { return total + (app.environments || []).length; }, 0);
+    var applicationsConfigured = state.applications.length > 0 && state.applications.every(function(app) { return (app.environments || []).length > 0; });
+    var requiredChecks = [Boolean(state.connection), state.repositories.length > 0, applicationsConfigured, connectedAgents.length > 0, state.releases.length > 0];
+    var completedChecks = requiredChecks.filter(Boolean).length;
+    var readinessPercent = Math.round(completedChecks / requiredChecks.length * 100);
+    var firstApplication = state.applications[0] || null;
+    var githubAction = state.connection ? '<button type="button" class="am-button" data-am-view="github">Manage</button>' : button("Connect", "configure-github", false, "brand-github");
+    var repositoryAction = state.repositories.length ? '<button type="button" class="am-button" data-am-view="repositories">View repositories</button>' : button("Sync repositories", "sync-github", false, "refresh");
+    var applicationAction = firstApplication ? '<button type="button" class="am-button" data-application-id="' + h(firstApplication.id) + '">Open application</button>' : button("Create application", "create-application", false, "plus");
+    var workflowAction = firstApplication ? button("Copy workflow", "copy-workflow", false, "copy", ' data-application-id="' + h(firstApplication.id) + '"') : button("Create application", "create-application", false, "plus");
+    var registryStatus = state.connection && state.connection.registry_configured ? setupStatus("Completed", "complete") : setupStatus("Optional for public images", "optional");
+    var registryAction = '<button type="button" class="am-button" data-am-view="github">Registry settings</button>';
+    var releaseAction = firstApplication ? '<button type="button" class="am-button" data-application-id="' + h(firstApplication.id) + '">Open application</button>' : button("Create application", "create-application", false, "plus");
+    var guideSteps = setupStep(1, "brand-github", "Connect GitHub", "Authorize one GitHub account or organization and its repositories.", state.connection ? setupStatus("Completed", "complete") : setupStatus("Needs configuration", "pending"), githubAction) +
+      setupStep(2, "folder-code", "Synchronize a repository", "ServerPilot applications can only be created from authorized repositories.", state.repositories.length ? setupStatus("Completed", "complete") : setupStatus("Needs configuration", "pending"), repositoryAction) +
+      setupStep(3, "packages", "Prepare an application", "Set the Dockerfile, build context and container port. Current: " + state.applications.length + " applications · " + environmentCount + " environments.", applicationsConfigured ? setupStatus("Completed", "complete") : setupStatus("Needs configuration", "pending"), applicationAction) +
+      setupStep(4, "code", "Install the GitHub Actions workflow", "Copy the generated workflow into .github/workflows so version tags publish the expected GHCR image.", firstApplication ? setupStatus("Ready to copy", "available") : setupStatus("Needs an application", "pending"), workflowAction) +
+      setupStep(5, "shield-lock", "Configure private registry access", "Public GHCR images need no token. Private images require a registry username and classic PAT with read:packages.", registryStatus, registryAction) +
+      setupStep(6, "server", "Choose a deployment server", "Use this ServerPilot host or pair a remote agent before deploying an environment.", connectedAgents.length ? setupStatus("Completed", "complete") : setupStatus("Needs configuration", "pending"), button("Pair server", "pair-agent", false, "plus")) +
+      setupStep(7, "rocket", "Publish a version and deploy", "Push a semantic version tag, let the workflow publish the image, then deploy manually or by policy.", state.releases.length ? setupStatus("Completed", "complete") : setupStatus("No version detected", "pending"), releaseAction);
     var agentRows = state.agents.map(function(agent) {
       return '<div class="am-list-row"><span class="am-list-avatar">' + icon("server") + '</span><div class="am-list-row-main"><strong>' + h(agent.name) + '</strong><span class="am-muted am-mono">' + h(agent.id) + ' · ' + h(agent.version || "Local controller") + '</span></div>' + statusBadge(agent.status) + '</div>';
     }).join("");
+    var guideTemplate = document.getElementById("amDeploymentGuideTemplate");
+    var guideReference = guideTemplate ? guideTemplate.innerHTML : "";
     content.innerHTML = pageHeader("Settings", "ServerPilot Application Manager preferences and connected deployment agents.", button("Pair server", "pair-agent", true, "plus")) +
+      '<section class="am-deployment-guide"><div class="am-guide-header"><div><span class="am-eyebrow">Getting started</span><h2>Deployment setup</h2><p>Everything a repository and application need before ServerPilot can deploy it safely.</p></div><div class="am-guide-progress"><strong>' + h(completedChecks) + ' of ' + h(requiredChecks.length) + ' ready</strong><span>' + h(readinessPercent) + '%</span><div class="am-guide-progress-track"><span style="width:' + h(readinessPercent) + '%"></span></div></div></div><div class="am-setup-flow" aria-label="Deployment flow"><span>' + icon("git-branch") + '<strong>Version tag</strong></span>' + icon("chevron-right") + '<span>' + icon("brand-github") + '<strong>GitHub Action</strong></span>' + icon("chevron-right") + '<span>' + icon("package") + '<strong>GHCR image</strong></span>' + icon("chevron-right") + '<span>' + icon("shield-lock") + '<strong>Digest check</strong></span>' + icon("chevron-right") + '<span>' + icon("rocket") + '<strong>Deploy</strong></span></div><div class="am-setup-steps">' + guideSteps + '</div></section>' +
+      guideReference +
       '<div class="am-grid"><div class="am-card"><span class="am-eyebrow">Account</span><h2 style="margin:8px 0 4px">ServerPilot</h2><div class="am-muted">' + h(state.connection ? "@" + state.connection.account_login : "GitHub not connected") + '</div></div><div class="am-card"><span class="am-eyebrow">Integration</span><h2 style="margin:8px 0 4px">GitHub & GHCR</h2><div class="am-muted">Credentials remain encrypted and secrets are write-only.</div></div></div>' +
       '<section class="am-section am-list-panel"><div class="am-list-header"><div><h2 style="margin:0">Deployment servers</h2><div class="am-muted">Local controller and paired agents.</div></div></div>' + agentRows + '</section>';
+    var platformSettings = document.getElementById("amPlatformSettingsView");
+    var terminalSettings = document.getElementById("amTerminalSettingsView");
+    if (platformSettings) platformSettings.hidden = false;
+    if (terminalSettings) terminalSettings.hidden = false;
+    if (window.loadSettings) window.loadSettings();
   }
 
   function environmentCards(app, latestReady) {
@@ -465,6 +531,7 @@
   }
 
   function applicationWizard(preselectedRepository, returnToProject) {
+    showDynamicContent();
     state.view = "wizard";
     markNavigation("wizard");
     var draft = { step: 0, repository_id: preselectedRepository || "", name: "", description: "", type: "nextjs", dockerfile: "Dockerfile", build_context: ".", container_port: 3000, project_id: "", environments: [newEnvironment("test", "test"), newEnvironment("staging", "staging"), newEnvironment("production", "production")] };
@@ -611,7 +678,7 @@
     if (name === "deploy-policy") { deployPolicyDialog(target.dataset.environmentId, target.dataset.deployMode); return; }
     if (name === "configure-project") { configurationDialog("project", target.dataset.projectId, "Project global variables"); return; }
     if (name === "check-artifacts") { try { await apiFetch("/api/app-manager/artifacts/check", { method: "POST", body: {} }); showToast("Registry images checked", "success"); await renderApplicationDetail(content.dataset.applicationId); } catch (err) { showToast(err.message, "error"); } return; }
-    if (name === "copy-workflow") { try { var result = dataOf(await apiFetch("/api/app-manager/applications/workflow?application_id=" + encodeURIComponent(content.dataset.applicationId))); await copyText(result.workflow); showToast("Workflow copied", "success"); } catch (err) { showToast(err.message, "error"); } return; }
+    if (name === "copy-workflow") { try { var workflowApplicationID = target.dataset.applicationId || content.dataset.applicationId; if (!workflowApplicationID) throw new Error("Choose an application first"); var result = dataOf(await apiFetch("/api/app-manager/applications/workflow?application_id=" + encodeURIComponent(workflowApplicationID))); await copyText(result.workflow); showToast("Workflow copied", "success"); } catch (err) { showToast(err.message, "error"); } return; }
     if (name === "deploy") {
       if (!target.dataset.artifactId || !window.confirm("Deploy this version image to the selected environment?")) return;
       target.disabled = true;
@@ -680,6 +747,16 @@
     loading();
     try { await fetchAll(options.force); renderCurrent(); }
     catch (err) { errorState(err.message); }
+  };
+  window.openApplicationManagerSettings = function(prefillDomain) {
+    state.view = "settings";
+    renderCurrent();
+    window.setTimeout(function() {
+      var input = document.getElementById("settingsDomainInput");
+      if (!input) return;
+      if (prefillDomain && !input.value) input.value = prefillDomain;
+      input.focus();
+    }, 50);
   };
   window.SP.loadApplicationManager = window.loadApplicationManager;
 })();

@@ -101,7 +101,6 @@
       case "nextjs": return "Associate Next.js";
       case "frontend": return "Associate Frontend";
       case "minio": return "Associate MinIO";
-      case "gd-app": return "Associate GD-App";
       default: return "Associate Site";
     }
   }

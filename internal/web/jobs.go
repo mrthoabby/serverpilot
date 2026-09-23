@@ -16,8 +16,8 @@ import (
 
 // Background-job tracking.
 //
-// Several dashboard operations (replica create/sync/delete, SSL enable/disable,
-// site delete, domain update, www alias, GD-App activate, dependency install)
+// Several dashboard operations (deployments, SSL changes, updates, and
+// resource cleanup)
 // are long-running and streamed to the browser over Server-Sent Events. If the
 // operator closes the progress modal or the browser tab, the server goroutine
 // keeps running to completion but the UI loses all visibility.

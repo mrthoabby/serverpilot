@@ -13,6 +13,22 @@
   --am-info: #4c82f7;
   --am-border: rgba(255,255,255,.105);
   --am-input: rgba(255,255,255,.14);
+  /* Compatibility aliases for Resources, server settings and Terminal while
+     their proven operational components live inside Application Manager. */
+  --bg-primary: var(--am-bg);
+  --bg-secondary: var(--am-surface);
+  --bg-card: var(--am-surface);
+  --bg-input: var(--am-elevated);
+  --border: var(--am-border);
+  --text-primary: var(--am-text);
+  --text-secondary: var(--am-muted);
+  --text-muted: var(--am-muted);
+  --accent: var(--am-primary);
+  --accent-hover: #4a67ff;
+  --accent-glow: rgba(59,91,255,.15);
+  --green: var(--am-success);
+  --red: var(--am-danger);
+  --yellow: var(--am-warning);
   min-height: calc(100vh - 168px);
   overflow: hidden;
   color: var(--am-text);
@@ -218,6 +234,9 @@
 .app-manager .am-search input { width: 100%; color: var(--am-text); background: transparent; border: 0; outline: 0; }
 .app-manager .am-search kbd { padding: 2px 7px; color: var(--am-muted); background: var(--am-bg); border: 1px solid var(--am-border); border-radius: 5px; font-size: 11px; }
 .app-manager .am-content { width: min(1480px,100%); margin: 0 auto; padding: 38px 44px 56px; }
+.app-manager .am-native-view[hidden] { display: none; }
+.app-manager .am-settings-native { padding-top: 0; }
+.app-manager .am-native-view .card { border-color: var(--am-border); background: var(--am-surface); }
 
 .app-manager h1, .app-manager h2, .app-manager h3, .app-manager p { margin-top: 0; }
 .app-manager h1 { margin-bottom: 4px; font-size: clamp(24px,2vw,28px); line-height: 1.2; font-weight: 650; letter-spacing: -.03em; }
@@ -310,6 +329,46 @@
 .app-manager .am-stat { min-height: 100px; padding: 16px; }
 .app-manager .am-stat span { display: block; margin-bottom: 8px; color: var(--am-muted); font-size: 12px; }
 .app-manager .am-stat strong { font-size: 26px; }
+
+.app-manager .am-deployment-guide { overflow: hidden; background: var(--am-surface); border: 1px solid var(--am-input); border-radius: 12px; }
+.app-manager .am-guide-header { padding: 22px; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; border-bottom: 1px solid var(--am-border); }
+.app-manager .am-guide-header h2 { margin: 5px 0 4px; font-size: 21px; }
+.app-manager .am-guide-header p { margin-bottom: 0; color: var(--am-muted); }
+.app-manager .am-guide-progress { width: 230px; flex: 0 0 230px; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; }
+.app-manager .am-guide-progress strong { font-size: 13px; }
+.app-manager .am-guide-progress > span { color: var(--am-muted); font-size: 12px; }
+.app-manager .am-guide-progress-track { height: 6px; grid-column: 1/-1; overflow: hidden; background: var(--am-bg); border-radius: 999px; }
+.app-manager .am-guide-progress-track span { display: block; height: 100%; background: var(--am-primary); border-radius: inherit; }
+.app-manager .am-setup-flow { padding: 14px 22px; display: flex; align-items: center; justify-content: center; gap: 12px; color: var(--am-muted); background: rgba(59,91,255,.04); border-bottom: 1px solid var(--am-border); }
+.app-manager .am-setup-flow > span { min-width: 0; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.app-manager .am-setup-flow > span img { width: 17px; height: 17px; }
+.app-manager .am-setup-flow > img { width: 15px; height: 15px; opacity: .55; }
+.app-manager .am-setup-flow strong { color: var(--am-text); font-size: 12px; font-weight: 600; }
+.app-manager .am-setup-steps { display: grid; }
+.app-manager .am-setup-step { min-height: 82px; padding: 13px 18px; display: grid; grid-template-columns: 28px 42px minmax(0,1fr) auto; align-items: center; gap: 13px; border-top: 1px solid var(--am-border); }
+.app-manager .am-setup-step:first-child { border-top: 0; }
+.app-manager .am-setup-step-number { width: 26px; height: 26px; display: grid; place-items: center; color: var(--am-muted); background: var(--am-bg); border: 1px solid var(--am-border); border-radius: 50%; font-size: 12px; font-weight: 650; }
+.app-manager .am-setup-step-icon { width: 40px; height: 40px; display: grid; place-items: center; background: rgba(255,255,255,.025); border: 1px solid var(--am-border); border-radius: 9px; }
+.app-manager .am-setup-step-icon img { width: 20px; height: 20px; }
+.app-manager .am-setup-step-copy { min-width: 0; display: grid; gap: 2px; }
+.app-manager .am-setup-step-copy strong { font-size: 14px; }
+.app-manager .am-setup-step-copy span { color: var(--am-muted); font-size: 12px; }
+.app-manager .am-setup-step-meta { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.app-manager .am-setup-step-meta .am-button { min-width: 120px; }
+.app-manager .am-guide-details { overflow: hidden; background: var(--am-surface); border: 1px solid var(--am-input); border-radius: 12px; }
+.app-manager .am-guide-details details { border-top: 1px solid var(--am-border); }
+.app-manager .am-guide-details details:first-child { border-top: 0; }
+.app-manager .am-guide-details summary { min-height: 70px; padding: 13px 18px; display: flex; align-items: center; justify-content: space-between; gap: 16px; cursor: pointer; list-style: none; }
+.app-manager .am-guide-details summary::-webkit-details-marker { display: none; }
+.app-manager .am-guide-details summary > span { min-width: 0; display: flex; align-items: center; gap: 12px; }
+.app-manager .am-guide-details summary > span > img { width: 20px; height: 20px; flex: 0 0 auto; }
+.app-manager .am-guide-details summary span span { min-width: 0; display: grid; gap: 2px; }
+.app-manager .am-guide-details summary small { color: var(--am-muted); }
+.app-manager .am-guide-details summary > img { width: 17px; height: 17px; transition: transform .15s ease; }
+.app-manager .am-guide-details details[open] summary > img { transform: rotate(180deg); }
+.app-manager .am-guide-details details > div { padding: 0 50px 18px; color: var(--am-muted); }
+.app-manager .am-guide-details details > div p { margin-bottom: 8px; }
+.app-manager .am-guide-details code { color: var(--am-text); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
 
 .app-manager .am-tabs {
   margin-top: 28px;
@@ -465,6 +524,9 @@
   .app-manager .am-wizard-steps { grid-template-columns: repeat(8,minmax(38px,1fr)); overflow-x: auto; }
   .app-manager .am-wizard-step { min-height: 42px; padding: 6px; grid-template-columns: 28px; justify-content: center; }
   .app-manager .am-wizard-step > span:last-child { display: none; }
+  .app-manager .am-setup-flow { justify-content: flex-start; overflow-x: auto; }
+  .app-manager .am-setup-step { grid-template-columns: 28px 42px minmax(0,1fr); }
+  .app-manager .am-setup-step-meta { grid-column: 2/-1; justify-content: flex-start; }
 }
 @media (max-width: 680px) {
   .app-manager .am-topbar { min-height: 68px; padding: 12px 16px; }
@@ -481,6 +543,13 @@
   .app-manager .am-segmented { width: 100%; overflow-x: auto; }
   .app-manager .am-segmented button { flex: 1; padding-inline: 10px; white-space: nowrap; }
   .app-manager .am-wizard-panel { min-height: 500px; padding: 20px; }
+  .app-manager .am-guide-header { align-items: stretch; flex-direction: column; }
+  .app-manager .am-guide-progress { width: 100%; flex-basis: auto; }
+  .app-manager .am-setup-step { padding-inline: 14px; grid-template-columns: 28px minmax(0,1fr); }
+  .app-manager .am-setup-step-icon { display: none; }
+  .app-manager .am-setup-step-meta { grid-column: 2; align-items: stretch; flex-direction: column; }
+  .app-manager .am-setup-step-meta .am-button { width: 100%; }
+  .app-manager .am-guide-details details > div { padding-inline: 18px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .app-manager *, .app-manager *::before, .app-manager *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }

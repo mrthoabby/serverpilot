@@ -74,7 +74,6 @@
           <option value="frontend">Frontend / SPA</option>
           <option value="minio">MinIO (Object Storage)</option>
           <option value="mcp">MCP / SSE streaming</option>
-          <option value="gd-app">GD-App (Legacy)</option>
         </select>
       </div>
       <div class="form-group">
@@ -176,7 +175,6 @@
           <option value="nextjs">Next.js</option>
           <option value="frontend">Frontend / SPA</option>
           <option value="minio">MinIO</option>
-          <option value="gd-app">GD-App</option>
           <option value="back">Back / no publish</option>
         </select>
         <p style="font-size:0.72rem;color:var(--text-muted);line-height:1.45;margin-top:6px;">
@@ -195,33 +193,6 @@
       <div class="modal-actions">
         <button type="button" class="btn btn-outline" id="replicaCancelBtn">Cancel</button>
         <button type="submit" class="btn btn-primary" id="replicaSubmitBtn">Create Replica</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- Reload Container Environment Modal -->
-<div class="modal-overlay" id="reloadEnvModal">
-  <div class="modal" style="max-width: 520px;">
-    <h3>Reload environment</h3>
-    <p class="modal-sub" id="reloadEnvModalSub">Recreate this container with a managed app environment file.</p>
-    <form id="reloadEnvForm">
-      <input type="hidden" id="reloadEnvContainerId">
-      <input type="hidden" id="reloadEnvContainerName">
-      <div class="form-group">
-        <label for="reloadEnvApp">Application</label>
-        <select id="reloadEnvApp" required></select>
-      </div>
-      <div class="form-group">
-        <label for="reloadEnvFile">Environment file</label>
-        <select id="reloadEnvFile" required></select>
-      </div>
-      <p style="font-size:0.76rem;color:var(--text-muted);line-height:1.45;margin-bottom:1rem;">
-        This stops the current container, recreates it with the selected environment, and restores the old container if Docker cannot start the replacement.
-      </p>
-      <div class="modal-actions">
-        <button type="button" class="btn btn-outline" id="reloadEnvCancelBtn">Cancel</button>
-        <button type="submit" class="btn btn-warning" id="reloadEnvSubmitBtn">Reload Env</button>
       </div>
     </form>
   </div>
@@ -372,32 +343,6 @@
   </div>
 </div>
 
-<!-- GD-App Activate Modal -->
-<div class="modal-overlay" id="gdappModal">
-  <div class="modal" style="max-width: 480px;">
-    <h3>Activate GD-App Site</h3>
-    <p class="modal-sub" id="gdappModalSub">Set up the full nginx configuration with WebSocket, SSE, SSL, and security headers.</p>
-    <form id="gdappForm">
-      <input type="hidden" id="gdappContainerName">
-      <div class="form-group">
-        <label for="gdappDomain">Domain</label>
-        <input type="text" id="gdappDomain" required placeholder="docs.example.com">
-      </div>
-      <div class="form-group">
-        <label for="gdappPort">Host port to proxy</label>
-        <input type="text" id="gdappPort" required placeholder="3010" value="3010">
-        <div style="font-size:0.7rem;color:var(--text-muted);margin-top:4px;line-height:1.4;">
-          The port Docker published on the host (left side of <code>3001:8080</code>) — NOT the container's internal port.
-        </div>
-      </div>
-      <div class="modal-actions">
-        <button type="button" class="btn btn-outline" id="gdappCancelBtn">Cancel</button>
-        <button type="submit" class="btn" id="gdappSubmitBtn" style="background:rgba(138,43,226,0.9); color:#fff;">Activate Site</button>
-      </div>
-    </form>
-  </div>
-</div>
-
 <!-- Container Logs Modal -->
 <div class="modal-overlay" id="containerLogsModal">
   <div class="modal progress-modal">
@@ -436,7 +381,6 @@
     <div class="progress-actions">
       <button type="button" class="btn btn-sm btn-outline" id="progressBackgroundBtn" title="Seguir en segundo plano; el proceso continúa y podrás verlo desde 'Procesos'">Segundo plano</button>
       <button type="button" class="btn btn-sm btn-outline" id="progressCloseBtn" style="display:none;">Close</button>
-      <button type="button" class="btn btn-sm" id="progressInstallBtn" style="display:none;background:#8a2be2;color:#fff;margin-left:8px;">Install & Retry</button>
     </div>
   </div>
 </div>

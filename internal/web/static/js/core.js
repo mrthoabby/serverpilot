@@ -373,21 +373,12 @@ window.SP = window.SP || {};
   initEnvEditors();
   var images = [];
   var selectedImageIDs = {};
-  var activeTab = "containers";
+  var activeTab = "app-manager";
 
   // Tab load functions — each loads data for its tab.
   var tabLoaders = {
-    containers: function(opts) { return loadContainers(opts); },
-    sites:      function(opts) { return loadSites(opts); },
-    images:     function(opts) { return loadImages(opts); },
-    mappings:   function(opts) { return loadMappings(opts); },
-    resources:  function(opts) { return loadResources(opts); },
-    apps:       function(opts) { loadManagedApps(); loadDependencies(); return loadApps(); },
     "app-manager": function(opts) { return window.loadApplicationManager ? window.loadApplicationManager(opts) : null; },
-    users:      function(opts) { loadSystemUsers(); return loadDeployUsers(); },
-    cases:      function(opts) { return loadCases(); },
-    db:         function(opts) { return loadDBConnections(); },
-    settings:   function(opts) { return loadSettings(); }
+    db: function() { return loadDBConnections(); }
   };
 
   // ── Single global auto-refresh: fixed 30s, active tab only ──
@@ -403,7 +394,7 @@ window.SP = window.SP || {};
       // Application Manager owns multi-step drafts and dialogs. Re-rendering
       // its entire panel would discard unsaved user input, so it refreshes
       // only after explicit actions or the global Refresh button.
-      var noAutoRefresh = { apps: true, cases: true, "app-manager": true };
+      var noAutoRefresh = { "app-manager": true };
       if (activeTab && tabLoaders[activeTab] && !noAutoRefresh[activeTab]) {
         tabLoaders[activeTab]({ silent: true });
       }
@@ -711,10 +702,10 @@ window.SP = window.SP || {};
     var isApplicationManager = tab === "app-manager";
     var label = document.getElementById("moduleSwitcherLabel");
     var dashboard = document.getElementById("dashboard");
-    if (label) setText(label, isApplicationManager ? "Application Manager" : "Server tools");
+    if (label) setText(label, isApplicationManager ? "Application Manager" : "Database");
     if (dashboard) dashboard.classList.toggle("app-manager-active", isApplicationManager);
     document.querySelectorAll("[data-module-tab]").forEach(function(option) {
-      var selected = option.dataset.moduleTab === (isApplicationManager ? "app-manager" : "containers");
+      var selected = option.dataset.moduleTab === tab;
       option.classList.toggle("active", selected);
       option.setAttribute("aria-selected", selected ? "true" : "false");
     });

@@ -1,5 +1,11 @@
 {{define "panel_resources"}}
-    <div class="tab-panel" id="panel-resources">
+    <section class="am-content am-native-view" id="amResourcesView" aria-labelledby="amResourcesTitle" hidden>
+      <header class="am-page-header">
+        <div>
+          <h1 id="amResourcesTitle">Resources</h1>
+          <p>Live CPU, memory, disk, Docker storage and service health for this server.</p>
+        </div>
+      </header>
       <div class="refresh-bar">
         <span class="refresh-bar-ts" id="ts-resources">--</span>
       </div>
@@ -60,7 +66,7 @@
             <div style="margin-bottom:1rem;">
               <h3 style="font-size:0.85rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin-bottom:0.5rem;">Linux Kernel Cache (liberatable)</h3>
               <div id="memCacheRows" style="display:flex;gap:1rem;flex-wrap:wrap;"></div>
-              <p style="font-size:0.78rem;color:var(--text-muted);margin-top:0.5rem;">Linux reusa la RAM libre como caché de disco. Esta memoria se libera automáticamente cuando cualquier proceso la necesita. <strong>MemAvailable</strong> es el número real de memoria disponible.</p>
+              <p style="font-size:0.78rem;color:var(--text-muted);margin-top:0.5rem;">Linux reuses free RAM as a disk cache and releases it automatically when a process needs it. <strong>MemAvailable</strong> is the practical amount of memory still available.</p>
             </div>
             <hr style="border-color:var(--border);margin:0.75rem 0;">
             <!-- Top processes sub-section -->
@@ -96,7 +102,7 @@
                   <tbody id="memProcBody"></tbody>
                 </table>
               </div>
-              <p style="font-size:0.78rem;color:var(--text-muted);margin-top:0.5rem;">RSS = Resident Set Size, la RAM física real que ocupa cada proceso en este momento.</p>
+              <p style="font-size:0.78rem;color:var(--text-muted);margin-top:0.5rem;">RSS means Resident Set Size: the physical RAM currently used by each process.</p>
             </div>
           </div>
         </div>
@@ -172,7 +178,7 @@
 
       <div class="card" id="dockerPruneCard" style="margin-top:1rem;">
         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;">
-          <h2>Limpieza Docker (prune)</h2>
+          <h2>Docker cleanup</h2>
           <span id="dockerPruneLoading" style="font-size:0.75rem;color:var(--text-muted);"></span>
         </div>
         <div id="dockerPruneContent" style="padding:0.75rem;font-size:0.82rem;color:var(--text-secondary);">
@@ -189,8 +195,8 @@
             </div>
           </div>
           <div style="color:var(--text-muted);margin-bottom:0.75rem;line-height:1.45;">
-            Libera espacio en disco eliminando recursos Docker que ya no se usan.
-            Los contenedores <strong>corriendo</strong> y sus imágenes/volúmenes no se tocan en la limpieza básica.
+            Reclaim disk space by removing Docker resources that are no longer used.
+            Running containers and their images or volumes are never touched by basic cleanup.
           </div>
           <div id="dockerPruneModesList">Cargando opciones…</div>
         </div>
@@ -264,7 +270,5 @@
           <div class="spinner"><div class="spinner-ring"></div>Loading stats...</div>
         </div>
       </div>
-    </div>
-
-    <!-- Apps Tab -->
+    </section>
 {{end}}

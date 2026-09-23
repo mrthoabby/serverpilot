@@ -76,8 +76,8 @@ var baseDir = "/var/lib/serverpilot"
 func registryPath() string { return filepath.Join(baseDir, registryName) }
 func lockPath() string     { return filepath.Join(baseDir, lockName) }
 
-// deployGroupName matches the constant in internal/users — duplicated here
-// to avoid an import cycle (users imports portalloc indirectly via cmd).
+// deployGroupName is retained for compatibility with ownership created by
+// earlier ServerPilot releases.
 const deployGroupName = "deploy"
 
 // ensureBaseDir guarantees that /var/lib/serverpilot exists with the

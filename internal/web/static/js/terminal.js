@@ -51,11 +51,11 @@
 
   function termCopyText(text, label) {
     function done() {
-      termSetStatus((label || "Text") + " copiado", "var(--green)");
-      if (typeof window.showToast === "function") window.showToast((label || "Text") + " copiado", "success");
+      termSetStatus((label || "Text") + " copied", "var(--green)");
+      if (typeof window.showToast === "function") window.showToast((label || "Text") + " copied", "success");
     }
     function failed() {
-      termSetStatus("No se pudo copiar " + (label || "el texto"), "var(--red)");
+      termSetStatus("Could not copy " + (label || "the text"), "var(--red)");
     }
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(done).catch(failed);
@@ -98,39 +98,33 @@
       var data = (resp && resp.data) ? resp.data : (resp || {});
       termSetAccessKey(data, "");
       if (data.public_key) {
-        termSetStatus(data.generated ? "Access key generada" : "Access key lista", "var(--green)");
+        termSetStatus(data.generated ? "Access key generated" : "Access key ready", "var(--green)");
       } else {
-        termSetStatus("No se pudo obtener la public key", "var(--red)");
+        termSetStatus("Could not load the public key", "var(--red)");
       }
     }).catch(function(err) {
       if (err && err.code === "session_expired") {
-        termSetStatus("Sesión expirada — inicia sesión de nuevo", "var(--red)");
+        termSetStatus("Session expired — log in again", "var(--red)");
         if (typeof window.showLogin === "function") window.showLogin();
         return;
       }
       if (err && err.code === "reauth_cancelled") {
-        termSetAccessKey(null, "Generación cancelada.");
-        termSetStatus("Generación cancelada", "var(--text-muted)");
+        termSetAccessKey(null, "Generation cancelled.");
+        termSetStatus("Generation cancelled", "var(--text-muted)");
         return;
       }
-      var msg = (err && err.message) ? err.message : "falló";
-      termSetAccessKey(null, "No se pudo preparar la access key: " + msg);
-      termSetStatus("No se pudo preparar la access key", "var(--red)");
+      var msg = (err && err.message) ? err.message : "failed";
+      termSetAccessKey(null, "Could not prepare the access key: " + msg);
+      termSetStatus("Could not prepare the access key", "var(--red)");
     }).finally(function() {
       if (btn) btn.disabled = false;
     });
   }
 
   function termOpenSettings(prefillDomain) {
-    var btn = document.querySelector('.tab-btn[data-tab="settings"]');
-    if (btn) btn.click();
-    setTimeout(function() {
-      var input = document.getElementById("settingsDomainInput");
-      if (input && prefillDomain && !input.value) {
-        input.value = prefillDomain;
-        input.focus();
-      }
-    }, 50);
+    if (window.openApplicationManagerSettings) {
+      window.openApplicationManagerSettings(prefillDomain);
+    }
   }
 
   function termApplyConfigDiag(diag) {
@@ -141,7 +135,7 @@
     if (diag.block_reason === "domain_missing") {
       termShowConfigButtons({ settings: true });
       termShowFixProxy(false, "");
-      termShowTerminalHint(true, "El dominio del dashboard no está guardado. Configura el dominio antes de usar la terminal por HTTPS.");
+      termShowTerminalHint(true, "The dashboard domain is not configured. Set it before using Terminal over HTTPS.");
       return;
     }
 
@@ -150,7 +144,7 @@
         enableSSL: true,
         configuredDomain: diag.configured_domain || diag.resolved_domain || ""
       });
-      termShowTerminalHint(true, "El dashboard se está usando por HTTPS, pero Settings todavía marca SSL como no habilitado.");
+      termShowTerminalHint(true, "The dashboard is using HTTPS, but Settings still reports SSL as disabled.");
       return;
     }
 
@@ -159,7 +153,7 @@
         openDomain: !!diag.dashboard_url,
         dashboardURL: diag.dashboard_url
       });
-      termShowTerminalHint(true, "Estás accediendo desde " + (diag.request_host || "otro host") + "; el dominio configurado es " + (diag.configured_domain || "otro") + ".");
+      termShowTerminalHint(true, "You are accessing " + (diag.request_host || "another host") + "; the configured domain is " + (diag.configured_domain || "different") + ".");
     }
   }
 
@@ -191,24 +185,24 @@
       if (data.error) logs = "ERROR: " + data.error + "\n\n" + logs;
       termSetLogs(data.command, logs);
       if (data.ok) {
-        termSetStatus("Logs cargados", "var(--green)");
+        termSetStatus("Logs loaded", "var(--green)");
       } else {
-        termSetStatus("No se pudieron cargar todos los logs", "var(--red)");
+        termSetStatus("Some logs could not be loaded", "var(--red)");
       }
     }).catch(function(err) {
       if (err && err.code === "session_expired") {
-        termSetStatus("Sesión expirada — inicia sesión de nuevo", "var(--red)");
+        termSetStatus("Session expired — log in again", "var(--red)");
         if (typeof window.showLogin === "function") window.showLogin();
         return;
       }
       if (err && err.code === "reauth_cancelled") {
-        termSetLogs("journalctl -u serverpilot --lines 120", "Carga de logs cancelada.");
-        termSetStatus("Carga de logs cancelada", "var(--text-muted)");
+        termSetLogs("journalctl -u serverpilot --lines 120", "Log loading cancelled.");
+        termSetStatus("Log loading cancelled", "var(--text-muted)");
         return;
       }
-      var msg = (err && err.message) ? err.message : "falló";
-      termSetLogs("journalctl -u serverpilot --lines 120", "No se pudieron cargar los logs: " + msg);
-      termSetStatus("No se pudieron cargar los logs", "var(--red)");
+      var msg = (err && err.message) ? err.message : "failed";
+      termSetLogs("journalctl -u serverpilot --lines 120", "Could not load logs: " + msg);
+      termSetStatus("Could not load logs", "var(--red)");
     }).finally(function() {
       if (btn) btn.disabled = false;
       if (refreshBtn) refreshBtn.disabled = false;
@@ -222,7 +216,7 @@
       termProxyOK = !!diag.proxy_ok;
       if (diag.block_reason === "domain_missing") return diag;
       if (!diag.proxy_ok) {
-        var msg = diag.proxy_message || "Faltan cabeceras WebSocket en nginx para la terminal";
+        var msg = diag.proxy_message || "Nginx is missing the WebSocket headers required by Terminal";
         if (diag.proxy_missing && diag.proxy_missing.length) {
           msg += " (" + diag.proxy_missing.join(", ") + ")";
         }
@@ -233,7 +227,7 @@
       return diag;
     }).catch(function(err) {
       if (err && (err.message === "Unauthorized" || err.code === "session_expired")) {
-        termSetStatus("Inicia sesión para comprobar el proxy nginx", "var(--red)");
+        termSetStatus("Log in to inspect the Nginx proxy", "var(--red)");
         if (typeof window.showLogin === "function") window.showLogin();
         return null;
       }
@@ -245,7 +239,7 @@
 
   function termFixProxy() {
     var btn = document.getElementById("termFixProxyBtn");
-    if (btn) { btn.disabled = true; btn.textContent = "Reparando…"; }
+    if (btn) { btn.disabled = true; btn.textContent = "Repairing…"; }
     ensureTerminalAuth().then(function() {
       return window.apiFetch("/api/terminal/fix-proxy", { method: "POST" });
     }).then(function(resp) {
@@ -253,28 +247,28 @@
       termProxyOK = !!st.ok;
       if (st.ok) {
         termShowFixProxy(false, "");
-        termSetStatus("Proxy nginx reparado — conectando…", "var(--green)");
+        termSetStatus("Nginx proxy repaired — connecting…", "var(--green)");
         termConnect();
       } else {
-        var msg = st.message || "No se pudo reparar el proxy";
+        var msg = st.message || "Could not repair the proxy";
         termShowFixProxy(true, msg);
         termSetStatus(msg, "var(--red)");
       }
     }).catch(function(err) {
       if (err && err.code === "session_expired") {
-        termSetStatus("Sesión expirada — inicia sesión de nuevo", "var(--red)");
+        termSetStatus("Session expired — log in again", "var(--red)");
         if (typeof window.showLogin === "function") window.showLogin();
         return;
       }
       if (err && err.code === "reauth_cancelled") {
-        termSetStatus("Reparación cancelada", "var(--text-muted)");
+        termSetStatus("Repair cancelled", "var(--text-muted)");
         return;
       }
-      var msg = (err && err.message) ? err.message : "falló";
-      termSetStatus("Error al reparar proxy: " + msg, "var(--red)");
-      termShowFixProxy(true, "Si sigue fallando: sudo sp expose --domain " + location.hostname + " --upgrade");
+      var msg = (err && err.message) ? err.message : "failed";
+      termSetStatus("Proxy repair failed: " + msg, "var(--red)");
+      termShowFixProxy(true, "If it still fails: sudo sp expose --domain " + location.hostname + " --upgrade");
     }).finally(function() {
-      if (btn) { btn.disabled = false; btn.textContent = "Reparar proxy WebSocket"; }
+      if (btn) { btn.disabled = false; btn.textContent = "Repair WebSocket proxy"; }
     });
   }
 
@@ -294,8 +288,8 @@
 
   function termSetNetworkFailure() {
     var msg = (typeof navigator !== "undefined" && navigator.onLine === false)
-      ? "Sin conexión de red — reconecta e intenta de nuevo"
-      : "No se pudo conectar — verifica DNS/conectividad del dominio y vuelve a intentar";
+      ? "No network connection — reconnect and try again"
+      : "Could not connect — verify DNS and domain connectivity, then try again";
     termSetStatus(msg, "var(--red)");
     termShowFixProxy(false, "");
   }
@@ -314,18 +308,18 @@
   }
 
   function termExplainConnectBlock(diag) {
-    if (!diag) return "No se pudo conectar";
-    if (diag.block_reason === "session_expired") return "Sesión expirada — inicia sesión de nuevo";
-    if (diag.block_reason === "reauth_required") return "Confirma tu contraseña para usar la terminal";
-    if (diag.block_reason === "domain_missing") return "Configura el dominio del dashboard antes de usar la terminal por HTTPS";
-    if (diag.block_reason === "nginx_proxy") return diag.proxy_message || "Faltan cabeceras WebSocket en nginx (HTTPS)";
+    if (!diag) return "Could not connect";
+    if (diag.block_reason === "session_expired") return "Session expired — log in again";
+    if (diag.block_reason === "reauth_required") return "Confirm your password to use Terminal";
+    if (diag.block_reason === "domain_missing") return "Configure the dashboard domain before using Terminal over HTTPS";
+    if (diag.block_reason === "nginx_proxy") return diag.proxy_message || "Nginx is missing WebSocket headers for HTTPS";
     if (diag.block_reason === "ws_error") {
       var detail = diag.last_ws_reject_reason || "";
-      return detail ? "Error del WebSocket: " + detail : "El servidor rechazó la conexión WebSocket";
+      return detail ? "WebSocket error: " + detail : "The server rejected the WebSocket connection";
     }
-    if (diag.last_ws_reject_status === 401) return "Sesión expirada — inicia sesión de nuevo";
-    if (diag.last_ws_reject_status === 403) return "Reautenticación requerida — introduce tu contraseña";
-    return "No se pudo conectar a la terminal";
+    if (diag.last_ws_reject_status === 401) return "Session expired — log in again";
+    if (diag.last_ws_reject_status === 403) return "Reauthentication required — enter your password";
+    return "Could not connect to Terminal";
   }
 
   function termHandleConnectBlock(diag) {
@@ -399,7 +393,7 @@
         return;
       }
       if (err && err.code === "session_expired") {
-        termSetStatus("Sesión expirada — inicia sesión de nuevo", "var(--red)");
+        termSetStatus("Session expired — log in again", "var(--red)");
         if (typeof window.showLogin === "function") window.showLogin();
         return;
       }
@@ -535,22 +529,22 @@
         if (termWSRetries >= 1) {
           termFetchConnectDiag("after-ws-fail").then(function(diag) {
             if (!termHandleConnectBlock(diag)) {
-              termSetStatus("No se pudo conectar — revisa nginx o inicia sesión de nuevo", "var(--red)");
+              termSetStatus("Could not connect — inspect Nginx or log in again", "var(--red)");
               termLoadProxyStatus().then(function(st) {
                 // Proxy inspection says OK but WS still failed (possible false-positive).
                 // Offer Fix button so the user can force a nginx reconfigure.
                 if (!st || st.ok) {
                   termShowFixProxy(true, st
-                    ? "El proxy nginx parece configurado pero el WebSocket falló — haz clic para reconfigurar nginx"
-                    : "No se pudo verificar el proxy nginx — haz clic para intentar repararlo");
+                    ? "The Nginx proxy appears configured, but WebSocket failed — click to reconfigure Nginx"
+                    : "Could not verify the Nginx proxy — click to attempt a repair");
                 }
               });
             }
           }).catch(function() {
-            termSetStatus("No se pudo conectar — repara el proxy nginx o inicia sesión de nuevo", "var(--red)");
+            termSetStatus("Could not connect — repair the Nginx proxy or log in again", "var(--red)");
             termLoadProxyStatus().then(function(st) {
               if (!st || st.ok) {
-                termShowFixProxy(true, "Verifica y repara la configuración WebSocket en nginx");
+                termShowFixProxy(true, "Inspect and repair the WebSocket configuration in Nginx");
               }
             });
           });
@@ -661,15 +655,15 @@
       sshOpenWebSocket(params);
     }).catch(function(err) {
       if (err && err.code === "session_expired") {
-        sshSetStatus("Sesion expirada", "var(--red)");
+        sshSetStatus("Session expired", "var(--red)");
         if (typeof window.showLogin === "function") window.showLogin();
         return;
       }
       if (err && err.code === "reauth_cancelled") {
-        sshSetStatus("Conexion cancelada", "var(--text-muted)");
+        sshSetStatus("Connection cancelled", "var(--text-muted)");
         return;
       }
-      sshSetStatus("No se pudo preparar SSH", "var(--red)");
+      sshSetStatus("Could not prepare SSH", "var(--red)");
     }).finally(function() {
       if (btn) btn.disabled = false;
     });
@@ -767,7 +761,7 @@
       return;
     }
     if (typeof window.runStreamedOperation !== "function") {
-      termSetStatus("Enable SSL no está disponible — abre Settings", "var(--red)");
+      termSetStatus("Enable SSL is unavailable — open Settings", "var(--red)");
       termOpenSettings(domain);
       return;
     }
@@ -775,11 +769,11 @@
       window.runStreamedOperation("/api/settings/ssl-enable", {}, "Enabling SSL for ServerPilot", domain);
     }).catch(function(err) {
       if (err && err.code === "session_expired") {
-        termSetStatus("Sesión expirada — inicia sesión de nuevo", "var(--red)");
+        termSetStatus("Session expired — log in again", "var(--red)");
         if (typeof window.showLogin === "function") window.showLogin();
         return;
       }
-      termSetStatus("No se pudo iniciar Enable SSL", "var(--red)");
+      termSetStatus("Could not start Enable SSL", "var(--red)");
     });
   }
 

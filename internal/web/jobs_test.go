@@ -68,7 +68,7 @@ func TestJobRegistryCannotDismissRunning(t *testing.T) {
 
 func TestJobFinishIsIdempotent(t *testing.T) {
 	r := newJobRegistry()
-	job := r.start("gdapp-activate", "Activating GD-App", "example.com")
+	job := r.start("deployment", "Deploying application", "example.com")
 	job.finish(false, "boom")
 	first := job.snapshot()
 	job.finish(true, "") // should be a no-op

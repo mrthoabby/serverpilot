@@ -2,16 +2,18 @@
 
 ## Purpose
 
-`internal/appmanager` is the isolated vNext application control plane. It owns
+`internal/appmanager` is the vNext application control plane. It owns
 the product model and persistence for GitHub repositories, applications,
 application environments, projects, releases, image artifacts, deployments,
-agents, configuration, and audit events. It must not replace the legacy
-`internal/apps` package or the existing Docker/Nginx dashboard.
+agents, configuration, resource monitoring, server settings, terminal access,
+and audit events. The legacy Apps, deploy Users, Cases, and Server Tools UI are
+retired; Database remains the only standalone dashboard module.
 
 Application Manager is pre-production. Implement its current model directly:
 do not add compatibility fallbacks, legacy-field inference, or migrations for
-earlier Application Manager prototypes. Compatibility work belongs only to
-the established legacy ServerPilot flows.
+earlier Application Manager prototypes. Do not restore the removed Apps,
+deploy Users, Cases, Permissions, GCloud firewall, dependency installer,
+GD-App, or managed env-file flows.
 
 ## Non-negotiable domain rules
 
@@ -81,14 +83,22 @@ the established legacy ServerPilot flows.
 
 ## UI boundary
 
-- The module is independent from the legacy horizontal dashboard tabs. Open it
-  from the global module switcher/listbox, hide the legacy tab row while it is
-  active, and keep the existing Apps tab intact.
+- Application Manager is the default module after login. The global module
+  switcher contains only Application Manager and Database; there is no legacy
+  horizontal tab row or Server Tools module.
 - There is no global Application Manager Overview screen. The default landing
   is the selected project; if no project exists, show Applications. An
   application's own Overview tab remains valid as its local summary.
 - Inside the module, use the persistent sidebar with expandable Projects and
-  Applications submenus plus Repositories, GitHub, and Settings links.
+  Applications submenus plus Repositories, Resources, GitHub, and Settings.
+- Resources owns CPU, memory, disk, uptime, container utilization, Docker disk
+  usage and cleanup, largest-file inspection, and service health.
+- Settings owns dashboard domain, SSL, insecure-traffic blocking, host guard,
+  account/security preferences, and Terminal. Keep their privileged endpoint
+  protections and reauthentication requirements unchanged during migration.
+- Settings owns the user-facing Deployment setup guide. Keep its readiness
+  states derived from live GitHub, repository, application/environment,
+  registry, agent, and version data, and provide copy-ready workflow guidance.
 - Scope all styles below `.app-manager`. Use the dark design tokens in
   `internal/web/static/css/app-manager.css`, English UI copy, line icons, clear
   focus states, and icon+text status semantics. Do not add runtime CDN assets.

@@ -1,23 +1,23 @@
 {{define "panel_terminal"}}
-    <div class="tab-panel" id="panel-terminal">
+    <section class="am-content am-native-view am-settings-native" id="amTerminalSettingsView" aria-labelledby="amTerminalSettingsTitle" hidden>
       <div class="card" style="background:var(--bg-primary);border-color:var(--border);">
         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding-bottom:0.75rem;">
           <h2 style="display:flex;align-items:center;gap:0.5rem;">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="color:var(--accent)"><path d="M0 3a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H2a2 2 0 01-2-2V3zm9.5 5.5h-3a.5.5 0 000 1h3a.5.5 0 000-1zm-6.354-.354a.5.5 0 10.707.707l2-2a.5.5 0 000-.707l-2-2a.5.5 0 10-.707.707L4.793 6.5 3.146 8.146z"/></svg>
-            Terminal
+            <span id="amTerminalSettingsTitle">Terminal</span>
           </h2>
           <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
             <span id="termStatus" style="font-size:0.8125rem;color:var(--text-muted);">Disconnected</span>
             <button class="btn btn-sm btn-outline" id="termConnectBtn">Connect</button>
             <button class="btn btn-sm btn-outline" id="termDisconnectBtn" style="display:none;">Disconnect</button>
-            <button class="btn btn-sm btn-outline" id="termLogsBtn" title="Muestra los últimos logs del servicio serverpilot">Ver logs</button>
-            <button class="btn btn-sm btn-outline" id="termAccessKeyBtn" title="Genera o muestra la clave pública para conectar desde este servidor a otros VPS">Access key</button>
-            <button class="btn btn-sm btn-outline" id="termCopyInstallBtn" title="Copia el comando para instalar ServerPilot en otro servidor">Copy install command</button>
-            <button class="btn btn-sm btn-outline" id="termAddSSHBtn" title="Abrir una segunda terminal SSH hacia otro servidor usando la access key">Añadir conexión SSH</button>
-            <button class="btn btn-sm btn-primary" id="termSettingsBtn" style="display:none;" title="Abrir Settings para completar la configuración del dominio">Configurar dominio</button>
-            <button class="btn btn-sm btn-outline" id="termOpenDomainBtn" style="display:none;" title="Abrir el dashboard desde el dominio configurado">Abrir dominio</button>
-            <button class="btn btn-sm btn-success" id="termEnableSSLBtn" style="display:none;" title="Habilitar SSL para el dominio configurado">Enable SSL</button>
-            <button class="btn btn-sm btn-warning" id="termFixProxyBtn" style="display:none;" title="Añade cabeceras WebSocket en nginx para este dominio">Reparar proxy WebSocket</button>
+            <button class="btn btn-sm btn-outline" id="termLogsBtn" title="Show the latest ServerPilot service logs">View logs</button>
+            <button class="btn btn-sm btn-outline" id="termAccessKeyBtn" title="Generate or show the public key used to connect to remote servers">Access key</button>
+            <button class="btn btn-sm btn-outline" id="termCopyInstallBtn" title="Copy the command used to install ServerPilot on another server">Copy install command</button>
+            <button class="btn btn-sm btn-outline" id="termAddSSHBtn" title="Open a second terminal connected to a remote server">Add SSH connection</button>
+            <button class="btn btn-sm btn-primary" id="termSettingsBtn" style="display:none;" title="Open Settings to finish domain configuration">Configure domain</button>
+            <button class="btn btn-sm btn-outline" id="termOpenDomainBtn" style="display:none;" title="Open the dashboard using its configured domain">Open domain</button>
+            <button class="btn btn-sm btn-success" id="termEnableSSLBtn" style="display:none;" title="Enable SSL for the configured domain">Enable SSL</button>
+            <button class="btn btn-sm btn-warning" id="termFixProxyBtn" style="display:none;" title="Add the required WebSocket headers to Nginx">Repair WebSocket proxy</button>
           </div>
         </div>
         <div id="termFixProxyHint" style="display:none;padding:0.5rem 0.75rem;margin:0 0.75rem;font-size:0.78rem;color:var(--text-secondary);background:rgba(255,165,0,0.08);border:1px solid var(--orange);border-radius:6px;"></div>
@@ -84,9 +84,6 @@
           Session closes after 10 minutes of inactivity. Re-authentication required to connect.
         </p>
       </div>
-    </div>
-
-  </div>
-</div>
+    </section>
 
 {{end}}

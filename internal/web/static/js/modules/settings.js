@@ -188,7 +188,6 @@
       await apiFetch("/api/settings/domain", { method: "POST", body: { domain: domain } });
       showToast("Domain set and nginx site created for " + domain, "success");
       await loadSettings();
-      await loadSites();
     } catch(err) {
       showToast("Failed: " + err.message, "error");
     } finally {
@@ -295,7 +294,6 @@
         await apiFetch("/api/settings/block-insecure", { method: "POST", body: {} });
         showToast(isBlocked ? "HTTP access re-enabled for " + settingsData.domain : "HTTP blocked — all traffic redirects to HTTPS.", "success");
         await loadSettings();
-        await loadSites();
       } catch(err) {
         showToast("Failed: " + err.message, "error");
         btn.disabled = false;
@@ -314,7 +312,6 @@
         var data = (resp && resp.data) || {};
         showToast(data.message || "Host guard installed", "success");
         await loadSettings();
-        await loadSites();
       } catch(err) {
         showToast("Failed: " + err.message, "error");
         btn.disabled = false;
@@ -438,7 +435,6 @@
     if (e.key !== "Escape") return;
     if (assocModal) assocModal.classList.remove("show");
     if (confirmModal) confirmModal.classList.remove("show");
-    if (gdappModal) gdappModal.classList.remove("show");
     pendingConfirm = null;
     closeConfigEditor();
     if (typeof closeDockerPruneModal === "function") closeDockerPruneModal();

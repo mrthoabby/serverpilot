@@ -44,7 +44,6 @@ window.nginxUserGuidance = nginxUserGuidance;
 window.renderNginxFixGuideHtml = renderNginxFixGuideHtml;
 window.openNginxDiagnostics = openNginxDiagnostics;
 window.openContainerLogsModal = openContainerLogsModal;
-window.openGDAppActivateModal = openGDAppActivateModal;
 window.openReplicaModal = openReplicaModal;
 window.syncReplica = syncReplica;
 window.deleteReplica = deleteReplica;

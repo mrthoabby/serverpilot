@@ -668,14 +668,6 @@
       tdAct.appendChild(logsBtn);
 
       if (typeof reloadContainerEnv === "function") {
-        var reloadEnvBtn = document.createElement("button");
-        reloadEnvBtn.className = "btn btn-sm btn-outline";
-        reloadEnvBtn.style.marginRight = "0.35rem";
-        setText(reloadEnvBtn, "Reload env");
-        reloadEnvBtn.disabled = !c.id;
-        reloadEnvBtn.title = "Recreate this container with a selected managed app environment file.";
-        reloadEnvBtn.addEventListener("click", function() { reloadContainerEnv(c); });
-        tdAct.appendChild(reloadEnvBtn);
       }
 
       if (typeof openContainerReleaseModal === "function" && !c.compose && linked.length > 0) {
