@@ -32,12 +32,11 @@
 - `internal/templates`: Nginx templates for API, NestJS, NextJS, Frontend, MinIO.
 - `internal/mapper`: maps Docker host ports to Nginx `proxy_pass` entries.
 - `internal/sysinfo`: system stats, disk breakdown/detail, process memory, guarded disk cleanup.
-- `internal/users`: deploy users, SSH keys, gcloud firewall helpers.
-- `internal/apps`: managed `/opt/<app>` directories and encrypted env-file transport.
-- `internal/permissions`: ACL/group/sudoers grant service and audit.
+- `internal/appmanager`: vNext application domain, SQLite persistence,
+  GitHub/GHCR integration, agents, releases, and deployment orchestration.
 - `internal/dbquery`: encrypted DB connection vault, query runner, schema browsing, audit.
 - `internal/portalloc`: cross-process port reservation registry in `/var/lib/serverpilot`.
-- `internal/labels` and `internal/cases`: dashboard metadata stored under `/etc/serverpilot`.
+- `internal/labels`: container metadata stored under `/etc/serverpilot`.
 
 ## Web Surface
 
@@ -56,13 +55,11 @@
 
 - `nginx.WriteConfigContent` still uses predictable `.tmp` and `.bak` paths around config validation.
 - `templates.ApplyTemplate` and some settings handlers have historical path-containment patterns that should be reviewed before expanding them.
-- `handleDependencyInstall` runs apt as root and should use a stronger confirm-token or locality gate if extended.
 - User-controlled log values should be sanitized consistently.
 - Binary update/install integrity is checksum-over-HTTPS/tag-pinning today; release signing would be stronger.
 
 ## Validation Notes
 
-- There are currently no `*_test.go` files.
 - `go test ./...` and `go vet ./...` pass on Go 1.26.3 in the local environment.
 - If `go list`, `go test`, or `go vet` fail opening `~/Library/Caches/go-build` or `~/go/pkg/mod` in sandboxed Codex, rerun with `env GOCACHE=/private/tmp/serverpilot-go-cache GOMODCACHE=/private/tmp/serverpilot-go-modcache`.
 
