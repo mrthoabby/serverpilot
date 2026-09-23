@@ -2,7 +2,7 @@
 
 ## Purpose
 
-ServerPilot is a Go CLI named `sp` plus an embedded web dashboard for managing Docker containers, Nginx reverse proxies, SSL/certbot, deploy users, managed `/opt` apps, database query connections, permissions, system resources, and self-updates on Linux servers.
+ServerPilot is a Go CLI named `sp` plus an embedded web dashboard. Its vNext Application Manager owns GitHub repositories, projects, applications, environments, releases, Docker deployments, Nginx/SSL, remote agents, runtime configuration, resources, and server settings. Database remains a separate dashboard module.
 
 The daemon and many CLI commands run as root. Treat every change as privileged server-management code, not as a normal web app.
 
@@ -32,10 +32,11 @@ The daemon and many CLI commands run as root. Treat every change as privileged s
 - `version.go` holds the shipped version string.
 - `cmd/` contains Cobra commands: `setup`, `start`, `stop`, `status`, `expose`, `update`, `credentials`, and `port`.
 - `internal/web/` contains the embedded dashboard, route registration, handlers, middleware, and static files.
+- `internal/appmanager/` contains the vNext domain, SQLite persistence, GitHub/GHCR integration, agents, and deployment orchestration.
 - `internal/auth/` stores `/etc/serverpilot/config.json`, bcrypt password hashes, session secret, SSL settings, and in-memory sessions.
 - `internal/docker/`, `internal/nginx/`, `internal/templates/`, and `internal/mapper/` handle Docker inspection, Nginx site parsing/writes, vhost templates, and container-site mapping.
 - `internal/sysinfo/` collects system/disk/memory/process data and performs guarded disk cleanup.
-- `internal/users/`, `internal/apps/`, and `internal/permissions/` manage deploy users, `/opt/<app>` app directories, env files, ACLs, groups, and sudoers fragments.
+- Legacy deploy-user, managed `/opt` app, Cases, GCloud firewall, and ACL/sudoers dashboard packages were removed. Do not restore those flows; application lifecycle changes belong in `internal/appmanager/`.
 - `internal/dbquery/` manages encrypted DB connection vaults, bounded SQL execution, cell updates, schema browsing, and audit logs.
 - `internal/portalloc/` reserves deploy ports in `/var/lib/serverpilot`.
 
@@ -60,6 +61,6 @@ The daemon and many CLI commands run as root. Treat every change as privileged s
 
 ## Testing Expectations
 
-- This repo currently has no `*_test.go` files. For new logic, add focused tests when possible, especially for validators, path containment, template rendering, SQL query bounds, permission grants, and update/install safety.
+- Add focused tests for new logic, especially validators, path containment, template rendering, SQL query bounds, Application Manager invariants, and update/install safety.
 - For handler changes, verify method rejection, auth behavior, CSRF behavior for state-changing requests, request body validation, and sanitized error output.
 - For release/install changes, verify `install.sh`, `cmd/update.go`, Homebrew formula URLs/hashes, `version.go`, and `release/<version>/` artifacts together.
